@@ -55,7 +55,7 @@ public partial class MainWindow
         // Neither took readings while hidden: they show the current ones, or dashes once the sampler has paused, never the
         // figures they showed last time.
         if (page && !_monitorShowing) _monitorView?.Update(_app.Monitor?.Latest ?? WaitingSnapshot, motion: false);
-        if (strip && !_stripShowing) _compactStrip?.Update(_app.Monitor?.Latest, motion: false, (int)Settings.CompactSmoothing);
+        if (strip && !_stripShowing) UpdateCompactStrips(_app.Monitor?.Latest, motion: false);
         _monitorShowing = page; _stripShowing = strip;
     }
     // The collapsed readings the row was last built without (StripAdmission.Hidden): the drives until their first figures, and for
@@ -66,8 +66,10 @@ public partial class MainWindow
     private SensorStates StripSensors => _app.Monitor is { } monitor ? new(monitor.CpuSensor, monitor.GpuSensor, monitor.StorageState, monitor.DriveSensor)
     {
         Power = monitor.PowerSensor == SensorState.None && Native.BatteryProvider.SystemHasBattery && !Native.BatteryProvider.OnMains ? SensorState.Unknown : monitor.PowerSensor,
-        Charge = monitor.BatterySensor
+        Charge = monitor.BatterySensor, Frames = monitor.FramesSensor
     } : SensorStates.Unknown;
+    // Whether this panel's open page shows the frame rate's line (its layout had room for it): the frame rate is read for it then.
+    internal bool PageShowsFrames => _monitorView?.ShowsFrames == true;
     // Whether this surface shows the system readings and waits for the first figures of one it does not show yet.
     private bool StripAwaits()
     {
@@ -94,7 +96,7 @@ public partial class MainWindow
             if ((_compactStrip is not null || Settings.ShowsMonitor(EffectiveStyle)) && (hidden != _stripUnavailable || _stripAdmission.Layout != _stripLayout)) { _stripPresence.Arrive(arriving); RenderCompact(); return; }
             // A row still waiting for its first figures stops asking for readings once its sensors turn out to be missing.
             if (_compactStrip is null) { UpdateMonitorDemand(); return; }
-            _compactStrip?.Update(snapshot, MonitorMotion && Settings.CompactSmoothing != CompactSmoothing.Off, (int)Settings.CompactSmoothing); return;
+            UpdateCompactStrips(snapshot, MonitorMotion && Settings.CompactSmoothing != CompactSmoothing.Off); return;
         }
         if (!IsMonitorPage || _monitorView is null) return;
         if (MonitorKey() != _monitorKey)
@@ -114,7 +116,7 @@ public partial class MainWindow
     {
         double height = ContentCanvas.Height;
         return MonitorLayout.For(ContentCanvas.Width - 2 * _header.Side, height - _header.Row - MonitorBottom(height), Settings.MonitorProcesses, MonitorSensors().Drives,
-            _monitorView is not null ? _monitorLayout : null, MonitorSensors().Power);
+            _monitorView is not null ? _monitorLayout : null, MonitorSensors().Power, Settings.MonitorFrames);
     }
 
     // What the view is built from: its layout step, not its exact size, so a page resized within a step is not built again.
@@ -124,7 +126,8 @@ public partial class MainWindow
     // that room change: when the volumes are first counted, a sensor turns out to have none or first shows, or a volume comes or
     // goes past the room.
     private string MonitorKey() => string.Join("|", CurrentMonitorLayout(), Settings.MonitorPalette, Settings.MonitorPalette == MonitorPalette.Custom ? Settings.MonitorCustomColors.Key : "", Settings.MonitorProcesses,
-        Settings.MonitorMain, Settings.MonitorProcessView, Loc.Language, PanelTheme.Generation, Settings.MonitorTemperatures, MonitorSensors().Small, Settings.MonitorPower, Native.BatteryProvider.SystemHasBattery);
+        Settings.MonitorMain, Settings.MonitorProcessView, Loc.Language, PanelTheme.Generation, Settings.MonitorTemperatures, MonitorSensors().Small, Settings.MonitorPower, Native.BatteryProvider.SystemHasBattery,
+        Settings.MonitorFrames);
     // What the shown page was built for: its volumes' places, the small gauge's room and the lines for power and the battery.
     private (int Lines, int Columns, bool Small, int Power) _monitorSensors;
     private (int Lines, int Columns, bool Small, int Power) BuiltSensors()
@@ -175,10 +178,12 @@ public partial class MainWindow
         old?.CloseCard();
         _monitorView = new MonitorView(layout, MonitorThemeColors.For(Settings), Settings.MonitorMain, Settings.MonitorSort,
             Settings.MonitorProcessView, SwitchMonitorMain, SortProcesses, hold => { if (_app.Monitor is { } sampler) sampler.HoldProcesses = hold; }, SwitchMonitorGpu,
-            Settings.MonitorTemperatures, _monitorSensors.Small, PowerBlockFor(old is null && MonitorMotion && !Resizing));
+            Settings.MonitorTemperatures, _monitorSensors.Small, PowerBlockFor(old is null && MonitorMotion && !Resizing), Settings.MonitorFrames);
         _monitorView.Update(_app.Monitor?.Latest ?? WaitingSnapshot, motion: false);
         // The new page may show the power line where the old one did not, or the other way round: what is read follows.
         if (_monitorShowing && _monitorView.ShowsPower != _powerPage) UpdateMonitorDemand();
+        // And the frame rate's line: the frame rate is read only while a page or a row shows it.
+        if (_monitorShowing) _app.UpdateMonitorExtras();
         if (old is not null) MonitorCrossfade.Swap(MonitorContent, _monitorView, old, MonitorMotion);
         else
         {

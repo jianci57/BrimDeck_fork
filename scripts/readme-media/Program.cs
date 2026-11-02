@@ -101,6 +101,8 @@ internal sealed class Renderer(App app, string output, string language, string[]
         Program.SetProperty(app, "Prices", new Pricing(folder, offline));
         Program.SetProperty(app, "Secrets", new ProviderSecrets(folder));
         Program.SetProperty(app, "Usage", new UsageService(new NoDesktop(), DataLocations.Resolve(folder, folder, folder, folder, folder, folder), offline));
+        // The panel subscribes to the lyrics as it is made; this one finds none offline and reads no Apple Music cache.
+        Program.SetProperty(app, "Lyrics", new LyricsService(offline, () => [], Path.Combine(folder, "apple-music-lyrics.json")));
         // The toolbar reads the update notice on every render.
         var backend = Type.GetType("BrimDeck.Updates.GitHubUpdates, BrimDeck")!.GetMethod("Create", [typeof(string)])!.Invoke(null, [folder]);
         Program.SetProperty(app, "Updates", new AppUpdates((IAppUpdateBackend)backend!, folder));

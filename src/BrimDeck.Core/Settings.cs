@@ -6,8 +6,14 @@ using System.Text.RegularExpressions;
 namespace BrimDeck.Core;
 
 public enum CompactStyle { Notch, Capsule, Line }
+// The screen edge the notch hangs from (DeckSettings.NotchEdge); see EdgeFrame.
+public enum ScreenEdge { Top, Bottom, Left, Right }
+// What the notch or the line hangs from on its edge where a taskbar is: the screen's edge, over the taskbar, or the taskbar's inner
+// edge. Without a taskbar on that edge the two are the same line. See DeckSettings.Dock.
+public enum EdgeAnchor { Screen, Taskbar }
 public enum WindowBehavior { Normal, Line, Hide }
-public enum ScreenContext { Desktop, Maximized, Borderless, Exclusive }
+// BackgroundFullscreen: a full-screen window on the panel's monitor that is not the foreground window.
+public enum ScreenContext { Desktop, Maximized, Borderless, Exclusive, BackgroundFullscreen }
 // The monitors that show the panel. Chosen uses DisplayMonitors and falls back to the primary monitor while none of them is connected.
 public enum DisplayPlacement { Primary, Chosen }
 // A chosen monitor: its device path, and its name at the time, so that a disconnected monitor can still be named.
@@ -31,14 +37,24 @@ public sealed record FullscreenRule(string Name = "", string Path = "")
 // local records; OpenCodeGo reads the same allowance with an OpenCode Console API key entered by hand.
 // Statistics sources are saved as numbers. 8 and 9 were a short-lived split of Claude and are retired:
 // SettingsMigrations maps them back to Claude, and later members keep their saved numbers.
-public enum ProviderId { Claude, Codex, Antigravity, Cursor, GlmChina, NewApi, Sub2Api, Custom, ZCode = 10, GlmGlobal = 11, Dsh = 12, DeepSeek = 13, GrokBot = 14, Kimi = 15, KimiApi = 16, OpenCode = 17, OpenCodeGo = 18, OpenRouter = 19 }
+public enum ProviderId { Claude, Codex, Antigravity, Cursor, GlmChina, NewApi, Sub2Api, Custom, ZCode = 10, GlmGlobal = 11, Dsh = 12, DeepSeek = 13, GrokBot = 14, Kimi = 15, KimiApi = 16, OpenCode = 17, OpenCodeGo = 18, OpenRouter = 19, Pi = 20 }
 public enum SettingsTheme { System, Light, Dark }
 // Pages are saved as numbers, so new members go at the end; their order in the page switch is DeckSettings.PageOrder.
 public enum DeckPage { Usage, Music, Monitor }
 public enum DefaultDeckPage { Last, Usage, Music, Monitor }
 // What the mouse wheel does over the expanded panel. Saved as numbers, so new members go at the end.
 public enum MouseWheelAction { None, Pages, Volume }
+// What a double click on an end of the collapsed notch or capsule does: turn its auto width on or off, or start moving it
+// (MainWindow.Move.cs); moving is the default. Saved as numbers, so new members go at the end.
+public enum GripDoubleClick { AutoWidth, Move }
 public enum CompactMusicText { None, Title, Lyrics }
+// What the collapsed music hides while the song is paused: the title or lyric, the cover, or both. Saved as numbers, so new
+// members go at the end.
+public enum PausedMusicHide { None, Text, Cover, Both }
+// How the level bars show the sound. Flow: one value for the whole sound that runs from one end of the bars to the other, so a
+// drum beat or a voice is seen crossing them. Spectrum: the sound split by pitch, each bar one band, low on the left and high
+// on the right. Saved as numbers, so new members go at the end; a file without it, or with a number not listed, is Flow.
+public enum EqualizerMode { Flow = 0, Spectrum = 1 }
 // The parts of the collapsed notch and capsule that are put in order, left to right. The cover stays at the left; Music places
 // only the title or lyric. Saved as numbers, so new members go at the end.
 public enum CompactPart { Rings, Music, Monitor, Equalizer, Clock }
@@ -98,6 +114,11 @@ public sealed class AppEntry
     // New API, Sub2API and custom rows: also send requests, and so the API key, over plain HTTP to any address, such as a
     // gateway on a NAS or reached through Tailscale. Off by default; HTTP to this PC is allowed either way.
     public bool AllowHttp { get; set; }
+    // Rows whose source reports an account balance without a total (ProviderCatalog.HasAccountBalance): the balance that counts
+    // as 0% used, in the balance's own currency. The account balance is then drawn as (target − balance) / target used, with
+    // the warning and critical levels of any quota, and 0% while the balance is above the target. New rows start at 100;
+    // null, saved when the field is cleared, shows the bare amount.
+    public decimal? BalanceTarget { get; set; } = 100;
     [JsonIgnore] public string ConfigurationKey => ProviderCatalog.ConfigurationKey(this);
     // Shorthand for QuotaSource in code. The "Id" member of old files is converted by SettingsMigrations.
     [JsonIgnore] public ProviderId Id { get => QuotaSource; set => QuotaSource = value; }
@@ -150,6 +171,7 @@ public sealed class AppEntry
         ThemeColor = AppPresets.NormalizeColor(ThemeColor);
         WarningColor = AppPresets.NormalizeColor(WarningColor);
         CriticalColor = AppPresets.NormalizeColor(CriticalColor);
+        BalanceTarget = BalanceTarget is { } target && decimal.Round(target, 2, MidpointRounding.AwayFromZero) is > 0 and <= AppPresets.MaximumBalanceTarget and var rounded ? rounded : null;
         OffPeak = [.. (OffPeak ?? []).Where(period => period is not null).Take(AppPresets.MaximumOffPeakPeriods).Select(period => period.Normalized())];
         OffPeakColor = AppPresets.NormalizeColor(OffPeakColor);
         OffPeakWarningColor = AppPresets.NormalizeColor(OffPeakWarningColor);
@@ -192,6 +214,7 @@ public static class AppPresets
     public const int MaximumFullscreenExceptions = 32;
     public const string WarningColor = "#E5C890", CriticalColor = "#E78284";
     public const int MaximumOffPeakPeriods = 6;
+    public const decimal MaximumBalanceTarget = 1_000_000_000;
     public const double WarningPercent = 70, CriticalPercent = 90;
     // Each column needs this much width; the panel's minimum width follows the number of enabled applications.
     public const double MinimumColumnWidth = 150;
@@ -258,9 +281,14 @@ public sealed class DeckSettings
     private List<CompactPart> _notchOrder = [.. CompactParts.Default], _capsuleOrder = [.. CompactParts.Default];
     private List<DeckPage> _pageOrder = [.. DeckPages.Order];
     private int _equalizerBars = CompactMusicLayout.DefaultBars, _musicEqualizerBars = 5;
+    private EqualizerMode _equalizerMode = EqualizerMode.Flow;
+    private PausedMusicHide _musicPausedHide;
     // Version of the BrimDeck that last saved settings.json; see SettingsMigrations. Empty in files saved before 0.1.0.
     public string AppVersion { get; set; } = "";
     public bool LaunchAtStartup { get; set; }
+    // Off, the notification area has no BrimDeck icon. Starting BrimDeck again then shows the panels and the settings
+    // (App.ShowFromRelaunch), and the settings window has its own exit button.
+    public bool ShowTrayIcon { get; set; } = true;
     public SettingsTheme Theme { get; set; } = SettingsTheme.System;
     // The panel's color theme (see PanelThemes): "system", "dark", "light", a built-in theme or a theme file's id.
     // The dark default is the original look. An id whose file is missing is kept and shown as the dark theme meanwhile.
@@ -281,6 +309,27 @@ public sealed class DeckSettings
     public double NotchWidth { get; set; } = CollapsedLimits.NotchWidthDefault;
     public double NotchHeight { get; set; } = CollapsedLimits.NotchHeightDefault;
     public double NotchOffsetX { get; set; } = CollapsedLimits.OffsetDefault;
+    // The edge the notch hangs from. On the other edges it keeps its width (along the edge), height and offset (along the edge
+    // too); see EdgeFrame. The capsule always sits below the top edge.
+    public ScreenEdge NotchEdge { get; set; } = ScreenEdge.Top;
+    // What the notch hangs from on that edge; null until chosen, which is the screen's edge at the top and the taskbar's elsewhere,
+    // as before the choice existed.
+    public EdgeAnchor? NotchAnchor { get; set; }
+    // The edge and the anchor of the line, as the notch's; the line keeps to the taskbar's side by default. A window rule that turns
+    // the notch or the capsule into the line shows it where the line's own settings put it.
+    public ScreenEdge LineEdge { get; set; } = ScreenEdge.Top;
+    public EdgeAnchor? LineAnchor { get; set; }
+    // Where a style works from: the edge and whether it hangs from the screen's edge over a taskbar there (EdgeFrame.For). The
+    // capsule floats below the top of the screen.
+    public (ScreenEdge Edge, bool OverTaskbar) Dock(CompactStyle style) => style switch
+    {
+        CompactStyle.Notch => (NotchEdge, Anchor(style, NotchEdge, NotchAnchor) == EdgeAnchor.Screen),
+        CompactStyle.Line => (LineEdge, Anchor(style, LineEdge, LineAnchor) == EdgeAnchor.Screen),
+        _ => (ScreenEdge.Top, true)
+    };
+    public static EdgeAnchor Anchor(CompactStyle style, ScreenEdge edge, EdgeAnchor? chosen)
+        => chosen ?? (style == CompactStyle.Notch && edge == ScreenEdge.Top ? EdgeAnchor.Screen : EdgeAnchor.Taskbar);
+    public ScreenEdge CompactEdge(CompactStyle style) => style == CompactStyle.Line ? LineEdge : style == CompactStyle.Notch ? NotchEdge : ScreenEdge.Top;
     public double CapsuleWidth { get; set; } = CollapsedLimits.CapsuleWidthDefault;
     public double CapsuleHeight { get; set; } = CollapsedLimits.CapsuleHeightDefault;
     public double CapsuleOffsetX { get; set; } = CollapsedLimits.OffsetDefault;
@@ -302,6 +351,9 @@ public sealed class DeckSettings
     public bool NotchSummary { get; set; } = true;
     public bool NotchMusic { get; set; } = true;
     public bool CapsuleSummary { get; set; } = true;
+    // Writes each application's first letter (or digit) of its name inside its collapsed quota ring, in the notch, the capsule and
+    // the side column. Off by default; a file without it reads as off.
+    public bool QuotaRingLetters { get; set; }
     public bool CapsuleMusic { get; set; } = true;
     // The notch and the capsule each switch the equalizer on. It shows while a song plays (or is paused), or, with EqualizerAlways,
     // at all times: then it reads the whole system's sound while no song plays.
@@ -310,11 +362,11 @@ public sealed class DeckSettings
     public bool EqualizerAlways { get; set; }
     // How many bars the collapsed equalizer has, which sets its length (CompactMusicLayout.BarsWidth).
     public int EqualizerBars { get => _equalizerBars; set => _equalizerBars = CompactMusicLayout.SafeBars(value); }
-    // The collapsed equalizer's color, chosen among the clock's swatches: White is the theme's equalizer color, Cover the playing
-    // song's, Custom EqualizerCustomColor. Gradient is not offered and reads as White.
+    // The color of the collapsed equalizer and the music page's, chosen among the clock's swatches: White is the theme's equalizer
+    // color, Cover the playing song's, Custom EqualizerCustomColor. Gradient is not offered and reads as White.
     public ClockColor EqualizerColor { get; set; } = ClockColor.Cover;
     public string EqualizerCustomColor { get; set; } = ClockColors.DefaultCustom;
-    // The notch and the capsule each switch the clock on; its style, color and hour format are shared.
+    // The notch and the capsule each switch the clock on; its style, color, hour format and seconds are shared.
     public bool NotchClock { get; set; }
     public bool CapsuleClock { get; set; }
     public ClockStyle ClockStyle { get; set; }
@@ -322,21 +374,42 @@ public sealed class DeckSettings
     public string ClockCustomColor { get; set; } = ClockColors.DefaultCustom;
     public List<string> ClockGradient { get; set; } = [.. ClockColors.Sunset];
     public bool Clock24Hour { get; set; } = true;
+    public bool ClockSeconds { get; set; }
     public CompactMusicText MusicText { get; set; }
     public bool MusicTrackNotice { get; set; } = true;
+    // A song taken as instrumental (Lyrics.Instrumental) shows its title in the collapsed lyric's place instead of "♪".
+    public bool MusicInstrumentalTitle { get; set; }
+    // The surface narrows without what is hidden; a number not listed shows everything.
+    public PausedMusicHide MusicPausedHide { get => _musicPausedHide; set => _musicPausedHide = Enum.IsDefined(value) ? value : PausedMusicHide.None; }
+    // The album cover at the left of the collapsed row and on the music page; some players give no cover, only a placeholder.
+    public bool MusicCompactCover { get; set; } = true;
+    public bool MusicPageCover { get; set; } = true;
     public bool MusicIndicatorProgress { get; set; } = true;
     public bool LyricsEnabled { get; set; } = true;
     // How many bars the music page's equalizer has, beside the title; its bars keep their spacing, so more bars make it longer.
     public int MusicEqualizerBars { get => _musicEqualizerBars; set => _musicEqualizerBars = CompactMusicLayout.SafeBars(value); }
+    // How the collapsed equalizer and the music page's equalizer show the sound; one choice for both, while each has its own length.
+    public EqualizerMode EqualizerMode { get => _equalizerMode; set => _equalizerMode = Enum.IsDefined(value) ? value : EqualizerMode.Flow; }
+    // The music page's current lyric, its color chosen as the equalizer's is (EqualizerColor): White is the theme's primary text color.
+    public ClockColor MusicLyricColor { get; set; } = ClockColor.Cover;
+    public string MusicLyricCustomColor { get; set; } = ClockColors.DefaultCustom;
     // Offers "网易云音乐 · 完整控制" in the source menu, or alone in its place when nothing plays.
     public bool NeteaseFullControlEntry { get; set; }
     // Restarts a player started the normal way with full control, without asking again; switching it on asks once.
     public bool NeteaseAutoFullControl { get; set; }
+    // NetEase Cloud Music's full control, which the user confirmed when switching it on: its libcef.dll is kept changed, also after
+    // an update replaces it (a running player then restarts once), so every start opens the port. Switching it off restores the file.
+    public bool NeteaseFullControl { get; set; }
+    // KuGou's full control, which the user confirmed when switching it on: its libcef.dll is kept changed, also after a KuGou
+    // update replaces it (a running KuGou then restarts once). Switching it off restores the file.
+    public bool KugouFullControl { get; set; }
     // Enables Apple Music's full control when BrimDeck starts, without the entry and its explanation.
     public bool AppleMusicFullControl { get; set; }
     public DefaultDeckPage DefaultPage { get; set; }
     // A right click on the expanded panel opens the settings window.
     public bool RightClickSettings { get; set; } = true;
+    // A notch or capsule wider than every page opens its panel under the pointer when hovered, instead of at its middle.
+    public bool ExpandAtPointer { get; set; }
     // What the mouse wheel does while the panel is expanded; scrolling parts of a page keep their wheel.
     public MouseWheelAction MouseWheel { get; set; } = MouseWheelAction.Pages;
     // Read only to carry the switch of a file saved before MouseWheel existed; Normalize moves it across and the member
@@ -355,11 +428,15 @@ public sealed class DeckSettings
     public int CloseDelay { get; set; } = 0;
     public int AnimationDuration { get; set; } = 360;
     public bool Animations { get; set; } = true;
+    public bool ForceTopmost { get; set; }
     public WindowBehavior Maximized { get; set; } = WindowBehavior.Line;
     public WindowBehavior Borderless { get; set; } = WindowBehavior.Hide;
     public WindowBehavior Exclusive { get; set; } = WindowBehavior.Hide;
+    // Whether a window behind the foreground one counts too: maximized or borderless across the panel's monitor, it calls for
+    // the same rule as if it were in front. Off, only the foreground window is read, as before the background was looked at.
+    public bool BackgroundWindows { get; set; } = true;
     // Applications whose windows are not counted as full screen, so that a desktop beautification tool does not hide the
-    // panel. Empty by default: every app follows the three rules above.
+    // panel. Empty by default: every app follows the rules above.
     public List<FullscreenRule> FullscreenRules { get; set; } = [];
     // Read only to carry the exceptions of a file saved before app rules existed; Normalize moves them across and the
     // member then disappears from the saved file.
@@ -400,6 +477,10 @@ public sealed class DeckSettings
     // The expanded page shows the whole machine's power draw with its curve, and the machine's own battery when it has one (PowerResolver,
     // BatteryModel); off, neither is read for it. The collapsed row's Power and Charge readings are chosen in its table.
     public bool MonitorPower { get; set; } = true;
+    // The expanded page shows a line under memory and network with the frame rate of the program in front, its name and its display's
+    // refresh rate (FrameRates). Off by default; read only while the page is open, and only where the user may read Windows' frame
+    // events (the Performance Log Users group, or BrimDeck elevated).
+    public bool MonitorFrames { get; set; }
     // The notch and the capsule each switch the system readings on; what they show is shared.
     public bool NotchMonitor { get; set; }
     public bool CapsuleMonitor { get; set; }
@@ -411,10 +492,11 @@ public sealed class DeckSettings
     // Whether the notch and the capsule widen to their content (CollapsedGeometry.Resolve). Resizing one by dragging an end turns
     // its own off, so the width set by hand stays.
     public bool NotchAutoWidth { get; set; } = true;
-    // Compacts the heap and trims the working set after the panel has been collapsed and idle for a while (App.Memory.cs). Off
-    // by default: the memory is read back in when the panel next opens, which can stutter.
-    public bool TrimMemoryWhenIdle { get; set; }
+    // Compacts the heap and trims the working set after the panel has been collapsed and idle for a while (App.Memory.cs). On by
+    // default; the memory is read back in when the panel next opens, which can stutter, so it can be turned off.
+    public bool TrimMemoryWhenIdle { get; set; } = true;
     public bool CapsuleAutoWidth { get; set; } = true;
+    public GripDoubleClick GripDoubleClick { get; set; } = GripDoubleClick.Move;
     // What the collapsed readings showed before their table (CompactReadings). Kept to read older files and, written to match the
     // table (the preset it matches and the readings shown), for older versions.
     public CompactMonitorMode CompactMonitor { get; set; }
@@ -491,13 +573,18 @@ public sealed class DeckSettings
     }
     // The behavior a context calls for: the app's own rule first, where it chooses one for that context, and the global
     // rules everywhere else. The app is the one the context was detected for; a null app, as on the desktop, has no rule.
-    public WindowBehavior Behavior(ScreenContext context, string? processName = null, string? imagePath = null)
+    // A background full screen has no rules of its own: backgroundKind, the way the window behind the foreground one fills
+    // the screen (Maximized or Borderless), picks the rule, the app's own first and the global one after it, as if that
+    // window were in front. Without a kind nothing fills the screen, and the panel stays as it is.
+    public WindowBehavior Behavior(ScreenContext context, string? processName = null, string? imagePath = null,
+        ScreenContext? backgroundKind = null)
     {
+        var kind = context == ScreenContext.BackgroundFullscreen ? backgroundKind ?? ScreenContext.Desktop : context;
         if (processName is not null || imagePath is not null)
             foreach (var rule in FullscreenRules)
                 if (ScreenPolicy.Matches(rule, processName, imagePath))
                 {
-                    var own = context switch
+                    var own = kind switch
                     {
                         ScreenContext.Maximized => rule.Maximized, ScreenContext.Borderless => rule.Borderless,
                         ScreenContext.Exclusive => rule.Exclusive, _ => null
@@ -505,7 +592,7 @@ public sealed class DeckSettings
                     if (own is { } choice) return choice;
                     break;
                 }
-        return context switch
+        return kind switch
         {
             ScreenContext.Maximized => Maximized, ScreenContext.Borderless => Borderless,
             ScreenContext.Exclusive => Exclusive, _ => WindowBehavior.Normal
@@ -595,6 +682,11 @@ public sealed class DeckSettings
         NotchWidth = Fit(NotchWidth, CollapsedLimits.NotchWidthMin, CollapsedLimits.NotchWidthMax, CollapsedLimits.NotchWidthDefault);
         NotchHeight = Fit(NotchHeight, CollapsedLimits.NotchHeightMin, CollapsedLimits.NotchHeightMax, CollapsedLimits.NotchHeightDefault);
         NotchOffsetX = Offset(NotchOffsetX);
+        if (!Enum.IsDefined(NotchEdge)) NotchEdge = ScreenEdge.Top;
+        if (!Enum.IsDefined(LineEdge)) LineEdge = ScreenEdge.Top;
+        if (NotchAnchor is { } notchAnchor && !Enum.IsDefined(notchAnchor)) NotchAnchor = null;
+        if (LineAnchor is { } lineAnchor && !Enum.IsDefined(lineAnchor)) LineAnchor = null;
+        if (!Enum.IsDefined(GripDoubleClick)) GripDoubleClick = GripDoubleClick.Move;
         CapsuleWidth = Fit(CapsuleWidth, CollapsedLimits.CapsuleWidthMin, CollapsedLimits.CapsuleWidthMax, CollapsedLimits.CapsuleWidthDefault);
         CapsuleHeight = Fit(CapsuleHeight, CollapsedLimits.CapsuleHeightMin, CollapsedLimits.CapsuleHeightMax, CollapsedLimits.CapsuleHeightDefault);
         CapsuleOffsetX = Offset(CapsuleOffsetX);

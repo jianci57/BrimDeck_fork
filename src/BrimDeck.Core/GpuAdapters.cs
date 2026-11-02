@@ -19,14 +19,15 @@ public sealed record GpuAdapter(ulong Luid, string Name, uint VendorId, uint Dev
     public string LegacyKey { get; init; } = "";
 }
 
-// One adapter's counters with every process's share summed: by engine type ("3D", "Compute_0", ...) in percent, and its memory in
-// use in bytes, null where the counter does not list it.
+// One adapter's counters: by engine type ("3D", "Compute_0", ...) the busiest engine of that type, every process's share of it
+// summed, in percent (as Task Manager, which reads each engine on its own: two copy engines at 60 % are 60 %, not 120 %); and its
+// memory in use in bytes, null where the counter does not list it.
 public sealed class GpuTotals
 {
     public Dictionary<string, double> Engines { get; } = [];
     public double? Dedicated { get; set; }
     public double? Shared { get; set; }
-    // As Task Manager: the busiest engine type, in percent.
+    // As Task Manager: the busiest engine, in percent.
     public double Usage
     {
         get
@@ -38,17 +39,20 @@ public sealed class GpuTotals
     }
 }
 
-// Sums the graphics counters per adapter. The engine types are kept between readings, so a reading makes no string per counter:
-// the sampler reads several hundred engine instances every second.
+// Sums the graphics counters per engine (adapter, physical adapter of a linked group, engine number) and keeps each type's busiest
+// engine. The engine types are kept between readings, so a reading makes no string per counter: the sampler reads several hundred
+// engine instances every second.
 public sealed class GpuCounters
 {
     private readonly HashSet<string> _types = [];
+    private readonly Dictionary<(ulong Luid, int Physical, int Engine), (string Type, double Value)> _engines = [];
 
     public Dictionary<ulong, GpuTotals> Sum(IReadOnlyList<(string Instance, double Value)> engines,
         IReadOnlyList<(string Instance, double Value)> dedicated, IReadOnlyList<(string Instance, double Value)> shared)
     {
         var totals = new Dictionary<ulong, GpuTotals>();
         var types = _types.GetAlternateLookup<ReadOnlySpan<char>>();
+        _engines.Clear();
         for (int i = 0; i < engines.Count; i++)
         {
             var (instance, value) = engines[i];
@@ -56,8 +60,13 @@ public sealed class GpuCounters
             int at = instance.IndexOf("engtype_", StringComparison.Ordinal);
             var span = at < 0 ? ReadOnlySpan<char>.Empty : instance.AsSpan(at + 8);
             if (!types.TryGetValue(span, out var type)) { type = span.ToString(); _types.Add(type); }
+            var key = (luid, Number(instance, "_phys_"), Number(instance, "_eng_"));
+            _engines[key] = (type, (_engines.TryGetValue(key, out var engine) ? engine.Value : 0) + value);
+        }
+        foreach (var ((luid, _, _), (type, value)) in _engines)
+        {
             var adapter = Totals(totals, luid);
-            adapter.Engines[type] = adapter.Engines.GetValueOrDefault(type) + value;
+            adapter.Engines[type] = Math.Max(adapter.Engines.GetValueOrDefault(type), value);
         }
         // An adapter's memory is listed per physical adapter of a linked group; the group's memory is their sum.
         for (int i = 0; i < dedicated.Count; i++)
@@ -70,6 +79,15 @@ public sealed class GpuCounters
     {
         if (!totals.TryGetValue(luid, out var adapter)) totals[luid] = adapter = new GpuTotals();
         return adapter;
+    }
+    // The number after a part of an instance name ("_eng_" in "..._phys_0_eng_3_engtype_Copy" is 3); -1 without one.
+    private static int Number(string instance, string part)
+    {
+        int at = instance.IndexOf(part, StringComparison.Ordinal);
+        if (at < 0) return -1;
+        var rest = instance.AsSpan(at + part.Length);
+        int end = rest.IndexOf('_');
+        return int.TryParse(end < 0 ? rest : rest[..end], out int number) ? number : -1;
     }
 }
 
@@ -140,8 +158,10 @@ public static class GpuReadings
             if (described && adapter is null || adapter?.Software == true) continue;
             var engines = new List<GpuEngine>(total.Engines.Count);
             foreach (var (type, value) in total.Engines) if (type.Length > 0) engines.Add(new GpuEngine(type, value / 100));
-            samples.Add(new GpuSample(Math.Clamp(total.Usage / 100, 0, 1), Bytes(total.Dedicated, noMemory))
+            double usage = Math.Clamp(total.Usage / 100, 0, 1);
+            samples.Add(new GpuSample(usage, Bytes(total.Dedicated, noMemory))
             {
+                EngineUsage = usage, VendorId = adapter?.VendorId ?? 0, Location = adapter?.Location,
                 Engines = GpuEngines.Order(engines), SharedBytes = Bytes(total.Shared, noMemory),
                 Name = adapter?.Name is { Length: > 0 } name ? name : null, DedicatedTotal = adapter?.DedicatedTotal is > 0 and var size ? size : null,
                 Luid = luid, Key = adapter?.Key is { Length: > 0 } key ? key : LuidText(luid), LegacyKey = adapter?.LegacyKey ?? "", Kind = adapter?.Kind ?? GpuKind.Unknown
@@ -152,7 +172,8 @@ public static class GpuReadings
                 if (!adapter.Software && !totals.ContainsKey(luid))
                     samples.Add(new GpuSample(0, Reading<ulong>.Unavailable(noMemory))
                     {
-                        NoReadings = true, SharedBytes = Reading<ulong>.Unavailable(noMemory), Name = adapter.Name.Length > 0 ? adapter.Name : null,
+                        NoReadings = true, VendorId = adapter.VendorId, Location = adapter.Location,
+                        SharedBytes = Reading<ulong>.Unavailable(noMemory), Name = adapter.Name.Length > 0 ? adapter.Name : null,
                         DedicatedTotal = adapter.DedicatedTotal > 0 ? adapter.DedicatedTotal : null, Luid = luid, Key = adapter.Key.Length > 0 ? adapter.Key : LuidText(luid),
                         LegacyKey = adapter.LegacyKey, Kind = adapter.Kind
                     });

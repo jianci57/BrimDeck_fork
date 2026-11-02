@@ -9,14 +9,17 @@ namespace BrimDeck.Native;
 // shuffle button, the repeat button and the progress bar of its main window, found by their automation ids, so they work
 // only while that window exists and may stop working when Apple Music changes its interface. The bar counts whole
 // seconds; writing it moves playback (measured: 157 to 167). UI Automation calls into another process and can take a
-// while, so every call runs on the thread pool, one at a time.
+// while, so every call runs on the thread pool, one at a time. All three sit in the window's transport bar (17 elements
+// against about 450 for the whole window), which is looked up once and kept, so the rest of the window is not walked
+// again on every reading; while it is not found it is looked for again at most every 10 seconds.
 internal sealed class AppleMusicControls
 {
     public sealed record State(bool Shuffle, MediaRepeat Repeat, bool CanSeek);
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly AppleMusicRepeat _repeatNames = new();
-    private AutomationElement? _shuffle, _repeat, _scrubber;
-    private DateTimeOffset _readAt;
+    private static readonly TimeSpan SearchEvery = TimeSpan.FromSeconds(10);
+    private AutomationElement? _bar, _shuffle, _repeat, _scrubber;
+    private DateTimeOffset _readAt, _searchedAt;
     private int _reading;
     // The window's last reading; null while no Apple Music window with these controls was found.
     public State? Latest { get; private set; }
@@ -60,7 +63,7 @@ internal sealed class AppleMusicControls
             {
                 for (int attempt = 0; attempt < 2; attempt++)
                 {
-                    try { if (!Find()) return false; action(); return true; }
+                    try { if (!Find(now: true)) return false; action(); return true; }
                     catch (Exception ex) when (Lost(ex)) { Forget(); }
                 }
                 return false;
@@ -85,24 +88,34 @@ internal sealed class AppleMusicControls
         }
         catch (Exception ex) when (Lost(ex)) { Forget(); return null; }
     }
-    // The controls of the window that has them; elements of a closed window throw on use and are looked up again. A progress
-    // bar not found yet is looked for again: the window may have none while no song is loaded.
-    private bool Find()
+    // The controls in the transport bar of the window that has one; elements of a closed window throw on use and are looked
+    // up again. Without now, a bar not found is looked for again only after SearchEvery. A progress bar not found yet is
+    // looked for again within the bar: the window has none while no song is loaded.
+    private bool Find(bool now = false)
     {
-        if (_shuffle is not null && _repeat is not null && _scrubber is not null) return true;
+        if (_bar is null || _shuffle is null || _repeat is null)
+        {
+            var at = DateTimeOffset.UtcNow;
+            if (!now && at - _searchedAt < SearchEvery) return false;
+            _searchedAt = at;
+            if (TransportBar() is not { } bar || ById(bar, "ShuffleButton") is not { } shuffle || ById(bar, "RepeatButton") is not { } repeat) return false;
+            _bar = bar; _shuffle = shuffle; _repeat = repeat;
+        }
+        _scrubber ??= ById(_bar, "LCDScrubber");
+        return true;
+    }
+    private static AutomationElement? TransportBar()
+    {
         foreach (var process in Process.GetProcessesByName("AppleMusic"))
             using (process)
                 foreach (AutomationElement window in AutomationElement.RootElement.FindAll(TreeScope.Children,
                     new PropertyCondition(AutomationElement.ProcessIdProperty, process.Id)))
-                {
-                    if (ById(window, "ShuffleButton") is not { } shuffle || ById(window, "RepeatButton") is not { } repeat) continue;
-                    _shuffle = shuffle; _repeat = repeat; _scrubber = ById(window, "LCDScrubber");
-                    return true;
-                }
-        return false;
+                    if (ById(window, "TransportBar") is { } bar) return bar;
+        return null;
     }
-    private static AutomationElement? ById(AutomationElement window, string id) =>
-        window.FindFirst(TreeScope.Descendants, new PropertyCondition(AutomationElement.AutomationIdProperty, id));
-    private void Forget() => _shuffle = _repeat = _scrubber = null;
+    private static AutomationElement? ById(AutomationElement root, string id) =>
+        root.FindFirst(TreeScope.Descendants, new PropertyCondition(AutomationElement.AutomationIdProperty, id));
+    // A lost element is looked up again at once; only a lookup that finds nothing waits for SearchEvery.
+    private void Forget() { _bar = _shuffle = _repeat = _scrubber = null; _searchedAt = default; }
     private static bool Lost(Exception ex) => ex is ElementNotAvailableException or ElementNotEnabledException or InvalidOperationException or COMException;
 }

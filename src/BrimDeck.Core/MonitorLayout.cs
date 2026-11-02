@@ -9,8 +9,9 @@ public enum MonitorPalette { Sea, Graphite, Warm, Theme, Custom }
 
 // The colors of a scheme, in the order the settings list them: Cpu the CPU readings and the fastest cores, Efficiency the
 // slowest cores (the kinds between take the colors between), then memory, GPU, download and upload, then the drives, the whole
-// machine's power and its own battery. The collapsed readings and the expanded page take the same ones.
-public enum MonitorRole { Cpu, Efficiency, Memory, Gpu, Download, Upload, Storage, Power, Battery }
+// machine's power and its own battery, and the collapsed row's frame rate. The collapsed readings and the expanded page take the
+// same ones. Saved by name in the custom scheme; new members go at the end.
+public enum MonitorRole { Cpu, Efficiency, Memory, Gpu, Download, Upload, Storage, Power, Battery, Frames }
 
 // The colors of one of ftop's palettes on a dark or a light panel theme. Theme and Custom have no fixed colors and give Sea's
 // here. ftop's palettes have three main colors; memory and upload take the efficiency color, download the performance color.
@@ -45,12 +46,13 @@ public sealed record MonitorColors(string Performance, string Efficiency, string
         return new(accent, efficiency, efficiency, gpu, accent, efficiency, warning, critical);
     }
 
-    // The drives', the power curve's and the machine battery's own colors, which only a custom scheme gives; null otherwise. Without
-    // one the drives' bars take the memory color (both are space in use), and power and the battery the panel theme's power style
-    // (the app resolves it, as only it knows the theme).
+    // The drives', the power curve's, the machine battery's and the frame rate's own colors, which only a custom scheme gives; null
+    // otherwise. Without one the drives' bars take the memory color (both are space in use), power and the battery the panel theme's
+    // power style (the app resolves it, as only it knows the theme), and the frame rate the GPU color.
     public string? Drives { get; init; }
     public string? Power { get; init; }
     public string? Battery { get; init; }
+    public string? FrameRate { get; init; }
     public string Storage => Drives ?? Memory;
 
     // Power and the battery fall back on the CPU color here; the app draws them by the theme's power style, whose curve takes the
@@ -59,19 +61,21 @@ public sealed record MonitorColors(string Performance, string Efficiency, string
     {
         MonitorRole.Efficiency => Efficiency, MonitorRole.Memory => Memory, MonitorRole.Gpu => Gpu, MonitorRole.Download => Download,
         MonitorRole.Upload => Upload, MonitorRole.Storage => Storage, MonitorRole.Power => Power ?? Performance, MonitorRole.Battery => Battery ?? Performance,
-        _ => Performance
+        MonitorRole.Frames => FrameRate ?? Gpu, _ => Performance
     };
     public MonitorColors With(MonitorRole role, string color) => role switch
     {
         MonitorRole.Efficiency => this with { Efficiency = color }, MonitorRole.Memory => this with { Memory = color }, MonitorRole.Gpu => this with { Gpu = color },
         MonitorRole.Download => this with { Download = color }, MonitorRole.Upload => this with { Upload = color }, MonitorRole.Storage => this with { Drives = color },
-        MonitorRole.Power => this with { Power = color }, MonitorRole.Battery => this with { Battery = color }, _ => this with { Performance = color }
+        MonitorRole.Power => this with { Power = color }, MonitorRole.Battery => this with { Battery = color }, MonitorRole.Frames => this with { FrameRate = color },
+        _ => this with { Performance = color }
     };
     // Every color as drawn (the app moves them to read on the panel theme).
     public MonitorColors Map(Func<string, string> drawn) =>
         new(drawn(Performance), drawn(Efficiency), drawn(Memory), drawn(Gpu), drawn(Download), drawn(Upload), drawn(Warning), drawn(Critical))
         {
-            Drives = Drives is null ? null : drawn(Drives), Power = Power is null ? null : drawn(Power), Battery = Battery is null ? null : drawn(Battery)
+            Drives = Drives is null ? null : drawn(Drives), Power = Power is null ? null : drawn(Power), Battery = Battery is null ? null : drawn(Battery),
+            FrameRate = FrameRate is null ? null : drawn(FrameRate)
         };
 
     // Core groups run from the performance color to the efficiency color in even steps, so a processor with any number of
@@ -101,11 +105,13 @@ public sealed class MonitorCustomColors
     public string? Storage { get; set; }
     public string? Power { get; set; }
     public string? Battery { get; set; }
+    public string? Frames { get; set; }
 
     public string? Get(MonitorRole role) => role switch
     {
         MonitorRole.Efficiency => Efficiency, MonitorRole.Memory => Memory, MonitorRole.Gpu => Gpu, MonitorRole.Download => Download,
-        MonitorRole.Upload => Upload, MonitorRole.Storage => Storage, MonitorRole.Power => Power, MonitorRole.Battery => Battery, _ => Cpu
+        MonitorRole.Upload => Upload, MonitorRole.Storage => Storage, MonitorRole.Power => Power, MonitorRole.Battery => Battery,
+        MonitorRole.Frames => Frames, _ => Cpu
     };
     public void Set(MonitorRole role, string? color)
     {
@@ -119,6 +125,7 @@ public sealed class MonitorCustomColors
             case MonitorRole.Storage: Storage = color; break;
             case MonitorRole.Power: Power = color; break;
             case MonitorRole.Battery: Battery = color; break;
+            case MonitorRole.Frames: Frames = color; break;
             default: Cpu = color; break;
         }
     }
@@ -195,6 +202,10 @@ public sealed record MonitorLayout(double Figure, double Body, double Caption, M
     // drives' lines, the second after them, with the core columns keeping MinimumGraph; a page without room for a line has none, and a
     // page that asks for no power is laid out exactly as before.
     public int PowerLines { get; init; }
+    // The line under memory and network for the frame rate of the program in front (FramesBlock): before the drives,
+    // which give up room for it, and after the first power line; a page without room for it has none, and a page that asks for no
+    // frame rates is laid out exactly as before.
+    public bool FrameLine { get; init; }
     public static int PowerRoom(double readings, MetricsMode metrics, double figure, double body, int storageLines)
     {
         var (head, margins, rest, storageMargin) = Fixed(metrics, figure, body);
@@ -217,17 +228,19 @@ public sealed record MonitorLayout(double Figure, double Body, double Caption, M
         }, metrics switch { MetricsMode.Line => 2, MetricsMode.Lines => 4, _ => 8 });
     }
 
-    // The readings' parts top to bottom in a column this tall (foot: the room left under them, FootAlignment): the main gauge's
-    // line, the graph, memory and network together, and the drives' lines, each (Top, Height), as MonitorView lays them out.
+    // The readings' parts in a column this tall (foot: the room left under them, FootAlignment): the main gauge's line, the graph,
+    // memory and network together, the drives' lines, the power lines, and last the frame rate's line, which sits between memory and
+    // network and the drives; each (Top, Height), as MonitorView lays them out.
     public IReadOnlyList<(double Top, double Height)> Parts(double readings, double foot = 0)
     {
         var (head, margins, metrics, storageMargin) = Fixed(Metrics, Figure, Body);
+        double frames = FrameLine ? storageMargin + StorageRow : 0;
         double storage = StorageLines > 0 ? storageMargin + StorageLines * StorageRow : 0;
         double power = PowerLines > 0 ? storageMargin + PowerLines * StorageRow : 0;
-        double graph = Math.Max(16, readings - foot - head - margins - metrics - storage - power);
+        double graph = Math.Max(16, readings - foot - head - margins - metrics - frames - storage - power);
         double graphTop = head + (Metrics == MetricsMode.Line ? 4 : 6);
-        double metricsTop = head + margins + graph;
-        return [(0, head), (graphTop, graph), (metricsTop, metrics), (metricsTop + metrics, storage), (metricsTop + metrics + storage, power)];
+        double metricsTop = head + margins + graph, framesTop = metricsTop + metrics;
+        return [(0, head), (graphTop, graph), (metricsTop, metrics), (framesTop + frames, storage), (framesTop + frames + storage, power), (framesTop, frames)];
     }
 
     // How far past a step a resize must go before the page takes the next step, so a size held at a step does not flip back and
@@ -235,18 +248,19 @@ public sealed record MonitorLayout(double Figure, double Body, double Caption, M
     public const double Hysteresis = 12;
 
     // The layout for this size, keeping previous (the step the page shows) while the size is within Hysteresis of it.
-    public static MonitorLayout For(double width, double height, bool processes, int storage, MonitorLayout? previous, int power = 0)
+    public static MonitorLayout For(double width, double height, bool processes, int storage, MonitorLayout? previous, int power = 0, bool frames = false)
     {
-        var next = For(width, height, processes, storage, power);
+        var next = For(width, height, processes, storage, power, frames);
         if (previous is null || next == previous) return next;
         foreach (double dw in new[] { 0, -Hysteresis, Hysteresis })
             foreach (double dh in new[] { 0, -Hysteresis, Hysteresis })
-                if (For(width + dw, height + dh, processes, storage, power) == previous) return previous;
+                if (For(width + dw, height + dh, processes, storage, power, frames) == previous) return previous;
         return next;
     }
 
-    // storage: the volumes the page would show an entry each. power: the lines the page would show for power (0 to 2).
-    public static MonitorLayout For(double width, double height, bool processes, int storage = 0, int power = 0)
+    // storage: the volumes the page would show an entry each. power: the lines the page would show for power (0 to 2). frames:
+    // whether the page shows the frame rate's line.
+    public static MonitorLayout For(double width, double height, bool processes, int storage = 0, int power = 0, bool frames = false)
     {
         width = double.IsFinite(width) ? Math.Max(0, width) : 0;
         height = double.IsFinite(height) ? Math.Max(0, height) : 0;
@@ -266,11 +280,15 @@ public sealed record MonitorLayout(double Figure, double Body, double Caption, M
         // The first line of power (with the battery, sharing it) comes before the drives' lines, which give up room for it: a page the
         // user set to show power must show it at the size it has, however many drives there are. The battery's own line comes after the drives.
         bool firstLine = power > 0 && PowerRoom(readings, metrics, figure, body, 0) >= 1;
-        double reserve = firstLine ? Fixed(metrics, figure, body).StorageMargin + StorageRowFor(body) : 0;
+        double line = Fixed(metrics, figure, body).StorageMargin + StorageRowFor(body);
+        double reserve = firstLine ? line : 0;
+        // The frame rate's line comes next, where a line still fits with the first power line's room kept.
+        bool frameLine = frames && PowerRoom(readings - reserve, metrics, figure, body, 0) >= 1;
+        double frameRoom = frameLine ? line : 0;
         int columns = storage <= 0 ? 0 : readingsWidth >= StorageTwoColumns ? Math.Min(storage, MaximumStorageColumns) : 1;
-        int lines = storage <= 0 ? 0 : Math.Min((storage + columns - 1) / columns, StorageRoom(readings - reserve, metrics, figure, body));
-        int powerLines = power <= 0 ? 0 : Math.Min(Math.Min(power, 2), Math.Max(PowerRoom(readings, metrics, figure, body, lines), firstLine ? 1 : 0));
-        return new(figure, body, caption, metrics, list, row) { StorageLines = lines, StorageColumns = lines > 0 ? columns : 0, PowerLines = powerLines };
+        int lines = storage <= 0 ? 0 : Math.Min((storage + columns - 1) / columns, StorageRoom(readings - reserve - frameRoom, metrics, figure, body));
+        int powerLines = power <= 0 ? 0 : Math.Min(Math.Min(power, 2), Math.Max(PowerRoom(readings - frameRoom, metrics, figure, body, lines), firstLine ? 1 : 0));
+        return new(figure, body, caption, metrics, list, row) { StorageLines = lines, StorageColumns = lines > 0 ? columns : 0, PowerLines = powerLines, FrameLine = frameLine };
     }
 
     // The rows and columns a list of this size shows.

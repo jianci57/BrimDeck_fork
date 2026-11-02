@@ -58,6 +58,28 @@ internal static class DashboardUsageTests
         copied.Apps.Add(copied.Apps[0].Copy()); copied.Normalize();
         check("Copied instance IDs are repaired without dropping repeated rows", copied.Apps.Count == 2 && copied.Apps.Select(a => a.InstanceId).Distinct().Count() == 2);
 
+        var balanceRow = new AppEntry { QuotaSource = ProviderId.DeepSeek, BalanceTarget = 100 };
+        var balanceSnapshot = new ProviderSnapshot(ProviderId.DeepSeek) { LiveQuota = true, Configurations = [balanceRow.ConfigurationKey], Metrics =
+            [new(MetricKind.Balance, "账户余额") { Id = "total:CNY", Amount = 20, Currency = "CNY" }, new(MetricKind.Balance, "赠送余额") { Id = "granted:CNY", Amount = 5, Currency = "CNY" }] };
+        double? Used(AppEntry row, decimal amount)
+        {
+            balanceSnapshot.Metrics = [balanceSnapshot.Metrics[0] with { Amount = amount }, balanceSnapshot.Metrics[1]];
+            return DashboardUsage.Quota(row, [balanceSnapshot]).Metrics[0].UsedPercent;
+        }
+        var targeted = DashboardUsage.Quota(balanceRow, [balanceSnapshot]);
+        check("A target balance gives the account balance a used share and leaves other balances bare", Used(balanceRow, 20) == 80 && Used(balanceRow, 60) == 40
+            && targeted.Metrics[0] is { Total: 100, TotalIsTarget: true } && targeted.Metrics[1].Total is null && targeted.Metrics[1].UsedPercent is null);
+        check("A balance above the target is drawn as unused", Used(balanceRow, 150) is < 0 && AppPresets.Level(Math.Clamp(Used(balanceRow, 150)!.Value, 0, 100)) == 0);
+        check("The target leaves the shared snapshot unchanged", balanceSnapshot.Metrics[0].Total is null && !ReferenceEquals(DashboardUsage.Quota(balanceRow, [balanceSnapshot]), balanceSnapshot));
+        var untargeted = new AppEntry { QuotaSource = ProviderId.DeepSeek, BalanceTarget = null };
+        check("Without a target the account balance stays an amount", Used(untargeted, 20) is null && ReferenceEquals(DashboardUsage.Quota(untargeted, [balanceSnapshot]), balanceSnapshot));
+        var limited = new ProviderSnapshot(ProviderId.OpenRouter) { Configurations = [new AppEntry { QuotaSource = ProviderId.OpenRouter }.ConfigurationKey],
+            Metrics = [new(MetricKind.Balance, "密钥余额") { Amount = 3, Total = 10, Currency = "USD" }] };
+        var openRouter = new AppEntry { QuotaSource = ProviderId.OpenRouter, BalanceTarget = 100 };
+        check("A balance with its own total keeps it", DashboardUsage.Quota(openRouter, [limited]).Metrics[0] is { Total: 10, TotalIsTarget: false });
+        var normalized = new[] { 0m, -5m, 0.001m, 12.345m, 2_000_000_000m }.Select(value => { var row = new AppEntry { QuotaSource = ProviderId.DeepSeek, BalanceTarget = value }; row.Normalize(); return row.BalanceTarget; }).ToList();
+        check("Target balances keep positive amounts to the cent", normalized.SequenceEqual([null, null, null, 12.35m, null]));
+
         var oversized = new DeckSettings { Apps = Enumerable.Range(1, 9).Select(i => new AppEntry
             { QuotaSource = ProviderId.Claude, UsageSource = ProviderId.Claude, DisplayName = "应用 " + i, Enabled = i != 1 }).ToList() };
         var retained = oversized.Apps.Take(7).Select(a => a.InstanceId).ToArray();

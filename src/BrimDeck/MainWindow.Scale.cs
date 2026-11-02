@@ -27,6 +27,7 @@ public partial class MainWindow
         if (scale == _scale) return;
         _scale = scale; _unscaled.Scale = scale;
         UI.Scale(ExpandedContent, scale);
+        // On a side edge the width is set by SetExpanded instead (MainWindow.Edge.cs).
         BindingOperations.GetBindingExpression(ExpandedContent, WidthProperty)?.UpdateTarget();
     }
 

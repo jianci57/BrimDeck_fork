@@ -30,7 +30,8 @@ public sealed partial class LyricsService
     // in the file does not always name the song (a reissued song keeps an older one), so a song played for the first time takes
     // the file written nearest its start whose TTML is as long as the song (measured within 0.05 seconds). Untimed lyrics give no
     // length (measured); their file is taken only when written after the song started, so that the file of a song skipped a
-    // moment ago is not.
+    // moment ago is not. Many songs share a length to the second, so a file written long before the song started is taken only
+    // when the song was first seen midway and that file is the only one of its length.
     private async Task<Lyrics> FindApple(MediaTrack track, CancellationToken token)
     {
         if (track.Duration <= TimeSpan.Zero) return Lyrics.Empty;
@@ -59,10 +60,17 @@ public sealed partial class LyricsService
         bool SameLength(AppleCacheEntry entry) => entry.Length is { } seconds && Math.Abs(seconds - track.Duration.TotalSeconds) <= 1;
         // A song played before has no new file; its lyrics are the ones it was matched to, while Apple Music keeps them.
         var found = (_appleLyricsIds.TryGetValue(track.SongKey, out var id) ? entries.Where(e => e.LyricsId == id && (e.Length is null || SameLength(e))).MinBy(e => Math.Abs(e.Offset)) : null)
-            // The song's start is known to about a second. Looked up midway through the song, as when BrimDeck starts, the song
-            // may have started earlier than estimated after a pause, so a file as long as the song is taken however long before.
-            ?? entries.Where(e => e.Length is null ? e.Offset >= -3 : SameLength(e) && (e.Offset >= -window || position.TotalSeconds > window))
-                .MinBy(e => Math.Abs(e.Offset));
+            // The song's start is known to about a second.
+            ?? entries.Where(e => e.Length is null ? e.Offset >= -3 : SameLength(e) && e.Offset >= -window).MinBy(e => Math.Abs(e.Offset));
+        // Where the song was when its track was reported, not now: lookups repeated later in the song keep the start seen then.
+        // Seen midway, as when BrimDeck starts, the song may have started earlier than estimated after a pause. A file as long
+        // as the song is then taken however long before, but not one matched to another song, and not when two such files
+        // differ: the song played before keeps its own file in the cache beside the other song's of the same length.
+        if (found is null && track.Position(track.PositionAt).TotalSeconds > window)
+        {
+            var earlier = entries.Where(e => SameLength(e) && e.Offset < -window && !AppleLyricsOfAnotherSong(e.LyricsId, track)).ToArray();
+            if (earlier.Select(e => e.LyricsId).Distinct().Count() == 1) found = earlier.MinBy(e => Math.Abs(e.Offset));
+        }
         if (found is null) return Lyrics.Empty;
         RememberAppleLyrics(track.SongKey, found.LyricsId);
         return found.Lyrics;
@@ -101,12 +109,23 @@ public sealed partial class LyricsService
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
     }
+    // A reissue of the song keeps the same title; a song with another title is another song.
+    private static string AppleSongTitle(string song) => song.Split('\n')[0];
+    private bool AppleLyricsOfAnotherSong(string lyricsId, MediaTrack track)
+        => _appleLyricsIds.Any(pair => pair.Value == lyricsId && AppleSongTitle(pair.Key) != track.Title);
     private static OrderedDictionary<string, string> LoadAppleLyricsIds(string? path)
     {
         try
         {
             if (path is not null && File.Exists(path) && JsonSerializer.Deserialize<OrderedDictionary<string, string>>(File.ReadAllBytes(path)) is { } ids)
+            {
+                // Earlier versions could match a song to another song's file of the same length. Lyrics shared by songs of
+                // different titles are dropped, so that those songs are matched again.
+                foreach (var song in ids.GroupBy(pair => pair.Value).Where(group => group.Select(pair => AppleSongTitle(pair.Key)).Distinct().Count() > 1)
+                    .SelectMany(group => group.Select(pair => pair.Key)).ToArray())
+                    ids.Remove(song);
                 return ids;
+            }
         }
         // A damaged file is started over.
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException) { }
@@ -120,7 +139,7 @@ public sealed partial class LyricsService
         {
             var lyrics = await find(track, token);
             if (lyrics.Synced && lyrics.Lines.Count > 0) return lyrics;
-            if (plain.Lines.Count == 0 && lyrics.Lines.Count > 0) plain = lyrics;
+            if (plain.Lines.Count == 0 && !plain.Instrumental && (lyrics.Lines.Count > 0 || lyrics.Instrumental)) plain = lyrics;
         }
         return plain;
     }

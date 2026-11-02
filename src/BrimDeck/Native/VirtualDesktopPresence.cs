@@ -16,9 +16,10 @@ internal sealed class VirtualDesktopPresence : IDisposable
     private IApplicationViewCollection? _views;
     private IVirtualDesktopPinnedApps? _pins;
     private bool _disposed;
-
-    public bool IsPinned { get; private set; }
-    public int? LastError { get; private set; }
+    // The wait after a failed check: it doubles while the shell keeps refusing (an interface changed in an update, say), so a failure
+    // that will not go away costs a check a minute, not one every two seconds.
+    private double _failPause = FirstPause;
+    private const double FirstPause = 2, LongestPause = 60;
 
     public VirtualDesktopPresence(Window window)
     {
@@ -32,9 +33,9 @@ internal sealed class VirtualDesktopPresence : IDisposable
         EnsurePinned();
     }
 
-    public bool EnsurePinned()
+    private void EnsurePinned()
     {
-        if (_disposed) return false;
+        if (_disposed) return;
         IntPtr view = IntPtr.Zero;
         try
         {
@@ -47,19 +48,15 @@ internal sealed class VirtualDesktopPresence : IDisposable
                 Marshal.ThrowExceptionForHR(_pins.PinView(view));
                 Marshal.ThrowExceptionForHR(_pins.IsViewPinned(view, out pinned));
             }
-            IsPinned = pinned;
-            LastError = null;
             // Once pinned, an Explorer restart or a visibility change triggers the next check; the timer is only a fallback.
-            _retry.Interval = TimeSpan.FromSeconds(pinned ? 60 : 2);
-            return pinned;
+            _failPause = FirstPause;
+            _retry.Interval = TimeSpan.FromSeconds(pinned ? LongestPause : FirstPause);
         }
         catch (Exception ex) when (ex is COMException or InvalidCastException)
         {
-            IsPinned = false;
-            LastError = ex.HResult;
             Disconnect();
-            _retry.Interval = TimeSpan.FromSeconds(2);
-            return false;
+            _retry.Interval = TimeSpan.FromSeconds(_failPause);
+            _failPause = Math.Min(LongestPause, _failPause * 2);
         }
         finally { if (view != IntPtr.Zero) Marshal.Release(view); }
     }
@@ -103,10 +100,10 @@ internal sealed class VirtualDesktopPresence : IDisposable
         return IntPtr.Zero;
     }
 
-    internal void Reconnect()
+    private void Reconnect()
     {
         if (_disposed) return;
-        IsPinned = false;
+        _failPause = FirstPause;
         Disconnect();
         _window.Dispatcher.BeginInvoke(() => EnsurePinned(), DispatcherPriority.Loaded);
     }

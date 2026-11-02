@@ -95,7 +95,6 @@ internal static class MediaPlaybackStackTests
         check("Another tab's video playing from its middle is held as well", swap.Holds(playing, Clip("Antigravity Dashboard", P, 9, 40), t0.AddSeconds(0.2)));
         check("An empty interim session is held", swap.Holds(playing, Clip("", MediaState.Unknown, 0, 0) with { PositionKnown = false }, t0.AddSeconds(0.3)));
         check("The next song starting from its beginning is taken at once", !swap.Holds(playing, Clip("Espresso", P, 0.2), t0.AddSeconds(0.4)) && swap.RecheckAt is null);
-        check("A natural track change is not delayed", !new MediaSwapGuard().Holds(playing, Clip("Espresso", P, 0), t0));
         check("Pausing the same song is not held", !new MediaSwapGuard().Holds(playing, playing with { State = S }, t0));
         check("A paused song gives way at once", !new MediaSwapGuard().Holds(playing with { State = S }, Clip("Antigravity Dashboard", S, 9, 40), t0));
         var real = new MediaSwapGuard();

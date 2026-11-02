@@ -15,30 +15,45 @@ internal static class Program
         try
         {
             // "--only power": just the power and battery checks, for a quick look at what this machine reports.
-            if (args is ["--only", "power"]) { PowerChecks.Run(Check); return 0; }
-            Console.WriteLine($"Windows native smoke tests: {Environment.OSVersion.Version}");
+            if (args is ["--only", "power"]) { PowerChecks.Run(Check); return Finish(); }
+            if (args is ["--only", "gpu"]) { CheckGpus(); return Finish(); }
+            if (args is ["--only", "capture"]) { CaptureChecks.Run(Check); return Finish(); }
+            if (args is ["--only", "frames"]) { FrameRateChecks.Run(Check); return Finish(); }
+            if (args is ["--only", "ringletter", ..]) { RingLetterChecks.Run(Check, args.Length > 2 ? args[2] : null); return Finish(); }
+            if (args is ["--only", "drawn"]) { DrawnAutomationTests.Run(Check); return Finish(); }
+            if (args is ["--only", "settings"]) { SettingsFocusTests.Run(Check); BrimDeck.MainWindow.CheckPageCapsuleFit(Check); return Finish(); }
+            // "--hosted": only the checks that hold on a CI runner (a virtual machine with a session but no display output, GPU,
+            // battery or devices, and no promise about speed). Everything left out reads this machine's hardware, so its outcome
+            // says something about the machine, not the code. Without the flag every check runs.
+            bool hosted = args is ["--hosted"];
+            Console.WriteLine($"Windows native smoke tests{(hosted ? " (hosted subset)" : "")}: {Environment.OSVersion.Version}");
             CheckWindowChrome();
+            if (hosted) Console.WriteLine("EXCLUDED on a hosted runner: window capture (not yet known to work on a virtual display).");
+            else CaptureChecks.Run(Check);
             CheckSettledClip();
             CheckPageToolTips();
             LayoutRetryTests.Run(Check);
+            DrawnAutomationTests.Run(Check);
+            RingLetterChecks.Run(Check);
+            SettingsFocusTests.Run(Check);
             BrimDeck.MainWindow.CheckPageCapsule(Check);
+            BrimDeck.MainWindow.CheckPageCapsuleFit(Check);
             BrimDeck.MainWindow.CheckShadowLifetime();
-            CheckGpus();
-            var (bounds, work, scale) = WindowsHost.PrimaryScreen();
-            Check("primary display has usable bounds and DPI", bounds.Width > 0 && bounds.Height > 0
-                && work.Width > 0 && work.Height > 0 && scale > 0);
-            TemperatureChecks.Run(Check);
-            PowerChecks.Run(Check);
+            if (hosted) Console.WriteLine("EXCLUDED on a hosted runner: GPU, display, frame rate, temperature and power readings, and the application identity the shell resolves (they read this machine or its shell).");
+            else
+            {
+                CheckGpus();
+                var (bounds, work, scale) = WindowsHost.PrimaryScreen();
+                Check("primary display has usable bounds and DPI", bounds.Width > 0 && bounds.Height > 0
+                    && work.Width > 0 && work.Height > 0 && scale > 0);
+                AppIdentityChecks.Run(Check);
+                FrameRateChecks.Run(Check);
+                TemperatureChecks.Run(Check);
+                PowerChecks.Run(Check);
+            }
             SensorGuardChecks.Run(Check);
 
-            if (!OperatingSystem.IsWindowsVersionAtLeast(10, 0, 20348))
-            {
-                using var capture = ProcessLoopbackCapture.TryStart((uint)Environment.ProcessId);
-                Check("unsupported process capture returns control to the session peak fallback", capture is null);
-            }
-            else Console.WriteLine("SKIP: unsupported process capture check requires Windows 10 build < 20348.");
-
-            return 0;
+            return Finish();
         }
         catch (Exception ex) { Console.Error.WriteLine(ex); return 1; }
     }
@@ -72,6 +87,7 @@ internal static class Program
     {
         using var pdh = new PdhQuery();
         var provider = new GpuProvider(pdh);
+        provider.Want(true);
         pdh.Collect();
         Thread.Sleep(1000);
         var reading = provider.Sample(pdh.Collect());
@@ -87,6 +103,15 @@ internal static class Program
         Check("GPU readings give each adapter its own key", gpus.Select(gpu => gpu.Key).Distinct().Count() == gpus.Count);
         if (gpus.Any(gpu => gpu.Kind == GpuKind.Discrete))
             Check("GPU auto shows a discrete adapter", GpuChoice.Auto(gpus, 0)?.Kind == GpuKind.Discrete);
+        // The drivers' own usage: asked twice, as Intel's counters need two readings; an adapter Windows saw idle is not asked.
+        var drivers = new GpuDrivers(() => { });
+        drivers.Read(gpus, 0, true);
+        Thread.Sleep(1000);
+        foreach (var gpu in drivers.Read(gpus, 1, true))
+            Console.WriteLine($"GPU driver: {gpu.Name ?? "(unnamed)"} usage {gpu.Usage:P0} from {gpu.UsageSource ?? "Windows engines"}, engines {gpu.EngineUsage:P0}"
+                + (gpu.DriverWatts is { } watts ? $", {watts:0.0} W" : "") + (gpu.DriverTemperature is { } heat ? $", {heat:0} °C" : ""));
+        Check("GPU driver usage is a share, and only for an adapter Windows saw working", drivers.Read(gpus, 2, true).All(gpu => gpu.Usage is >= 0 and <= 1
+            && (gpu.UsageSource is null || gpu.EngineUsage > 0)));
     }
     private static string Gigabytes(Reading<ulong> bytes) => bytes.TryGet(out var value) ? $"{value / 1e9:0.00} GB" : "?";
 
@@ -145,9 +170,17 @@ internal static class Program
         finally { window.Close(); }
     }
 
+    // Every check runs, so one failure does not hide the rest; the run fails if any did.
+    private static int Finish()
+    {
+        Console.WriteLine(_failed.Count == 0 ? $"{_passed} checks passed." : $"{_passed} checks passed, {_failed.Count} failed:" + string.Concat(_failed.Select(name => "\n  " + name)));
+        return _failed.Count == 0 ? 0 : 1;
+    }
+    private static int _passed;
+    private static readonly List<string> _failed = [];
     private static void Check(string name, bool condition)
     {
-        if (!condition) throw new InvalidOperationException("FAIL: " + name);
-        Console.WriteLine("PASS: " + name);
+        if (condition) { _passed++; Console.WriteLine("PASS: " + name); }
+        else { _failed.Add(name); Console.WriteLine("FAIL: " + name); }
     }
 }

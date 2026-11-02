@@ -68,12 +68,13 @@ public partial class MainWindow
     }
 
     // Whether the island can pass a size of width x height at left and gap (window coordinates) by the opening spring's give
-    // without leaving the window, which would cut it off for those frames. Width and Height are the values on screen now.
+    // without leaving the window, which would cut it off for those frames. Width and Height are the values on screen now, in the
+    // edge's frame (MainWindow.Edge.cs).
     private bool HasRoomToBounce(double width, double height, double left, double gap)
     {
         double give = Curves.BounceOvershoot;
         double grow = Math.Max(0, width - Island.Width) * give, rise = Math.Max(0, height - Island.Height) * give;
-        return double.IsFinite(grow) && double.IsFinite(rise) && left - grow / 2 >= 0 && left + width + grow / 2 <= Width && gap + height + rise <= Height;
+        return double.IsFinite(grow) && double.IsFinite(rise) && left - grow / 2 >= 0 && left + width + grow / 2 <= FrameWidth && gap + height + rise <= FrameHeight;
     }
 
     private bool CanAnimateLifecycle => IsVisible && Soft.Enabled && Settings.AnimationDuration > 0 && !_preview;

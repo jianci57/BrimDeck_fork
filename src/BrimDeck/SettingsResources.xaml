@@ -40,7 +40,7 @@
     <Ellipse Stroke="{DynamicResource SettingsAccent}" StrokeThickness="1" Margin="2,3"/>
   </ControlTemplate></Setter.Value></Setter></Style>
   <Style x:Key="SettingsSmallHelpFocus"><Setter Property="Control.Template"><Setter.Value><ControlTemplate>
-    <Ellipse Stroke="{DynamicResource SettingsAccent}" StrokeThickness="1" Margin="-2"/>
+    <Ellipse Stroke="{DynamicResource SettingsAccent}" StrokeThickness="1" Margin="3"/>
   </ControlTemplate></Setter.Value></Setter></Style>
   <Style x:Key="SettingsButton" TargetType="Button">
     <Setter Property="FocusVisualStyle" Value="{StaticResource SettingsFocus}"/>
@@ -161,9 +161,11 @@
   <Style x:Key="SettingsLink" TargetType="Button" BasedOn="{StaticResource SettingsButton}">
     <Setter Property="Padding" Value="0"/>
     <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
-      <Border Background="Transparent" Padding="{TemplateBinding Padding}">
+      <!-- The text is 16 DIP tall; a transparent edge 4 DIP above and below makes the link 24 DIP to the pointer (SW-08) without
+           moving it or anything around it. -->
+      <Border Background="Transparent" Margin="0,-4" Padding="0,4"><Border Background="Transparent" Padding="{TemplateBinding Padding}">
         <TextBlock x:Name="Text" Text="{Binding Content, RelativeSource={RelativeSource TemplatedParent}}" Foreground="{TemplateBinding Foreground}" VerticalAlignment="Center"/>
-      </Border>
+      </Border></Border>
       <ControlTemplate.Triggers>
         <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Text" Property="TextDecorations" Value="Underline"/></Trigger>
         <Trigger Property="IsPressed" Value="True"><Setter Property="Opacity" Value="0.7"/></Trigger>
@@ -182,12 +184,17 @@
   <Style x:Key="SettingsNav" TargetType="Button" BasedOn="{StaticResource SettingsButton}">
     <Setter Property="Height" Value="38"/><Setter Property="Padding" Value="12,0"/><Setter Property="HorizontalContentAlignment" Value="Stretch"/>
     <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
-      <Border x:Name="Chrome" CornerRadius="7" Background="Transparent" BorderBrush="Transparent" BorderThickness="1" Padding="{TemplateBinding Padding}">
-        <ContentPresenter HorizontalAlignment="Stretch" VerticalAlignment="Center"/>
-      </Border>
+      <!-- The chosen page carries an accent mark at its left edge, as Windows' own settings do: its fill alone stands too close to
+           the sidebar (SW-07). -->
+      <Grid>
+        <Border x:Name="Chrome" CornerRadius="7" Background="Transparent" BorderBrush="Transparent" BorderThickness="1" Padding="{TemplateBinding Padding}">
+          <ContentPresenter HorizontalAlignment="Stretch" VerticalAlignment="Center"/>
+        </Border>
+        <Border x:Name="Mark" Width="3" Height="16" CornerRadius="1.5" Background="{DynamicResource SettingsAccent}" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="2,0,0,0" Visibility="Collapsed"/>
+      </Grid>
       <ControlTemplate.Triggers>
         <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Chrome" Property="Background" Value="{DynamicResource SettingsFillHover}"/></Trigger>
-        <Trigger Property="Tag" Value="Selected"><Setter TargetName="Chrome" Property="Background" Value="{DynamicResource SettingsNavSelected}"/><Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource SettingsNavSelected}"/></Trigger>
+        <Trigger Property="Tag" Value="Selected"><Setter TargetName="Chrome" Property="Background" Value="{DynamicResource SettingsNavSelected}"/><Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource SettingsNavSelected}"/><Setter TargetName="Mark" Property="Visibility" Value="Visible"/></Trigger>
       </ControlTemplate.Triggers>
     </ControlTemplate></Setter.Value></Setter>
   </Style>
@@ -484,7 +491,7 @@
         <ToggleButton Focusable="False" IsChecked="{Binding IsDropDownOpen, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}">
           <!-- The arrow is drawn, not a glyph: an icon font's glyph sits where that font puts it (and Windows 10 has another icon
                font), so it would not share the text's centre. -->
-          <ToggleButton.Template><ControlTemplate TargetType="ToggleButton"><Border x:Name="Chrome" Background="{DynamicResource SettingsInput}" BorderBrush="{DynamicResource SettingsBorder}" BorderThickness="1" CornerRadius="6"><Path Data="M0.5,0.5 L4.5,4.5 L8.5,0.5" Width="9" Height="5" Stroke="{DynamicResource SettingsTextSecondary}" StrokeThickness="1.25" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,11,0"><Path.RenderTransform><TranslateTransform Y="0.5"/></Path.RenderTransform></Path></Border></ControlTemplate></ToggleButton.Template>
+          <ToggleButton.Template><ControlTemplate TargetType="ToggleButton"><Border x:Name="Chrome" Background="{DynamicResource SettingsInput}" BorderBrush="{DynamicResource SettingsInputBorder}" BorderThickness="1" CornerRadius="6"><Path Data="M0.5,0.5 L4.5,4.5 L8.5,0.5" Width="9" Height="5" Stroke="{DynamicResource SettingsTextSecondary}" StrokeThickness="1.25" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,11,0"><Path.RenderTransform><TranslateTransform Y="0.5"/></Path.RenderTransform></Path></Border></ControlTemplate></ToggleButton.Template>
         </ToggleButton>
         <ContentPresenter x:Name="Selection" Content="{TemplateBinding SelectionBoxItem}" Margin="10,0,28,0" HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="Center" IsHitTestVisible="False"/>
         <Popup x:Name="PART_Popup" IsOpen="{TemplateBinding IsDropDownOpen}" Placement="Bottom" AllowsTransparency="True" Focusable="False">
@@ -525,7 +532,7 @@
   <Style x:Key="SettingsField" TargetType="TextBox">
     <Setter Property="Height" Value="35"/>
     <Setter Property="Foreground" Value="{DynamicResource SettingsTextPrimary}"/><Setter Property="CaretBrush" Value="{DynamicResource SettingsAccent}"/>
-    <Setter Property="Background" Value="{DynamicResource SettingsInput}"/><Setter Property="BorderBrush" Value="{DynamicResource SettingsBorder}"/><Setter Property="BorderThickness" Value="1"/>
+    <Setter Property="Background" Value="{DynamicResource SettingsInput}"/><Setter Property="BorderBrush" Value="{DynamicResource SettingsInputBorder}"/><Setter Property="BorderThickness" Value="1"/>
     <Setter Property="FontSize" Value="13"/><Setter Property="Padding" Value="10,7"/><Setter Property="VerticalContentAlignment" Value="Center"/>
     <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="TextBox">
       <Border x:Name="Chrome" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="6"><ScrollViewer x:Name="PART_ContentHost" Style="{x:Null}" Focusable="False" HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Hidden"/></Border>

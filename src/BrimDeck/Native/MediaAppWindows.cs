@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 using BrimDeck.Core;
@@ -12,7 +11,7 @@ internal static class MediaAppWindows
     public static nint Find(MediaAppOwner owner)
     {
         var windows = new List<MediaAppWindow>();
-        var processes = new Dictionary<uint, (string Name, string? Family)>();
+        var processes = new Dictionary<uint, MediaAppProcess>();
         EnumWindows((handle, _) =>
         {
             // The cheap tests first, so process and property lookups only run for ordinary visible windows.
@@ -20,10 +19,13 @@ internal static class MediaAppWindows
             long style = (long)GetWindowLongPtr(handle, GwlExStyle);
             if ((style & WsExToolWindow) != 0) return true;
             GetWindowThreadProcessId(handle, out uint pid);
-            if (!processes.TryGetValue(pid, out var process)) processes[pid] = process = Describe(pid);
+            if (!processes.TryGetValue(pid, out var process)) processes[pid] = process = AppIdentity.Describe((int)pid);
             DwmGetWindowAttribute(handle, DwmCloaked, out int cloaked, sizeof(int));
             var title = new StringBuilder(256); GetWindowText(handle, title, title.Capacity);
-            windows.Add(new(handle, (int)pid, process.Name, process.Family, AppIdOf(handle), true, IsIconic(handle), false, false, cloaked != 0, title.ToString()));
+            // A window without an id of its own belongs to the application its process is identified as (QueMusic sets
+            // its id for the whole process).
+            string appId = AppIdOf(handle) is { Length: > 0 } own ? own : process.AppId;
+            windows.Add(new(handle, (int)pid, process.ProcessName, process.PackageFamily, appId, true, IsIconic(handle), false, false, cloaked != 0, title.ToString()));
             return true;
         }, 0);
         return MediaAppTarget.Choose(owner, windows)?.Handle ?? 0;
@@ -34,28 +36,6 @@ internal static class MediaAppWindows
         if (handle == 0) return false;
         if (IsIconic(handle)) ShowWindow(handle, SwRestore);
         return SetForegroundWindow(handle);
-    }
-
-    private static (string Name, string? Family) Describe(uint pid)
-    {
-        string name = "";
-        try { using var process = Process.GetProcessById((int)pid); name = process.ProcessName; } catch (ArgumentException) { } catch (InvalidOperationException) { }
-        string? family = null;
-        var handle = OpenProcess(ProcessQueryLimitedInformation, false, pid);
-        if (handle != 0)
-        {
-            try
-            {
-                uint length = 0;
-                if (GetPackageFamilyName(handle, ref length, null) == ErrorInsufficientBuffer)
-                {
-                    var buffer = new StringBuilder((int)length);
-                    if (GetPackageFamilyName(handle, ref length, buffer) == 0) family = buffer.ToString();
-                }
-            }
-            finally { CloseHandle(handle); }
-        }
-        return (name, family);
     }
 
     // The AppUserModelID set on the window itself, which is how a packaged application's frame window names its application.
@@ -73,8 +53,8 @@ internal static class MediaAppWindows
         finally { Marshal.ReleaseComObject(store); }
     }
 
-    private const int GwlExStyle = -20, SwRestore = 9, DwmCloaked = 14, ErrorInsufficientBuffer = 122;
-    private const uint GwOwner = 4, ProcessQueryLimitedInformation = 0x1000;
+    private const int GwlExStyle = -20, SwRestore = 9, DwmCloaked = 14;
+    private const uint GwOwner = 4;
     private const long WsExToolWindow = 0x80;
     private const ushort VtLpwstr = 31;
     private delegate bool EnumWindowsProc(nint handle, nint parameter);
@@ -98,9 +78,6 @@ internal static class MediaAppWindows
     [DllImport("user32.dll")] private static extern bool ShowWindow(nint handle, int command);
     [DllImport("user32.dll")] private static extern bool SetForegroundWindow(nint handle);
     [DllImport("dwmapi.dll")] private static extern int DwmGetWindowAttribute(nint handle, int attribute, out int value, int size);
-    [DllImport("kernel32.dll")] private static extern nint OpenProcess(uint access, bool inherit, uint processId);
-    [DllImport("kernel32.dll")] private static extern bool CloseHandle(nint handle);
-    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] private static extern int GetPackageFamilyName(nint process, ref uint length, StringBuilder? name);
     [DllImport("shell32.dll")] private static extern int SHGetPropertyStoreForWindow(nint handle, ref Guid iid, [MarshalAs(UnmanagedType.Interface)] out IPropertyStore store);
     [DllImport("ole32.dll")] private static extern int PropVariantClear(ref PropVariant value);
 }

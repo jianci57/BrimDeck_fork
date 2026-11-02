@@ -31,5 +31,4 @@ internal sealed class ModelDateWindow : Window
 
     internal void ChooseDate(DateTime date) => Picker.ChooseDate(date);
     internal void ApplySelection() => Picker.ApplySelection();
-    internal void CancelSelection() { Cancelled?.Invoke(); Close(); }
 }

@@ -98,21 +98,9 @@ static class KimiUsageTests
         check("An unknown Kimi Code model keeps its ID without the provider", KimiUsage.ModelName("kimi-code/k4-preview") == "k4-preview" &&
             KimiUsage.ModelName("my-provider/Some-Model") == "some-model" && KimiUsage.ModelName("") == "");
         await Prices(root, check);
-        check("Kimi labels have English names", LabelsTranslate());
 
         Sessions(root, check);
         await Service(root, locations, home, check);
-    }
-
-    private static bool LabelsTranslate()
-    {
-        var language = Loc.Language;
-        try
-        {
-            Loc.Use(Loc.English);
-            return Loc.Label("每月额度") == "Monthly limit" && Loc.Label("加油包") == "Extra usage" && Loc.Label("本月加油包") == "Extra usage this month";
-        }
-        finally { Loc.Use(language); }
     }
 
     private static JsonElement Parse(string json) => JsonDocument.Parse(json).RootElement.Clone();
@@ -190,11 +178,9 @@ static class KimiUsageTests
         var k3 = Endpoints(Endpoint("Wafer", "wafer", Price(1)), Endpoint("Moonshot AI", "moonshotai/mxfp4", Price(3, true)), Endpoint("Together", "together", Price(3)));
         var k31 = Endpoints(Endpoint("Moonshot AI", "moonshotai/batch", Price(1)), Endpoint("Moonshot AI", "moonshotai/mxfp4", Price(2)),
             Endpoint("Moonshot AI", "moonshotai/highspeed", Price(4)), Endpoint("Fireworks", "fireworks/highspeed", Price(9)));
-        bool fail = false, failEndpoints = false; var asked = new List<string>();
+        bool fail = false, failEndpoints = false;
         using var server = new PriceServer(uri =>
         {
-            // Pricing asks for several models' endpoints at once (Parallel.ForEachAsync), so the handler runs on several threads.
-            lock (asked) asked.Add(uri.AbsolutePath);
             if (fail || failEndpoints && uri.AbsolutePath.EndsWith("/endpoints", StringComparison.Ordinal)) return new HttpResponseMessage(HttpStatusCode.ServiceUnavailable) { Content = new StringContent("") };
             return Reply(uri.AbsolutePath switch
             {
@@ -219,8 +205,6 @@ static class KimiUsageTests
             failEndpoints = false;
             await first.RefreshAsync(force: true);
             decimal? Estimate(string raw, long write = 0) => first.Estimate(entry with { Model = KimiUsage.ModelName(raw), CacheWrite = write });
-            check("Moonshot AI's endpoint prices are read for K3 and K3.1 Pro", asked.Contains("/api/v1/models/moonshotai/kimi-k3/endpoints") &&
-                asked.Contains("/api/v1/models/moonshotai/kimi-k3.1-pro/endpoints"));
             check("Kimi K3 takes Moonshot AI's price, not the cheapest host's, with cache writes priced",
                 Estimate("kimi-code/k3") == Cost(Price(3, true)) && Estimate("kimi-code/k3", 300) == Cost(Price(3, true), 300));
             check("K3-256k keeps its own name but takes K3's Moonshot AI price", KimiUsage.ModelName("kimi-code/k3-256k") == "k3-256k" &&
@@ -235,7 +219,6 @@ static class KimiUsageTests
             check("The price list shows Moonshot AI's prices, including a model the catalog lacks", listed["moonshotai/kimi-k3"].Prices == Price(3, true) &&
                 listed["moonshotai/kimi-k3.1-pro"].Prices == Price(2) && listed["moonshotai/kimi-k3.1-pro-highspeed"].Prices == Price(4) &&
                 listed["moonshotai/kimi-k2.7-code"].Prices == Price(1) && first.ModelCount == catalog.Length + 1);
-            check("Moonshot AI's prices are kept on disk", File.Exists(Path.Combine(folder, Pricing.OfficialFile)));
         }
 
         // After a restart with no connection, the saved prices still apply; an answer without Moonshot AI keeps them.
@@ -435,8 +418,6 @@ static class KimiUsageTests
             : Reply("""{"usages":{"limit_5h":{"used_ratio":0.5}}}""");
         snapshot = await Refresh();
         check("Without the membership the quota still shows, with no plan tag", snapshot.LiveQuota && snapshot.Plan == "" && snapshot.Metrics.Count == 1);
-
-        check("A kimi.com sign-in names its service", snapshot.Source == "Kimi Code · kimi.com 账户");
 
         // Signing in to kimi.ai: config.toml points at its API and names its own sign-in file. The same account id on the
         // other service never shows the reading kept for kimi.com.

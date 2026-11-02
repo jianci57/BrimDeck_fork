@@ -10,7 +10,8 @@ namespace BrimDeck.Native;
 
 // What Windows reports about power to a normal user: nothing here needs administrator rights or installs a driver. Processor power
 // comes from the Energy Meter counters (Windows exposes the processor's RAPL registers through its own Energy Meter Interface
-// driver); a graphics adapter's board power from the driver's nvidia-smi (NvidiaSmi; an adapter of another make reports none yet); the battery from Windows.Devices.Power; the power mode from the power API. Each
+// driver); a graphics adapter's board power from the driver's nvidia-smi (NvidiaSmi), and AMD's and Intel's discrete adapters' from
+// their drivers with their usage (GpuDrivers); the battery from Windows.Devices.Power; the power mode from the power API. Each
 // reader belongs to the sampling thread, as the providers in SystemSampler do; the sensor states are read from the UI thread.
 
 // The whole machine's power (PowerResolver chooses between the sources, PowerInputs hands them over). The counters are in the query
@@ -56,7 +57,10 @@ internal sealed class PowerProvider(PdhQuery? pdh, Action stuck) : IDisposable
     // gpus: the adapters read this tick (usage tells whether one is awake); discharge: the battery's supply (BatteryModel.Discharge);
     // hasBattery: the machine runs on a battery, so a missing source may only be for the moment.
     // collected: what Prepare returned this tick.
-    public Reading<PowerSample> Sample(bool collected, bool wanted, double now, IReadOnlyList<GpuSample> gpus, Reading<double> discharge, bool hasBattery)
+    // processorWatts, processorMemory: the package's and the memory's power from the sensor service (enhanced sensors), which come
+    // first; bridgeWatts: the package's from a hardware monitor the user runs, taken only where Windows gives none.
+    public Reading<PowerSample> Sample(bool collected, bool wanted, double now, IReadOnlyList<GpuSample> gpus, Reading<double> discharge, bool hasBattery,
+        double? processorWatts = null, double? processorMemory = null, double? bridgeWatts = null)
     {
         if (!wanted)
         {
@@ -67,13 +71,17 @@ internal sealed class PowerProvider(PdhQuery? pdh, Action stuck) : IDisposable
         Reading<double> system = Reading<double>.Unavailable(""), cpu = system, memory = system;
         if (_available && collected && pdh is not null)
             (system, cpu, memory) = PowerResolver.FromCounters(pdh.Read(EnergyPath), pdh.Read(MeterPath));
+        if (processorWatts is { } package) cpu = package;
+        else if (!cpu.HasValue && bridgeWatts is { } bridged) cpu = bridged;
+        if (!memory.HasValue && processorMemory is { } dram) memory = dram;
         var inputs = new PowerInputs { SystemMeter = system, BatteryDischarge = discharge, Cpu = cpu, Memory = memory, Gpus = ReadGpus(gpus, now) };
         var power = PowerResolver.Resolve(inputs);
         if (power.HasValue) { _empty = 0; _everFound = true; _state = SensorState.Found; }
         // None only for a machine that has never given a reading and has no NVIDIA adapter that may yet be busy; a laptop that gives
         // none on mains may give one on battery, which the panel asks again for (MainWindow.StripSensors). Once found it stays found:
         // a figure missing for a moment (an idle adapter) is a dash, not a sensor that has gone.
-        else if (!_everFound && (collected || pdh is null || _stopped) && ++_empty >= GiveUpAfter && !gpus.Any(gpu => gpu.Name?.Contains("NVIDIA", StringComparison.OrdinalIgnoreCase) == true))
+        else if (!_everFound && (collected || pdh is null || _stopped) && ++_empty >= GiveUpAfter && !gpus.Any(gpu => gpu.Name?.Contains("NVIDIA", StringComparison.OrdinalIgnoreCase) == true
+            || gpu.Kind != GpuKind.Integrated && gpu.VendorId is GpuDriverReadings.Amd or GpuDriverReadings.Intel))
             _state = SensorState.None;
         return power;
     }
@@ -85,14 +93,20 @@ internal sealed class PowerProvider(PdhQuery? pdh, Action stuck) : IDisposable
         foreach (var gpu in gpus)
         {
             string name = gpu.Name ?? "GPU";
-            // Only NVIDIA's driver is asked, and only an adapter that is working.
-            if (!name.Contains("NVIDIA", StringComparison.OrdinalIgnoreCase)) continue;
-            // Identical cards are told apart by their order (the nth of this name).
+            // AMD's and Intel's discrete adapters gave their power with their usage (GpuDrivers), while they work.
+            if (gpu.DriverWatts is { } watts)
+            {
+                read.Add(new GpuPowerInput(name, watts, GpuDriverReadings.SourceName(gpu.VendorId)));
+                continue;
+            }
+            // NVIDIA's through nvidia-smi, and only an adapter that is working.
+            if (gpu.VendorId != GpuDriverReadings.Nvidia && !(gpu.VendorId == 0 && name.Contains("NVIDIA", StringComparison.OrdinalIgnoreCase))) continue;
+            // Identical cards are told apart by their bus, else by their order (the nth of this name).
             int ordinal = seen.GetValueOrDefault(name); seen[name] = ordinal + 1;
             string key = name + "#" + ordinal;
-            // Idle counts as under a few percent (the desktop's own drawing): the helper takes about 25 MB while it runs, and starting it
-            // for an adapter that only draws the desktop is not worth it.
-            if (gpu.Usage >= Busy) _busyAt[key] = now;
+            // Idle counts as under a few percent of Windows' figure (the desktop's own drawing): the helper takes about 25 MB while it
+            // runs, and starting it for an adapter that only draws the desktop is not worth it.
+            if (gpu.EngineUsage >= Busy) _busyAt[key] = now;
             if (!_busyAt.TryGetValue(key, out var last) || now - last > Awake)
             {
                 read.Add(new GpuPowerInput(name, Reading<double>.Unavailable(Loc.T("空闲", "idle"))));
@@ -100,7 +114,7 @@ internal sealed class PowerProvider(PdhQuery? pdh, Action stuck) : IDisposable
             }
             if (_smi is not null && PowerResolver.RestartDue(_smi.Ended, now, _smiStartedAt)) { _smi.Dispose(); _smi = null; }
             if (_smi is null) { _smi = new NvidiaSmi(); _smiStartedAt = now; }
-            read.Add(new GpuPowerInput(name, _smi.Read(name, ordinal)));
+            read.Add(new GpuPowerInput(name, _smi.Read(GpuDriverReadings.Bus(gpu.Location), name, ordinal)));
         }
         // Every adapter idle for good: the helper ends, and its memory goes with it.
         if (_smi is not null && _busyAt.Values.All(at => now - at > Awake)) { _smi.Dispose(); _smi = null; }
@@ -114,25 +128,27 @@ internal sealed class PowerProvider(PdhQuery? pdh, Action stuck) : IDisposable
 // Its management library cannot be taken out of this process once loaded: nvml.dll and the driver's copy of it pin themselves, so
 // closing it returned none of its 20 MB (measured). In a helper the memory leaves with the process: it is
 // started when an adapter works and ended once it has been idle for a while or power is no longer wanted. A job object ends it with
-// this process, so a crash leaves none behind. One line a second, "name, watts", for every NVIDIA adapter in the driver's order.
+// this process, so a crash leaves none behind. One line a second, "bus id, name, watts", for every NVIDIA adapter in the driver's
+// order. Current drivers put the tool in the system folder; older ones in Program Files (NVIDIA Corporation\NVSMI).
 internal sealed class NvidiaSmi : IDisposable
 {
     private readonly Process? _process;
     private readonly IntPtr _job;
     private readonly object _lock = new();
-    private List<(string Name, double? Watts)> _ready = [], _batch = [];
+    private List<(uint? Bus, string Name, double? Watts)> _ready = [], _batch = [];
     private long _lastLine, _readyAt;
     private readonly string? _failure;
 
     public NvidiaSmi()
     {
-        string path = Path.Combine(Environment.SystemDirectory, "nvidia-smi.exe");
-        if (!File.Exists(path)) { _failure = Loc.T("无 NVIDIA 驱动工具", "no NVIDIA driver tool"); return; }
+        string? path = new[] { Environment.SystemDirectory, Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "NVIDIA Corporation", "NVSMI") }
+            .Select(folder => Path.Combine(folder, "nvidia-smi.exe")).FirstOrDefault(File.Exists);
+        if (path is null) { _failure = Loc.T("无 NVIDIA 驱动工具", "no NVIDIA driver tool"); return; }
         try
         {
-            var start = new ProcessStartInfo(path, "--query-gpu=name,power.draw --format=csv,noheader,nounits -l 1")
+            var start = new ProcessStartInfo(path, "--query-gpu=pci.bus_id,name,power.draw --format=csv,noheader,nounits -l 1")
             {
-                UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, StandardOutputEncoding = Encoding.UTF8, WorkingDirectory = Environment.SystemDirectory
+                UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, StandardOutputEncoding = Encoding.UTF8, WorkingDirectory = Path.GetDirectoryName(path)!
             };
             _process = Process.Start(start);
             if (_process is null) { _failure = Loc.T("无法启动", "did not start"); return; }
@@ -162,15 +178,16 @@ internal sealed class NvidiaSmi : IDisposable
     // One line, on a thread of the pool: the adapters' lines of one second arrive together; a pause starts the next batch.
     private void Line(string line)
     {
-        int comma = line.LastIndexOf(',');
-        if (comma <= 0) return;
-        string name = line[..comma].Trim();
+        int first = line.IndexOf(','), comma = line.LastIndexOf(',');
+        if (first <= 0 || comma <= first) return;
+        uint? bus = NvidiaSmiBus(line[..first].Trim());
+        string name = line[(first + 1)..comma].Trim();
         double? watts = double.TryParse(line[(comma + 1)..].Trim(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var value) ? value : null;
         long now = Stopwatch.GetTimestamp();
         lock (_lock)
         {
             if (_batch.Count > 0 && (now - _lastLine) * 1000 / Stopwatch.Frequency > 400) { _ready = _batch; _readyAt = _lastLine; _batch = []; }
-            _batch.Add((name, watts)); _lastLine = now;
+            _batch.Add((bus, name, watts)); _lastLine = now;
             // Until the first batch is complete the lines so far stand in for it.
             if (_ready.Count == 0 || _readyAt == 0) { _ready = [.. _batch]; _readyAt = now; }
         }
@@ -179,17 +196,26 @@ internal sealed class NvidiaSmi : IDisposable
     // Whether the helper is not running: it did not start, or it has ended.
     public bool Ended => _failure is not null || _process is { HasExited: true };
 
-    // The nth adapter of this name in the driver's order (identical cards are told apart by it); the adapter's name is DXGI's, the
-    // driver's alike.
-    public Reading<double> Read(string adapter, int ordinal)
+    // The adapter on this PCI bus; where Windows gives no bus, or the driver lists none on it, the nth adapter of this name in the
+    // driver's order (identical cards are told apart by it). The adapter's name is DXGI's, the driver's alike.
+    public Reading<double> Read(uint? bus, string adapter, int ordinal)
     {
         if (_failure is not null) return Reading<double>.Unavailable(_failure);
         if (_process is { HasExited: true }) return Reading<double>.Unavailable(Loc.T("读取已停止", "stopped"));
-        List<(string Name, double? Watts)> ready; long at;
+        List<(uint? Bus, string Name, double? Watts)> ready; long at;
         lock (_lock) { ready = _ready; at = _readyAt; }
         if (ready.Count == 0) return Reading<double>.Unavailable(Loc.T("启动中", "starting"));
         if ((Stopwatch.GetTimestamp() - at) * 1000 / Stopwatch.Frequency > 4000) return Reading<double>.Unavailable(Loc.T("无新读数", "stale"));
-        return PowerResolver.PickGpu(ready, adapter, ordinal);
+        if (bus is not null && ready.FindIndex(line => line.Bus == bus) is var on and >= 0)
+            return ready[on].Watts is { } watts && PowerResolver.Plausible(watts) ? watts : Reading<double>.Unavailable(Loc.T("无功率数据", "no power data"));
+        return PowerResolver.PickGpu(ready.ConvertAll(line => (line.Name, line.Watts)), adapter, ordinal);
+    }
+
+    // The bus of nvidia-smi's PCI bus id, "00000000:01:00.0" (domain, bus, device.function, in hexadecimal).
+    private static uint? NvidiaSmiBus(string id)
+    {
+        var parts = id.Split(':');
+        return parts.Length == 3 && uint.TryParse(parts[1], System.Globalization.NumberStyles.AllowHexSpecifier, null, out uint bus) ? bus : null;
     }
 
     public void Dispose()
@@ -293,15 +319,36 @@ internal sealed class BatteryProvider
             status.BatteryLifeTime != uint.MaxValue ? TimeSpan.FromSeconds(status.BatteryLifeTime) : null, (status.SystemStatusFlag & 1) != 0);
     }
 
-    // The effective power mode; the zero GUID (Balanced) when the call is not there.
+    // The effective power mode; the zero GUID (Balanced) when the call is not there. Asking for it waits on the power service, 130 ms and
+    // more on some machines, so it is asked once and again only after Windows reports that the effective power mode changed (the power
+    // slider or Battery saver, version 1 of the notifications; Windows calls back once at once on registering). Without the notifications
+    // it is asked every time, as before.
+    private static readonly Lock OverlayGate = new();
+    private static readonly ModeChanged OnModeChanged = (_, _) => Interlocked.Increment(ref _modeChanges);
+    private static int _modeChanges;
+    private static bool _modeWatched, _modeTried;
+    private static (Guid Scheme, int At)? _overlay;
     private static Guid Overlay()
     {
-        try { return PowerGetEffectiveOverlayScheme(out var scheme) == 0 ? scheme : Guid.Empty; }
-        catch (Exception ex) when (ex is EntryPointNotFoundException or DllNotFoundException) { return Guid.Empty; }
+        lock (OverlayGate)
+        {
+            try
+            {
+                if (!_modeTried) { _modeTried = true; _modeWatched = PowerRegisterForEffectivePowerModeNotifications(1, OnModeChanged, IntPtr.Zero, out _) == 0; }
+                int changes = Volatile.Read(ref _modeChanges);
+                if (_modeWatched && _overlay is { } known && known.At == changes) return known.Scheme;
+                var scheme = PowerGetEffectiveOverlayScheme(out var read) == 0 ? read : Guid.Empty;
+                _overlay = (scheme, changes);
+                return scheme;
+            }
+            catch (Exception ex) when (ex is EntryPointNotFoundException or DllNotFoundException) { return Guid.Empty; }
+        }
     }
+    private delegate void ModeChanged(int mode, IntPtr context);
 
     [StructLayout(LayoutKind.Sequential)]
     private struct SystemPowerStatus { public byte ACLineStatus, BatteryFlag, BatteryLifePercent, SystemStatusFlag; public uint BatteryLifeTime, BatteryFullLifeTime; }
     [DllImport("kernel32.dll")] private static extern bool GetSystemPowerStatus(out SystemPowerStatus status);
     [DllImport("powrprof.dll")] private static extern uint PowerGetEffectiveOverlayScheme(out Guid scheme);
+    [DllImport("powrprof.dll")] private static extern int PowerRegisterForEffectivePowerModeNotifications(uint version, ModeChanged callback, IntPtr context, out IntPtr registration);
 }

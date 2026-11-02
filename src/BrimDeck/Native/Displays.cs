@@ -6,7 +6,11 @@ namespace BrimDeck.Native;
 
 // A connected monitor. Id is the monitor's device path, which stays the same across restarts and changes of the primary
 // monitor; the GDI device name (\\.\DISPLAY1) and the monitor handle may change whenever the display layout changes.
-public sealed record DisplayInfo(string Id, string Name, string Device, IntPtr Handle, bool Primary, Rect Bounds);
+// Refresh: the refresh rate of the monitor's mode in hertz, null where the display configuration does not give one.
+public sealed record DisplayInfo(string Id, string Name, string Device, IntPtr Handle, bool Primary, Rect Bounds)
+{
+    public double? Refresh { get; init; }
+}
 
 public static class Displays
 {
@@ -26,7 +30,7 @@ public static class Displays
                 : known && target.Technology is 6 or 11 or 13 or unchecked((int)0x80000000) ? Loc.T("内置显示器", "Built-in display")
                 : Loc.T("显示器 ", "Display ") + info.Device.Replace(@"\\.\DISPLAY", "");
             var bounds = new Rect(info.Monitor.Left, info.Monitor.Top, info.Monitor.Right - info.Monitor.Left, info.Monitor.Bottom - info.Monitor.Top);
-            list.Add(new DisplayInfo(id, name, info.Device, monitor, (info.Flags & 1) != 0, bounds));
+            list.Add(new DisplayInfo(id, name, info.Device, monitor, (info.Flags & 1) != 0, bounds) { Refresh = known ? target.Refresh : null });
             return true;
         }, IntPtr.Zero);
         return list.OrderByDescending(d => d.Primary).ThenBy(d => d.Bounds.Left).ThenBy(d => d.Bounds.Top).ToList();
@@ -40,10 +44,10 @@ public static class Displays
         return $"{name} ({display.Bounds.Width:0}×{display.Bounds.Height:0})";
     }
 
-    // GDI device name of each active source -> the device path, friendly name and connection of the first monitor it drives.
-    private static Dictionary<string, (string Path, string Name, int Technology)> TargetNames()
+    // GDI device name of each active source -> the device path, friendly name, connection and refresh rate of the first monitor it drives.
+    private static Dictionary<string, (string Path, string Name, int Technology, double? Refresh)> TargetNames()
     {
-        var names = new Dictionary<string, (string Path, string Name, int Technology)>(StringComparer.OrdinalIgnoreCase);
+        var names = new Dictionary<string, (string Path, string Name, int Technology, double? Refresh)>(StringComparer.OrdinalIgnoreCase);
         const uint ActivePaths = 2;
         if (GetDisplayConfigBufferSizes(ActivePaths, out uint pathCount, out uint modeCount) != 0) return names;
         var paths = new PATH_INFO[pathCount]; var modes = new MODE_INFO[modeCount];
@@ -53,7 +57,8 @@ public static class Displays
             var source = new SOURCE_DEVICE_NAME { Type = 1, Size = Marshal.SizeOf<SOURCE_DEVICE_NAME>(), Adapter = paths[i].SourceAdapter, Id = paths[i].SourceId };
             var target = new TARGET_DEVICE_NAME { Type = 2, Size = Marshal.SizeOf<TARGET_DEVICE_NAME>(), Adapter = paths[i].TargetAdapter, Id = paths[i].TargetId };
             if (DisplayConfigGetDeviceInfo(ref source) != 0 || DisplayConfigGetDeviceInfo(ref target) != 0) continue;
-            names.TryAdd(source.GdiName, (target.DevicePath ?? "", target.FriendlyName ?? "", target.OutputTechnology));
+            double? refresh = paths[i].RefreshDenominator > 0 && paths[i].RefreshNumerator > 0 ? paths[i].RefreshNumerator / (double)paths[i].RefreshDenominator : null;
+            names.TryAdd(source.GdiName, (target.DevicePath ?? "", target.FriendlyName ?? "", target.OutputTechnology, refresh));
         }
         return names;
     }

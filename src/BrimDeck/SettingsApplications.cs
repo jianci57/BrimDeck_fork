@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Automation;
+using System.Windows.Automation.Peers;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -20,7 +21,7 @@ public sealed partial class SettingsWindow
         AutomationProperties.SetHelpText(input, help);
         var field = new Border { Child = input, Height = 34, CornerRadius = new CornerRadius(6), Padding = new Thickness(10, 0, 10, 0),
             Margin = new Thickness(6, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center, Background = UI.Brush(_palette.Input),
-            BorderBrush = UI.Brush(_palette.Border), BorderThickness = new Thickness(1) };
+            BorderBrush = UI.Brush(_palette.InputBorder), BorderThickness = new Thickness(1) };
         bool showingDefault = false;
         void Refresh()
         {
@@ -28,7 +29,6 @@ public sealed partial class SettingsWindow
             showingDefault = !input.IsKeyboardFocused && string.IsNullOrWhiteSpace(current?.DisplayName);
             input.Text = input.IsKeyboardFocused ? current?.DisplayName ?? "" : current?.Name ?? "";
             input.Foreground = UI.Brush(showingDefault ? TextTertiary : TextPrimary);
-            field.BorderBrush = UI.Brush(input.IsKeyboardFocused ? _palette.Accent : _palette.Border);
             AutomationProperties.SetName(input, Loc.T("显示名称 ", "Display name ") + (current?.Name ?? Loc.T("未配置应用", "unconfigured app")));
         }
         void Commit()
@@ -40,6 +40,7 @@ public sealed partial class SettingsWindow
             }
             Refresh();
         }
+        FieldFocus(field, input, () => UI.Brush(_palette.InputBorder));
         input.GotKeyboardFocus += (_, _) => Refresh();
         input.LostKeyboardFocus += (_, _) => Commit();
         input.KeyDown += (_, e) =>
@@ -116,18 +117,62 @@ public sealed partial class SettingsWindow
         Panel.SetZIndex(row, 0);
     }
 
-    private void AttachDrag(Border handle) => AttachDrag(handle, () => _appRows, AppRowHeight, rows =>
+    private void AttachDrag(Border handle, string name) => AttachDrag(handle, name, () => _appRows, AppRowHeight, rows =>
     {
         var order = rows.Children.OfType<Border>().Where(b => b.Tag is AppEntry).Select(b => ((AppEntry)b.Tag).InstanceId).ToArray();
         Change(s => s.Apps = order.Select(id => s.Entry(id)!).ToList());
     }, CollapseSourceRows);
 
-    // The rows are the list's children with a Tag, each a Border holding a Grid that holds the handle.
-    private void AttachDrag(Border handle, Func<Panel?> list, double height, Action<Panel> reordered, Action? starting = null)
+    // A row's drag handle (⠿). A Border has no automation peer; this one reads as a thumb named for its row and how to move it.
+    private sealed class GripHandle : Border
     {
-        AutomationProperties.SetName(handle, Loc.T("拖动调整顺序", "Drag to reorder"));
-        // Focusable so that pressing it commits a name being edited; reordering is by mouse only, so Tab skips it.
+        protected override AutomationPeer OnCreateAutomationPeer() => new DrawnPeer(this, AutomationControlType.Thumb, () => AutomationProperties.GetName(this));
+    }
+
+    // The rows are the list's children with a Tag, each a Border holding a Grid that holds the handle. name: the row's, for the
+    // handle's spoken name.
+    private void AttachDrag(Border handle, string name, Func<Panel?> list, double height, Action<Panel> reordered, Action? starting = null)
+    {
+        AutomationProperties.SetName(handle, Loc.T($"{name}：拖动，或在本行按 Alt+↑/↓ 调整顺序", $"{name}: drag, or press Alt+Up/Down in its row, to reorder"));
+        // Focusable so that pressing it commits a name being edited. Tab skips it: the keyboard moves a row from any control in it.
         handle.Focusable = true; KeyboardNavigation.SetIsTabStop(handle, false); handle.FocusVisualStyle = null;
+        // WCAG 2.5.7, the keyboard's way to reorder (SW-03): with the focus anywhere in the row, Alt+Up or Alt+Down moves the row one
+        // place, the two rows gliding as after a drag, and a screen reader hears where it went.
+        void Move(int delta)
+        {
+            if (_appDrag is not null || list() is not { } rows || handle.Parent is not Grid { Parent: Border row }) return;
+            var items = rows.Children.OfType<Border>().Where(b => b.Tag is not null).ToArray();
+            int from = Array.IndexOf(items, row), to = from + delta;
+            if (from < 0) return;
+            if (to < 0 || to >= items.Length) { Announce(to < 0 ? Loc.T("已在最前", "Already first") : Loc.T("已在最后", "Already last")); return; }
+            starting?.Invoke();
+            RowFocus.Keep(row, handle);
+            var other = items[to];
+            rows.Children.Remove(row);
+            rows.Children.Insert(rows.Children.IndexOf(other) + (delta > 0 ? 1 : 0), row);
+            UpdateDividers(rows);
+            SetRowOffset(row, -delta * height); AnimateRow(row, 0);
+            SetRowOffset(other, delta * height); AnimateRow(other, 0);
+            reordered(rows);
+            Announce(Loc.T($"已移到第 {to + 1} 位，共 {items.Length} 项", $"Moved to position {to + 1} of {items.Length}"));
+        }
+        void Announce(string text)
+        {
+            if (Keyboard.FocusedElement is not UIElement focused) focused = handle;
+            (UIElementAutomationPeer.FromElement(focused) ?? UIElementAutomationPeer.CreatePeerForElement(focused))?.RaiseNotificationEvent(
+                AutomationNotificationKind.ActionCompleted, AutomationNotificationProcessing.ImportantMostRecent, text, "BrimDeck.Reorder");
+        }
+        bool listening = false;
+        handle.Loaded += (_, _) =>
+        {
+            if (listening || handle.Parent is not Grid line) return;
+            listening = true;
+            line.PreviewKeyDown += (_, e) =>
+            {
+                if (Keyboard.Modifiers != ModifierKeys.Alt || e.Key != Key.System || e.SystemKey is not (Key.Up or Key.Down)) return;
+                Move(e.SystemKey == Key.Up ? -1 : 1); e.Handled = true;
+            };
+        };
         handle.MouseLeftButtonDown += (_, e) =>
         {
             if (list() is not { } rows || handle.Parent is not Grid { Parent: Border row }) return;

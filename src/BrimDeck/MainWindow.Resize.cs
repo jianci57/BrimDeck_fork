@@ -12,8 +12,8 @@ namespace BrimDeck;
 //   and lays itself out for it as it changes.
 // - Collapsed, either end of the notch, the capsule or the line changes its width. Pointing at an end shows the resize cursor
 //   instead of opening the panel. The content reflows as the width changes: the readings, the rings and the lyric take what
-//   fits. A width set this way is kept, so the surface no longer widens to its content; a double click on an end gives that
-//   back (the line returns to its usual length).
+//   fits. A width set this way is kept, so the surface no longer widens to its content; a double click on an end turns that
+//   back on or off (the line returns to its usual length), or starts moving the surface, as the settings choose (MainWindow.Move.cs).
 // The grips and their hints are a layer over the window (ResizeGripLayer); where they are is ResizeGrips's. The pointer is
 // followed both by mouse messages on the layer and by TrackPointer's polling, which also sees it when the messages go to another
 // window, and arms the collapsed surface's end before the pointer reaches it.
@@ -66,8 +66,8 @@ public partial class MainWindow
         Stage.Children.Add(_grips);
         _grips.MouseMove += GripMove;
         _grips.MouseLeftButtonDown += GripDown;
-        _grips.MouseLeftButtonUp += (_, e) => { if (Dragging) { e.Handled = true; EndResize(); } };
-        _grips.LostMouseCapture += (_, _) => { if (Dragging) EndResize(); };
+        _grips.MouseLeftButtonUp += (_, e) => { if (_movePressed) { e.Handled = true; EndMovePress(); } else if (Dragging) { e.Handled = true; EndResize(); } };
+        _grips.LostMouseCapture += (_, _) => { if (_movePressed) EndMovePress(); else if (Dragging) EndResize(); };
         // The grips outside the panel are part of it: arriving there from the panel is not leaving it.
         _grips.MouseEnter += (_, _) => { if (_expanded) PointerChanged(true); };
         _grips.MouseLeave += (_, _) =>
@@ -97,6 +97,7 @@ public partial class MainWindow
     private void UpdateGrips()
     {
         if (_grips is null) return;
+        if (_moveArmed) { ShowMoveGrips(); return; }
         var form = PanelResizable ? ResizeGripLayer.Form.Panel : CompactResizable || Resizing && _resizeCompact ? ResizeGripLayer.Form.Compact : ResizeGripLayer.Form.None;
         if (Resizing && !_resizeCompact) form = ResizeGripLayer.Form.Panel;
         _grips.Show(form, IslandBox(), _header.Row * _scale, PanelRadius, EffectiveStyle == CompactStyle.Line);
@@ -138,26 +139,37 @@ public partial class MainWindow
     {
         if (edge == _hoverEdge) return;
         _hoverEdge = edge;
-        _grips.Cursor = edge switch
-        {
-            ResizeEdges.Bottom => Cursors.SizeNS, ResizeEdges.Left or ResizeEdges.Right => Cursors.SizeWE,
-            ResizeEdges.Bottom | ResizeEdges.Left => Cursors.SizeNESW, ResizeEdges.Bottom | ResizeEdges.Right => Cursors.SizeNWSE, _ => null
-        };
+        _grips.Cursor = EdgeCursor(edge);
         if (!Resizing) _grips.Light(edge, false, "");
+    }
+
+    // The grips are in the edge's frame (MainWindow.Edge.cs); the cursor points the way the edge moves on the screen.
+    private Cursor? EdgeCursor(ResizeEdges edge)
+    {
+        double fx = edge.HasFlag(ResizeEdges.Left) ? -1 : edge.HasFlag(ResizeEdges.Right) ? 1 : 0, fy = edge.HasFlag(ResizeEdges.Bottom) ? 1 : 0;
+        if (fx == 0 && fy == 0) return null;
+        var (x, y) = _frame.ToScreen(fx, fy);
+        return x == 0 ? Cursors.SizeNS : y == 0 ? Cursors.SizeWE : x * y > 0 ? Cursors.SizeNWSE : Cursors.SizeNESW;
     }
 
     private void GripMove(object sender, MouseEventArgs e)
     {
+        if (_moveArmed) { if (_movePressed) { e.Handled = true; MoveDrag(); } return; }
         if (!Dragging) { if (!_resizeSettling) SetHoverEdge(_grips.EdgeAt(e.GetPosition(_grips))); return; }
         e.Handled = true;
         if (ResizeOvertaken()) return;
         var cursor = WindowsHost.Cursor();
         double scale = _pixelsPerDip > 0 ? _pixelsPerDip : 1;
-        double dx = (cursor.X - _resizeStart.X) / scale, dy = (cursor.Y - _resizeStart.Y) / scale;
+        // The grips are in the edge's frame: x along the edge, y away from it (MainWindow.Edge.cs).
+        var (dx, dy) = _frame.FromScreen((cursor.X - _resizeStart.X) / scale, (cursor.Y - _resizeStart.Y) / scale);
         // The open panel's size is unscaled: the pointer moves it by its move divided by the panel's scale.
         if (!_resizeCompact) { dx /= _scale; dy /= _scale; }
-        // Both sides move, so the width changes by twice the pointer's move.
-        double width = _resizeFrom.Width + (_resizeEdge.HasFlag(ResizeEdges.Right) ? 2 * dx : _resizeEdge.HasFlag(ResizeEdges.Left) ? -2 * dx : 0);
+        // On a side edge the page's height runs along the edge and its width away from it.
+        bool across = !_resizeCompact && _frame.Across;
+        // Both sides move, so the length along the edge changes by twice the pointer's move.
+        double along = (across ? _resizeFrom.Height : _resizeFrom.Width) + (_resizeEdge.HasFlag(ResizeEdges.Right) ? 2 * dx : _resizeEdge.HasFlag(ResizeEdges.Left) ? -2 * dx : 0);
+        double away = (across ? _resizeFrom.Width : _resizeFrom.Height) + (_resizeEdge.HasFlag(ResizeEdges.Bottom) ? dy : 0);
+        double width = across ? away : along;
         if (_resizeCompact)
         {
             var (min, max) = CompactWidthRange(EffectiveStyle);
@@ -165,7 +177,7 @@ public partial class MainWindow
         }
         else
         {
-            double height = _resizeFrom.Height + (_resizeEdge.HasFlag(ResizeEdges.Bottom) ? dy : 0);
+            double height = across ? along : away;
             var (minWidth, maxWidth, minHeight, maxHeight) = PageLimits;
             _springWidth.Target = Spring.Resist(width, minWidth, maxWidth);
             _springHeight.Target = Spring.Resist(height, minHeight, maxHeight);
@@ -175,18 +187,18 @@ public partial class MainWindow
 
     private void GripDown(object sender, MouseButtonEventArgs e)
     {
+        if (_grips.Shape == ResizeGripLayer.Form.Move)
+        {
+            if (_grips.OverMove(e.GetPosition(_grips))) { e.Handled = true; BeginMovePress(); }
+            return;
+        }
         var edge = _grips.EdgeAt(e.GetPosition(_grips));
         if (edge == ResizeEdges.None) return;
         e.Handled = true;
         bool compact = _grips.Shape == ResizeGripLayer.Form.Compact;
         var style = EffectiveStyle;
-        if (compact && e.ClickCount >= 2 && !_resizeSettling)
-        {
-            // A double click on an end lets the surface widen to its content again; the line returns to its usual length.
-            var fitted = Settings.Copy();
-            if (style == CompactStyle.Line) fitted.LineLength = CollapsedLimits.LineLengthDefault; else fitted.SetCompactAutoWidth(style, true);
-            _app.UpdateSettings(fitted); return;
-        }
+        // A double click on an end does what the settings choose (MainWindow.Move.cs).
+        if (compact && e.ClickCount >= 2 && !_resizeSettling) { GripDoubleClicked(style); return; }
         BeginResize(compact);
         _resizeSettling = false; _resizeByKey = false;
         _resizeEdge = edge; _resizeStart = WindowsHost.Cursor();
@@ -319,7 +331,8 @@ public partial class MainWindow
     internal void ResizeFromKeyboard(KeyboardResize.Direction direction)
     {
         bool compact = !_expanded;
-        bool horizontal = KeyboardResize.Horizontal(direction);
+        // A collapsed surface on a side edge runs down the screen: Up and Down change its length there (MainWindow.Edge.cs).
+        bool horizontal = KeyboardResize.Horizontal(direction) != (compact && _frame.Across);
         if (Dragging || (compact ? !CompactResizable || !horizontal : !PanelResizable)) return;
         // A press while the surface still settles moves on from where it is heading, as holding a key repeats.
         bool settling = SettlingHere(compact);

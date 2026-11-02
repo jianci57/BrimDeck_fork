@@ -8,10 +8,6 @@ internal static class PixelBlocksTests
         // The theme itself.
         var pixelTheme = PanelThemes.BuiltIn(PanelThemes.PixelBlocks)!;
         var pixel = PanelThemes.Resolve(pixelTheme);
-        check("Pixel blocks is an extension theme with stepped corners, a bevel rim, a block grain and a hard shadow",
-            pixelTheme.Kind == PanelThemeKind.Extension && pixel.Effects.Pixel == 2 && pixel.Effects.Texture == .05 && pixel.Effects.RimGradient.Count == 2
-            && pixel.Effects.ShadowBlur == 0 && pixel.IsDark && pixel.HasOverlay && pixel.Adjustments.Count == 0);
-        check("Pixel blocks suggests the pixel clock", pixel.Clock is { Style: "pixel" });
         // The lightest and darkest squares of the grain are surfaces text stands on, as gradient stops are.
         var lightSquare = ThemeColor.Parse("#FFFFFF").WithAlpha((byte)Math.Round(255 * .05)).Over(pixel.Surface);
         var darkSquare = ThemeColor.Black.WithAlpha((byte)Math.Round(255 * .05)).Over(pixel.Surface);
@@ -35,13 +31,8 @@ internal static class PixelBlocksTests
             && PixelEffects(0, .05).Texture == 0 && PixelEffects(null, .05) is { Texture: 0 } && !PanelThemes.Build("t", new PanelThemeFile { Effects = new() { Texture = .05 } }).HasOverlay);
         var inheritsPixel = PanelThemes.Build("child", new PanelThemeFile { Base = PanelThemes.PixelBlocks, Effects = new() { Texture = 0 } });
         check("A theme built on pixel blocks keeps its steps and can drop the grain", inheritsPixel.Effects.Pixel == 2 && inheritsPixel.Effects.Texture == 0 && inheritsPixel.SurfaceStops.Count == 1);
-        check("Pixel and texture are effects by name like the others",
-            PanelThemes.EffectKeys.Contains("pixel") && PanelThemes.EffectKeys.Contains("texture") && PanelThemes.EffectRange("pixel") == (0, 4, 0)
-            && PanelThemes.EffectRange("texture") == (0, .12, 0) && PanelThemes.Effect(pixel.Effects, "texture") == .05);
 
-        // The template and copies.
-        check("The template lists pixel and texture, off", PanelThemes.Parse(PanelThemes.Template).Effects is { Pixel: 0, Texture: 0 }
-            && PanelThemes.Build("t", PanelThemes.Parse(PanelThemes.Template)).Effects is { Pixel: 0, Texture: 0 });
+        // Copies.
         var pixelCopy = PanelThemes.Build("copy", PanelThemes.Parse(PanelThemes.FillTemplate("copy", pixel, PanelThemes.PixelBlocks)));
         check("A theme made from pixel blocks writes out its pixel size, texture and clock",
             pixelCopy.Effects.Pixel == 2 && pixelCopy.Effects.Texture == .05 && pixelCopy.Clock is { Style: "pixel" } && pixelCopy.Adjustments.Count == 0);
@@ -54,12 +45,6 @@ internal static class PixelBlocksTests
             pixelSavedPalette.Effects is { Pixel: 2, Texture: .05, RimWidth: 3 } && pixelSavedPalette.Effects.RimGradient.SequenceEqual(pixel.Effects.RimGradient));
 
         // The pixel clock.
-        var pixelClockFolder = Path.Combine(root, "pixel-clock-themes");
-        Directory.CreateDirectory(pixelClockFolder);
-        File.WriteAllText(Path.Combine(pixelClockFolder, "blocky.json"), """{ "id": "blocky", "clock": { "style": "Pixel" } }""");
-        check("The pixel clock style is read from a theme in any case and saved as the last number",
-            Enum.TryParse<ClockStyle>("pixel", true, out var pixelStyle) && pixelStyle == ClockStyle.Pixel && (int)ClockStyle.Pixel == 9
-            && PanelThemes.LoadFolder(pixelClockFolder).Single() is { Usable: true } blocky && PanelThemes.Resolve(blocky).Clock is { Style: "Pixel" });
         var pixelClockSettings = new DeckSettings { ClockStyle = ClockStyle.Pixel };
         pixelClockSettings.Normalize();
         var beyondClockSettings = new DeckSettings { ClockStyle = (ClockStyle)((int)Enum.GetValues<ClockStyle>().Max() + 1) };

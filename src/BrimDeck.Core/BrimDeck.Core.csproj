@@ -11,6 +11,8 @@
     <!-- Fixed resource names: a built-in theme's id is its file name (PanelThemes.BuiltInIndex). -->
     <EmbeddedResource Include="Themes\*.json" LogicalName="BrimDeck.Core.Themes.%(Filename)%(Extension)" />
     <EmbeddedResource Include="Templates\theme-template.json" LogicalName="BrimDeck.Core.Templates.theme-template.json" />
+    <!-- Release notes for the What's new window; see ReleaseHistory. The file name is the version. -->
+    <EmbeddedResource Include="..\..\releases\*.md" LogicalName="BrimDeck.Core.Releases.%(Filename)%(Extension)" />
   </ItemGroup>
 
   <ItemGroup>

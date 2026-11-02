@@ -17,6 +17,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BrimDeck.MediaTests", "test
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BrimDeck.WindowsTests", "tests\BrimDeck.WindowsTests\BrimDeck.WindowsTests.csproj", "{966304DB-7E85-49FD-B445-B7B682209157}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BrimDeck.Sensors", "src\BrimDeck.Sensors\BrimDeck.Sensors.csproj", "{929B0054-C754-4047-B212-8B4095AB5008}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -87,6 +89,18 @@ Global
 		{966304DB-7E85-49FD-B445-B7B682209157}.Release|x64.Build.0 = Release|Any CPU
 		{966304DB-7E85-49FD-B445-B7B682209157}.Release|x86.ActiveCfg = Release|Any CPU
 		{966304DB-7E85-49FD-B445-B7B682209157}.Release|x86.Build.0 = Release|Any CPU
+		{929B0054-C754-4047-B212-8B4095AB5008}.Debug|Any CPU.ActiveCfg = Debug|x64
+		{929B0054-C754-4047-B212-8B4095AB5008}.Debug|Any CPU.Build.0 = Debug|x64
+		{929B0054-C754-4047-B212-8B4095AB5008}.Debug|x64.ActiveCfg = Debug|x64
+		{929B0054-C754-4047-B212-8B4095AB5008}.Debug|x64.Build.0 = Debug|x64
+		{929B0054-C754-4047-B212-8B4095AB5008}.Debug|x86.ActiveCfg = Debug|x64
+		{929B0054-C754-4047-B212-8B4095AB5008}.Debug|x86.Build.0 = Debug|x64
+		{929B0054-C754-4047-B212-8B4095AB5008}.Release|Any CPU.ActiveCfg = Release|x64
+		{929B0054-C754-4047-B212-8B4095AB5008}.Release|Any CPU.Build.0 = Release|x64
+		{929B0054-C754-4047-B212-8B4095AB5008}.Release|x64.ActiveCfg = Release|x64
+		{929B0054-C754-4047-B212-8B4095AB5008}.Release|x64.Build.0 = Release|x64
+		{929B0054-C754-4047-B212-8B4095AB5008}.Release|x86.ActiveCfg = Release|x64
+		{929B0054-C754-4047-B212-8B4095AB5008}.Release|x86.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -97,5 +111,6 @@ Global
 		{21AFABAB-FF57-4095-9ED6-427416FCC5EC} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 		{1BD1488E-7923-4BEF-A2C5-F1A3064CC087} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 		{966304DB-7E85-49FD-B445-B7B682209157} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
+		{929B0054-C754-4047-B212-8B4095AB5008} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 	EndGlobalSection
 EndGlobal

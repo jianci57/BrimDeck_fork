@@ -38,6 +38,7 @@ jobs:
         with:
           dotnet-version: '10.0.x'
       - name: Build
+        id: build
         run: |
           dotnet build BrimDeck.sln -c Release
           if ($LASTEXITCODE -ne 0) { throw 'Build failed.' }
@@ -49,3 +50,19 @@ jobs:
         run: |
           dotnet run --project tests/BrimDeck.MediaTests -c Release --no-build
           if ($LASTEXITCODE -ne 0) { throw 'Media tests failed.' }
+      # The Windows-native checks that hold on a hosted runner: WPF layout and drawing, dispatcher behaviour and the sensor guard.
+      # "--hosted" leaves out what reads the machine itself (graphics adapters, the display, temperatures, power and battery),
+      # which a virtual machine without a GPU or battery cannot answer for the code; a developer runs all of it without the flag.
+      - name: Windows tests (hosted subset)
+        run: |
+          dotnet run --project tests/BrimDeck.WindowsTests -c Release --no-build -- --hosted
+          if ($LASTEXITCODE -ne 0) { throw 'Windows tests failed.' }
+      # Started by hand from the Actions tab: every Windows check, to see which of the left-out ones this runner can answer.
+      # It never fails the run; the log is the result.
+      - name: Windows tests (everything, for information)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && github.event_name == 'workflow_dispatch' }}
+        continue-on-error: true
+        timeout-minutes: 8
+        run: |
+          dotnet run --project tests/BrimDeck.WindowsTests -c Release --no-build
+          if ($LASTEXITCODE -ne 0) { throw 'Windows tests failed.' }

@@ -65,6 +65,8 @@ public sealed class DesktopSources : IDesktopSources
         var known = _antigravity.Where(p => Alive(p.Id, p.Started) &&
             p.Endpoints.All(e => listeners.Any(l => l.ProcessId == p.Id && l.Port == e.Port))).ToArray();
         if (known.Length > 0 && known.Length == _antigravity.Length) return known.SelectMany(p => p.Endpoints).ToList();
+        // No language server running (Antigravity closed): nothing to ask WMI about.
+        if (!ProcessSnapshot.Any(name => name.Contains("language_server", StringComparison.OrdinalIgnoreCase))) { _antigravity = []; return []; }
         // A WMI query has no timeout of its own; a stalled service must not hold the refresh.
         var processes = await Task.Run(FindAntigravityProcesses, cancellation).WaitAsync(TimeSpan.FromSeconds(15), cancellation);
         var found = new List<(int, DateTime, IReadOnlyList<LocalEndpoint>)>();

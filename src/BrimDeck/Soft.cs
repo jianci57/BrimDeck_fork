@@ -23,13 +23,14 @@ internal static class Soft
     public static readonly IEasingFunction Drawer = Frozen(new BezierEase(.32, .72, 0, 1));
     // The system monitor's move (Curves.Follow): content that moves or swaps, selections that glide, hover feedback.
     public static readonly IEasingFunction Follow = Frozen(new FollowEase());
-    // The opening surface: a fast attack that passes its size by under 2 percent and settles back (Curves.Bounce).
+    // The opening surface: a fast attack that passes its size by about a third of a percent and settles back (Curves.Bounce).
     public static readonly IEasingFunction Bounce = Frozen(new BounceEase());
 
     // Hover and press feedback, and what leaves; small things that appear or swap. Values that follow readings take
-    // BrimDeck.Core.Eased.Seconds, and the panel itself the duration chosen in the settings. Hover is the monitor's (Eased.Hover),
-    // a glide between choices the monitor's sort pill (Choose), content that moves in or out the monitor's readings (Move).
-    public const int Quick = 160, Short = 240, Hover = (int)(Eased.Hover * 1000), Choose = (int)(Eased.Seconds * 750), Move = (int)(Eased.Seconds * 1000);
+    // BrimDeck.Core.Eased.Seconds, and the panel itself the duration chosen in the settings. Hover is the monitor's (Eased.Hover, and
+    // HoverOut its quicker way out), a glide between choices the monitor's sort pill (Choose), content that moves in or out the
+    // monitor's readings (Move).
+    public const int Quick = 160, Short = 240, Hover = (int)(Eased.Hover * 1000), HoverOut = (int)(Eased.HoverOut * 1000 + .5), Choose = (int)(Eased.Seconds * 750), Move = (int)(Eased.Seconds * 1000);
     // How small content is as it steps out of or into its place (the island's compact content, motion-review F15): never so
     // small that it reads as coming from nothing.
     public const double Shrunk = .94;

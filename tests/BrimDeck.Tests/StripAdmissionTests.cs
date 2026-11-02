@@ -6,9 +6,10 @@ using BrimDeck.Core;
 static class StripAdmissionTests
 {
     private const CompactMonitorItems Cpu = CompactMonitorItems.Cpu, Gpu = CompactMonitorItems.Gpu, Storage_ = CompactMonitorItems.Storage,
-        // The machine's power and battery join by their own sensors (PowerTests); these runs leave them aside.
-        Later = StripAdmission.Later & ~CompactMonitorItems.Power & ~CompactMonitorItems.Charge;
-    private const CompactMonitorItems EveryReading = CompactMonitor.Every & ~CompactMonitorItems.Power & ~CompactMonitorItems.Charge;
+        // The machine's power and battery and the frame rate join by their own sensors (PowerTests, FrameRateTests); these runs leave
+        // them aside.
+        Later = StripAdmission.Later & ~CompactMonitorItems.Power & ~CompactMonitorItems.Charge & ~CompactMonitorItems.Frames;
+    private const CompactMonitorItems EveryReading = CompactMonitor.Every & ~CompactMonitorItems.Power & ~CompactMonitorItems.Charge & ~CompactMonitorItems.Frames;
     private const SensorState Unknown = SensorState.Unknown, Found = SensorState.Found, None = SensorState.None;
     private const string Heat = StripAdmission.Heat;
 

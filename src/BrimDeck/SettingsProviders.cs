@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.IO;
 using System.Security.Cryptography;
 using System.Windows;
@@ -63,10 +64,14 @@ public sealed partial class SettingsWindow
         var arrow = ChevronButton(Loc.T("展开 " + entry.Name + " 配额配置", "Show " + entry.Name + " quota configuration"), () => ToggleSourceRow(entry.InstanceId));
         arrow.HorizontalAlignment = HorizontalAlignment.Right; arrow.VerticalAlignment = VerticalAlignment.Center;
         AutomationProperties.SetAutomationId(arrow, "expand-source-" + entry.InstanceId.ToString("N"));
-        row.Children.Add(arrow);
+        // Right after the drag handle, so Tab reaches the arrow at the row's left before the row's other controls (SW-05). The two
+        // share the first column side by side (22 + 18 DIP), so the order changes nothing on screen.
+        int handle = row.Children.OfType<UIElement>().ToList().FindIndex(child => child is GripHandle);
+        row.Children.Insert(handle + 1, arrow);
         var detail = new StackPanel { Margin = new Thickness(0, 0, 0, 12) }; Grid.SetIsSharedSizeScope(detail, true);
         Grid.SetRow(detail, 1); Grid.SetColumnSpan(detail, 9);
         if (SourceDetails(entry) is { } source) { source.Margin = new Thickness(0); detail.Children.Add(source); }
+        if (ProviderCatalog.HasAccountBalance(entry.QuotaSource)) detail.Children.Add(BalanceTargetDetails(entry));
         detail.Children.Add(OffPeakDetails(entry));
         bool open = _expandedSource == entry.InstanceId;
         detail.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
@@ -91,8 +96,9 @@ public sealed partial class SettingsWindow
     private FrameworkElement SmallHelp(string title, Func<string> help)
     {
         var mark = Stroke("M 6,1 A 5,5 0 1 1 6,11 A 5,5 0 1 1 6,1 Z M 6,5.4 V 8.4 M 6,3.6 V 3.7", 12, 12, TextTertiary); mark.StrokeThickness = 1.1;
-        var info = new Border { Width = 12, Height = 12, Background = Brushes.Transparent, Margin = new Thickness(4, 0, 0, 0),
-            VerticalAlignment = VerticalAlignment.Center, Cursor = Cursors.Help, Focusable = true, Child = mark, RenderTransform = new TranslateTransform(0, 0.5),
+        // The 12 DIP mark takes the pointer 24 DIP square (SW-08); the negative margin keeps its place.
+        var info = new HelpMark { Width = 24, Height = 24, Background = Brushes.Transparent, Margin = new Thickness(4 - 6, -6, -6, -6),
+            VerticalAlignment = VerticalAlignment.Center, Cursor = Cursors.Help, Focusable = true, Child = mark,
             FocusVisualStyle = (Style)FindResource("SettingsSmallHelpFocus") };
         AttachSettingHelp(info, title, help);
         return info;
@@ -114,10 +120,8 @@ public sealed partial class SettingsWindow
         line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto, SharedSizeGroup = "SourceLabel" });
         line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         line.ColumnDefinitions.Add(new ColumnDefinition());
-        var heading = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(16, 0, 16, 0), MinWidth = 52, VerticalAlignment = VerticalAlignment.Center };
-        var caption = TextLine(title, 12, TextSecondary); caption.VerticalAlignment = VerticalAlignment.Center;
-        heading.Children.Add(caption);
-        heading.Children.Add(SmallHelp(title, () => help));
+        var caption = TextLine(title, 12, TextSecondary);
+        var heading = new HelpHeading(caption, SmallHelp(title, () => help)) { Margin = new Thickness(16, 0, 16, 0), MinWidth = 52, VerticalAlignment = VerticalAlignment.Center };
         line.Children.Add(heading);
         var toggle = new CheckBox { Style = (Style)FindResource("SettingsToggle"), IsChecked = entry.QuotaOnline, Padding = new Thickness(0), VerticalAlignment = VerticalAlignment.Center };
         AutomationProperties.SetName(toggle, title); AutomationProperties.SetHelpText(toggle, help);
@@ -130,6 +134,68 @@ public sealed partial class SettingsWindow
         }
         toggle.Checked += (_, _) => Set(true); toggle.Unchecked += (_, _) => Set(false);
         line.Margin = new Thickness(0, 5, 0, 5);
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        Grid.SetColumn(line, 1); Grid.SetColumnSpan(line, 6); grid.Children.Add(line);
+        return grid;
+    }
+
+    // Sources billed per API call: the balance that counts as 0% used, so that the account balance is drawn as a used share
+    // with the row's warning and critical levels. New rows start at 100; empty leaves the balance a bare amount.
+    private FrameworkElement BalanceTargetDetails(AppEntry entry)
+    {
+        var grid = AppColumns();
+        string title = Loc.T("目标余额", "Target balance");
+        string help = Loc.T("以目标余额为 100%，按剩余比例显示用量。例如目标余额 100，剩余 20 时显示已用 80%。",
+            "The target balance counts as 100%, and usage is shown from what is left. For example, with a target of 100 and 20 left, 80% is shown as used.");
+        var line = new Grid();
+        // The label column is shared with the lines above and below, so the field starts where their controls start.
+        line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto, SharedSizeGroup = "SourceLabel" });
+        line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        line.ColumnDefinitions.Add(new ColumnDefinition());
+        var caption = TextLine(title, 12, TextSecondary);
+        var heading = new HelpHeading(caption, SmallHelp(title, () => help)) { Margin = new Thickness(16, 0, 16, 0), MinWidth = 52, VerticalAlignment = VerticalAlignment.Center };
+        line.Children.Add(heading);
+        static string Format(decimal? value) => value?.ToString("0.##", CultureInfo.InvariantCulture) ?? "";
+        var input = new TextBox { Style = (Style)FindResource("SettingsNumber"), TextAlignment = TextAlignment.Left, FontSize = 12.5, MaxLength = 20,
+            VerticalAlignment = VerticalAlignment.Center, Text = Format(entry.BalanceTarget) };
+        AutomationProperties.SetName(input, title); AutomationProperties.SetHelpText(input, help);
+        AutomationProperties.SetAutomationId(input, "balance-target-" + entry.InstanceId.ToString("N"));
+        var hint = TextLine(Loc.T("未设置", "Not set"), 12.5, TextTertiary);
+        hint.VerticalAlignment = VerticalAlignment.Center; hint.IsHitTestVisible = false; hint.Margin = new Thickness(5, 0, 0, 0);
+        var content = new Grid(); content.Children.Add(hint); content.Children.Add(input);
+        var field = new Border { Child = content, Width = 140, Height = 34, CornerRadius = new CornerRadius(6), Padding = new Thickness(10, 0, 10, 0), Margin = new Thickness(0, 5, 0, 5),
+            Background = UI.Brush(_palette.Input), BorderBrush = UI.Brush(_palette.InputBorder), BorderThickness = new Thickness(1) };
+        FieldFocus(field, field, () => UI.Brush(_palette.InputBorder));
+        field.MouseLeftButtonDown += (_, e) => { input.Focus(); e.Handled = true; };
+        void Hint() => hint.Visibility = input.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+        void Commit()
+        {
+            if (S.Entry(entry.InstanceId) is not { } current) return;
+            // A currency sign or thousands separator copied with the amount is accepted.
+            var text = input.Text.Trim().TrimStart('¥', '￥', '$').Replace(",", "").Replace("，", "").Replace('．', '.').Trim();
+            decimal? value = null;
+            if (text.Length > 0)
+            {
+                if (!decimal.TryParse(text, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var parsed) || parsed <= 0 || parsed > AppPresets.MaximumBalanceTarget)
+                {
+                    SaveStatus(Loc.T("目标余额必须是大于 0 的金额，例如 100。", "The target balance must be an amount greater than 0, such as 100."), true);
+                    input.Text = Format(current.BalanceTarget); Hint();
+                    return;
+                }
+                value = decimal.Round(parsed, 2, MidpointRounding.AwayFromZero);
+            }
+            if (value != current.BalanceTarget) Change(s => s.Entry(entry.InstanceId)!.BalanceTarget = value);
+            input.Text = Format(value); Hint();
+        }
+        input.TextChanged += (_, _) => Hint();
+        input.LostKeyboardFocus += (_, _) => Commit();
+        input.KeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Enter) { Commit(); e.Handled = true; }
+            else if (e.Key == Key.Escape) { input.Text = Format(S.Entry(entry.InstanceId)?.BalanceTarget); Hint(); e.Handled = true; }
+        };
+        Hint();
+        Grid.SetColumn(field, 1); line.Children.Add(field);
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         Grid.SetColumn(line, 1); Grid.SetColumnSpan(line, 6); grid.Children.Add(line);
         return grid;
@@ -172,8 +238,8 @@ public sealed partial class SettingsWindow
             content.Children.Add(hint); content.Children.Add(input);
             if (trailing is not null) { Grid.SetColumn(trailing, 1); content.Children.Add(trailing); }
             var field = new Border { Child = content, Height = 34, CornerRadius = new CornerRadius(6), Padding = new Thickness(10, 0, 4, 0),
-                Background = UI.Brush(_palette.Input), BorderBrush = UI.Brush(_palette.Border), BorderThickness = new Thickness(1) };
-            field.IsKeyboardFocusWithinChanged += (_, _) => field.BorderBrush = UI.Brush(field.IsKeyboardFocusWithin ? _palette.Accent : _palette.Border);
+                Background = UI.Brush(_palette.Input), BorderBrush = UI.Brush(_palette.InputBorder), BorderThickness = new Thickness(1) };
+            FieldFocus(field, field, () => UI.Brush(_palette.InputBorder));
             return field;
         }
         TextBox Plain(string id, string name)

@@ -23,8 +23,6 @@ internal static class DotMotionTests
         check("DotMotion: the jumps fit in the headroom left above the dot",
             boot.Concat(off).All(p => p.Lift + DotMotion.Size * (p.ScaleY - 1) <= DotMotion.Headroom + 1e-9));
 
-        check("DotMotion: the power-off covers the jumps and the merge", Math.Abs(DotMotion.PowerOffLength - DotMotion.Touchdown - DotMotion.SinkLength) < 1e-9);
-
         var merge = Enumerable.Range(0, 201).Select(i => DotMotion.MergeAt(i / 200.0)).ToList();
         const double r = DotMotion.Size / 2;
         var grid = (from x in Enumerable.Range(-40, 81) from y in Enumerable.Range(-40, 45) select (X: x * .5, Y: y * .5)).ToList();

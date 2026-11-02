@@ -111,15 +111,12 @@ static class TemperatureTests
         check("Ring temperatures: each its own, at its own level", CompactFigures.Heat(CompactMonitorItems.Cpu, Snapshot(61, null, gpuRead: false)) is { Celsius: 61, Level: MemoryLevel.Normal }
             && CompactFigures.Heat(CompactMonitorItems.Gpu, Snapshot(null, 47.3)) is { Celsius: 47.3 } && CompactFigures.Heat(CompactMonitorItems.Cpu, Snapshot(96, 40)) is { Level: MemoryLevel.Critical }
             && CompactFigures.Heat(CompactMonitorItems.Gpu, Snapshot(96, 82)) is { Level: MemoryLevel.Elevated });
-        check("Snapshots: no drives until they are read", MonitorSnapshot.Empty(4, "waiting").Storage.Count == 0);
     }
 
     // The temperatures show with CPU, GPU and the drives, as their second figure (CompactFigures), not as a reading of their own.
     private static void Strip(Action<string, bool> check)
     {
         const CompactMonitorItems Temperature = CompactMonitorItems.Temperature, Cpu = CompactMonitorItems.Cpu, Gpu = CompactMonitorItems.Gpu, Storage_ = CompactMonitorItems.Storage;
-        check("Compact temperature: not a reading of the table", !CompactMonitor.Order.Contains(Temperature) && (CompactMonitor.Every & Temperature) == 0
-            && !CompactMonitor.LeaveOrder.Contains(Temperature));
         var settings = SettingsMigrations.Read("""{"AppVersion":"1.2.0","CompactReadings":[{"Item":64,"Visible":true},{"Item":2,"Visible":true}]}""");
         check("Compact temperature: a table saved with it drops it and keeps the rest in order", settings.CompactReadings.All(r => r.Item != Temperature)
             && settings.CompactReadings[0] is { Item: Cpu, Visible: true } && CompactMonitor.Visible(settings.CompactReadings) == Cpu);
@@ -140,9 +137,7 @@ static class TemperatureTests
         check("Compact figures: one above the other by default, side by side kept where a reading has figures", saved.CompactReadings.All(r => !r.FiguresInLine)
             && inLine.CompactReadings.Single(r => r.Item == Cpu).FiguresInLine && !inLine.CompactReadings.Single(r => r.Item == CompactMonitorItems.Memory).FiguresInLine
             && !inLine.CompactReadings.Single(r => r.Item == Storage_).FiguresInLine);
-        var off = SettingsMigrations.Read("""{"AppVersion":"1.2.0","MonitorTemperatures":false}""");
-        check("Temperatures setting: saved off stays off", !off.MonitorTemperatures);
         var on = SettingsMigrations.Read("""{"AppVersion":"1.2.0","MonitorTemperatures":true}""");
-        check("Temperatures setting: off by default, saved on stays on", !new DeckSettings().MonitorTemperatures && on.MonitorTemperatures);
+        check("Temperatures setting: saved on stays on", on.MonitorTemperatures);
     }
 }

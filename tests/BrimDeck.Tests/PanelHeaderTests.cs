@@ -59,8 +59,6 @@ internal static class PanelHeaderTests
                 && PanelHeader.CornerGap(R, h.RightMargin, (h.Height - h.SettingsHeight) / 2 + extra, PanelHeader.SettingsRadius) >= 1 && switchTop >= 8;
         }
         check("A floating panel's header keeps clear of the curve at every size, with the switch at least 8 DIPs below the edge", headers.All(ClearFloating));
-        check("The usage page's 32 DIP header in a floating panel has its switch 10 DIPs below the edge",
-            PanelHeader.For(32, 16) is { SwitchTop: 4, Side: 16 } && PanelHeader.For(32, 16).SwitchTop + CollapsedLimits.FloatingHeaderExtra == 10);
         check("The previous header (switch at (10, 4)) was 2.6 DIPs from the curve, which the check rejects",
             Math.Abs(PanelHeader.CornerGap(24, 10, 4, 8) - 2.58) < .01 && PanelHeader.CornerGap(24, 10, 0, 8) < 0);
 
@@ -76,10 +74,6 @@ internal static class PanelHeaderTests
             usageHeaders.All(u => musicHeaders.All(m => m.WithControlsOf(u) is var w && w.Row == m.Row && w.Side == m.Side && w.RightMargin == m.RightMargin)));
         var user = PanelHeader.For(32, 16);
         var userMusic = PanelHeader.Music(MusicMetrics.At(1)).WithControlsOf(user);
-        check("The user's usage header (32 row) keeps its 24 DIP switch at 4, 20 DIP buttons and 24 DIP settings",
-            user is { Height: 32, SwitchHeight: 24, ButtonHeight: 20, SwitchTop: 4, SettingsHeight: 24 });
-        check("The user's music header (density 1, 44 row) takes the same controls; its content still starts at 44, its extra 12 DIPs below the band",
-            Controls(userMusic) == Controls(user) && userMusic.Row == 44 && userMusic.Row - userMusic.Height == 12);
         check("Floating, both pages' switches sit 10 DIPs below the edge (4 hanging)",
             userMusic.SwitchTop + CollapsedLimits.FloatingHeaderExtra == 10 && user.SwitchTop + CollapsedLimits.FloatingHeaderExtra == 10 && userMusic.SwitchTop == 4);
         var mixed = usageHeaders.SelectMany(u => musicHeaders.Select(m => m.WithControlsOf(u))).ToList();

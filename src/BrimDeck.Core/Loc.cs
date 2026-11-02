@@ -35,7 +35,7 @@ public static class Loc
         ["账户余额"] = "Account balance", ["密钥余额"] = "Key balance", ["今日扣费"] = "Charged today", ["本月扣费"] = "Charged this month", ["预算余额"] = "Budget left", ["密钥累计"] = "Key total",
         ["赠送余额"] = "Granted balance", ["累计消费"] = "Total cost", ["加油包"] = "Extra usage", ["本月加油包"] = "Extra usage this month",
         ["次"] = "calls", ["积分"] = "credits", ["令牌"] = "tokens",
-        ["网易云音乐"] = "NetEase Cloud Music", ["QQ 音乐"] = "QQ Music", ["爱奇艺"] = "iQIYI",
+        ["网易云音乐"] = "NetEase Cloud Music", ["QQ 音乐"] = "QQ Music", ["酷狗音乐"] = "KuGou Music", ["爱奇艺"] = "iQIYI",
     };
 
     // Translates a label that the data keeps in Chinese. Labels made of parts joined by "·" are translated part by part;

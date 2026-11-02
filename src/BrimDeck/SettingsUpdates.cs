@@ -89,7 +89,7 @@ public sealed partial class SettingsWindow
         var title = TextLine("", inline ? 13 : 15, TextPrimary, FontWeights.SemiBold);
         AutomationProperties.SetLiveSetting(title, AutomationLiveSetting.Polite);
         var detail = TextLine("", 12, TextSecondary); detail.TextWrapping = TextWrapping.Wrap; detail.Margin = new Thickness(0, inline ? 3 : 7, 0, 0);
-        var notes = TextLine("", 12, TextSecondary); notes.TextWrapping = TextWrapping.Wrap;
+        var notes = new StackPanel { Margin = new Thickness(0, 0, 10, 0) }; string? notesText = null;
         var noteScroll = new ScrollViewer { Content = notes, MaxHeight = 170, Margin = inline ? new Thickness(0, 2, 0, 16) : new Thickness(0, 16, 0, 0), Style = (Style)FindResource("SettingsScrollViewer") };
         var progress = new ProgressBar { Minimum = 0, Maximum = 100, Height = 5, Margin = inline ? new Thickness(0, 2, 0, 16) : new Thickness(0, 18, 0, 0), Style = (Style)FindResource("SettingsUpdateProgress") };
         AutomationProperties.SetName(progress, Loc.T("更新下载进度", "Update download progress"));
@@ -162,9 +162,11 @@ public sealed partial class SettingsWindow
                 _ => updates.AutoCheck ? Loc.T("BrimDeck 会在启动后和每 6 小时于后台检查一次新版本，打开设置时也会检查；也可以随时手动检查。", "BrimDeck checks for a new version in the background after startup and every 6 hours, and when settings open. You can also check at any time.")
                     : Loc.T("自动检查更新已关闭，可以随时手动检查。", "Automatic update checks are off. You can check at any time.")
             };
-            // Show release notes as text. Remote release content cannot execute HTML or scripts.
-            notes.Text = release?.Notes.For(Loc.Language) ?? "";
-            noteScroll.Visibility = notes.Text.Length > 0 && stage is not AppUpdateStage.Checking ? Visibility.Visible : Visibility.Collapsed;
+            // Release notes laid out as in the What's new window (FillNotes), only as text: remote release content cannot run
+            // HTML or scripts. Rebuilt only when the notes change, not on every download progress report.
+            var text = release?.Notes.For(Loc.Language) ?? "";
+            if (text != notesText) { notesText = text; FillNotes(notes, text); }
+            noteScroll.Visibility = text.Length > 0 && stage is not AppUpdateStage.Checking ? Visibility.Visible : Visibility.Collapsed;
             progress.Value = updates.Progress; progress.Visibility = stage == AppUpdateStage.Downloading ? Visibility.Visible : Visibility.Collapsed;
             error.Text = updates.Error ?? ""; error.Visibility = updates.Error is null ? Visibility.Collapsed : Visibility.Visible;
             primary.Content = stage == AppUpdateStage.Ready ? Loc.T("安装并重启", "Install and restart") : updates.CanInstall ? Loc.T("下载更新", "Download update") : Loc.T("前往下载页面", "Open download page");

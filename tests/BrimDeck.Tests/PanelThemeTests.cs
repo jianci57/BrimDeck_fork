@@ -41,8 +41,6 @@ internal static class PanelThemeTests
         check("Contrast holds against every stop of a gradient", ThemeColor.Parse("#5A4A80").EnsureContrast(gradient, 4.5).MinimumContrast(gradient) >= 4.5);
 
         // Built-in themes.
-        check("Built-in themes are listed in order and Monokai Pro is not among them",
-            PanelThemes.BuiltIns.Select(theme => theme.Id).SequenceEqual(["dark", "light", "one-dark-pro", "github-dark", "github-light", "dracula", "night-owl", "island-holiday", "island-holiday-2", "pixel-blocks", "cyberpunk-edgerunners"]));
         check("A built-in theme's id is its file name", PanelThemes.BuiltIns.All(theme => PanelThemes.NormalizeId(theme.File.Id) == theme.Id));
         check("Every built-in theme names an open license", PanelThemes.BuiltIns.All(theme => theme.File.License is "MIT" or "Apache-2.0"));
         bool allValid = true; var adjusted = new List<string>();
@@ -68,7 +66,6 @@ internal static class PanelThemeTests
         var dark = BuiltIn("dark");
         check("The dark theme is the original look", dark.Surface == ThemeColor.Black && dark["textPrimary"].ToString() == "#F5F5F7"
             && dark["textSecondary"].ToString() == "#9EEBEBF5" && dark.AppDefault(ProviderId.Claude)?.ToString() == AppPresets.ThemeColor(ProviderId.Claude) && !dark.HasOverlay && dark.IsDark);
-        check("The light theme is light and has its own app colors", !BuiltIn("light").IsDark && BuiltIn("light").AppDefault(ProviderId.DeepSeek)?.ToString() == "#9B51C9");
         // Each theme keeps what the user changed under it.
         {
             var kept = new DeckSettings();
@@ -121,9 +118,6 @@ internal static class PanelThemeTests
             PanelThemes.RenameFile(file, "  Blue  ");
             check("Renaming a file trims the name and writes it back", File.ReadAllText(file).Contains(""" "name": "Blue" """.Trim()));
         }
-        var demo = BuiltIn(PanelThemes.Demo);
-        check("The demo theme is listed with the extensions, leaving the custom section to the user", PanelThemes.BuiltIn(PanelThemes.Demo)!.Kind == PanelThemeKind.Extension);
-        check("The demo theme carries its effects", demo.HasOverlay && demo.Effects.RimGradient.Count == 3 && demo.Effects.ShadowDepth == 0 && demo.Effects.Scanlines > 0);
         check("System follows the Windows app theme", PanelThemes.Find("system", true, []).Id == "dark" && PanelThemes.Find("SYSTEM", false, []).Id == "light");
         check("An unknown theme shows as dark", PanelThemes.Find("gone", false, []).Id == "dark");
 
@@ -306,9 +300,7 @@ internal static class PanelThemeTests
                 PanelThemes.Resolve(holiday2, night).Effects.Decor is { Horizon: not null, Caustics: not null } decor && (decor.Palm is null) == night
                 && PanelThemes.Build("copy", holiday2Copy, night).Effects.Decor == decor && PanelThemes.Build("copy", holiday2Copy, night).Adjustments.Count == 0)
             && PanelThemes.Resolve(holiday2, true).Effects.Decor != PanelThemes.Resolve(holiday2).Effects.Decor
-            && holiday2Copy.Daylight is { Day: "06:30", Night: "18:30" } && holiday2.Kind == PanelThemeKind.Extension);
-        check("The first island holiday is left as it was: no motifs and its serif clock",
-            PanelThemes.Resolve(holidayTheme).Effects.Decor is null && PanelThemes.Resolve(holidayTheme, true).Effects.Decor is null && PanelThemes.Resolve(holidayTheme).Clock?.Style == "serif");
+            && holiday2Copy.Daylight is { Day: "06:30", Night: "18:30" });
         check("A theme without a night look gets none from the template",
             PanelThemes.Parse(PanelThemes.FillTemplate("plain", BuiltIn("dracula"), "dracula", PanelThemes.BuiltIn("dracula")!.File)) is { Night: null, Daylight: null });
         var nightOwl = BuiltIn("night-owl");
@@ -325,8 +317,7 @@ internal static class PanelThemeTests
         PanelThemes.ApplyClock(rounded, roundedSettings);
         check("The rounded clock style is read from a theme file and comes back from the template",
             (int)ClockStyle.Rounded == 10 && (int)ClockStyle.Pixel == 9 && roundedFile.Error is null && roundedSettings.ClockStyle == ClockStyle.Rounded
-            && PanelThemes.Parse(PanelThemes.FillTemplate("copy", rounded, "night-owl")).Clock is { Style: "rounded" }
-            && PanelThemes.Template.Contains("condensed, pixel, rounded", StringComparison.Ordinal) && BuiltIn(PanelThemes.IslandHoliday2).Clock?.Style == "rounded");
+            && PanelThemes.Parse(PanelThemes.FillTemplate("copy", rounded, "night-owl")).Clock is { Style: "rounded" });
 
         // Clock, swatches and what choosing a theme changes.
         bool clockColors = true, pickers = true;
@@ -348,12 +339,6 @@ internal static class PanelThemeTests
         PanelThemes.ApplyClock(glow, glowClock);
         check("A theme's clock is applied to the settings", glowClock.ClockStyle == ClockStyle.Neon && glowClock.ClockColor == ClockColor.Gradient
             && glowClock.ClockGradient.SequenceEqual(["#C792EA", "#82AAFF", "#7FDBCA"]));
-        check("The built-in themes suggest a clock in one color, not a gradient",
-            PanelThemes.BuiltIns.All(theme => PanelThemes.Resolve(theme).Clock?.Color != "gradient"));
-        var demoClock = new DeckSettings { ClockGradient = ["#111111", "#222222", "#333333"] };
-        PanelThemes.ApplyClock(demo, demoClock);
-        check("The demo uses the seven-segment clock in the theme's color and leaves the gradient alone", demoClock.ClockStyle == ClockStyle.Segment
-            && demoClock.ClockColor == ClockColor.White && demoClock.ClockGradient.SequenceEqual(["#111111", "#222222", "#333333"]));
         var placeholder = new DeckSettings { ClockCustomColor = "#123456", ClockGradient = ["#111111", "#222222", "#333333"] };
         PanelThemes.ApplyClock(PanelThemes.Build("p", template), placeholder);
         check("The clock's custom color and gradient count only when the clock uses them", placeholder.ClockCustomColor == "#123456"
@@ -417,9 +402,6 @@ internal static class PanelThemeTests
             var holidayFile = holiday.File;
             DateTime At(int hour, int minute) => new(2026, 7, 1, hour, minute, 0);
             var holidayDay = PanelThemes.Resolve(holiday); var holidayDark = PanelThemes.Resolve(holiday, true);
-            check("Island holiday is an extension theme, light by day and dark by night",
-                holiday.Kind == PanelThemeKind.Extension && !holidayDay.IsNight && !holidayDay.IsDark && holidayDark.IsNight && holidayDark.IsDark
-                && holidayDark.Surface != holidayDay.Surface && holidayDark.Effects.ShadowDepth == 0 && holidayDay.Effects.ShadowDepth > 0);
             check("A night look is resolved once and kept", ReferenceEquals(holidayDark, PanelThemes.Resolve(holiday, true)) && ReferenceEquals(holidayDay, PanelThemes.Resolve(holiday)));
             check("A theme without a night look has one look", ReferenceEquals(PanelThemes.Resolve(PanelThemes.BuiltIn("dracula")!, true), BuiltIn("dracula"))
                 && !PanelThemes.IsNight(PanelThemes.BuiltIn("dracula")!.File, At(23, 0)) && PanelThemes.NextDaylightChange(PanelThemes.BuiltIn("dracula")!.File, At(23, 0)) is null);

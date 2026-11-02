@@ -295,12 +295,6 @@ internal static class PowerMarks
         return geometry;
     }
 
-    public static void Plug(DrawingContext drawing, Rect area, string color)
-    {
-        if (area.Height <= 0) return;
-        drawing.DrawGeometry(UI.Brush(color), null, PlugIn(area));
-    }
-
     // An exclamation mark centred in the area: a bar and a square dot of the same thickness, at least 1.5 DIP, all on whole device
     // pixels so the dot is as dark as the bar. halo: a device pixel of this color around them, setting them off the fill.
     public static void Exclamation(DrawingContext drawing, Rect area, string color, string? halo, double ppd)

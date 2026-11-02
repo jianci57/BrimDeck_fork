@@ -37,7 +37,8 @@
               Background="Black" BorderThickness="0" CornerRadius="0,0,12,12" ShoulderRadius="16" MaterialOpacity="1" ClipToBounds="True">
         <!-- The layered window and the island's rounded clip would leave text in grayscale; the surface beneath is always opaque,
              so ClearType is safe here. Text under a fade, a mask or another clip falls back to grayscale until that ends. -->
-        <Grid RenderOptions.ClearTypeHint="Enabled">
+        <!-- Turned back upright when the panel hangs from another edge than the top (MainWindow.Edge.cs). -->
+        <Grid x:Name="IslandContent" RenderOptions.ClearTypeHint="Enabled">
           <Border x:Name="MusicIndicator" Height="4" HorizontalAlignment="Left" VerticalAlignment="Center" Background="#FF55555A" CornerRadius="2" Visibility="Collapsed" IsHitTestVisible="False"/>
           <!-- Compact music, quotas and the clock share the fixed content area; quota alerts take precedence. -->
           <Grid x:Name="Compact" HorizontalAlignment="Center" VerticalAlignment="Center" RenderTransformOrigin="0.5,0.5">
@@ -45,11 +46,11 @@
             <StackPanel x:Name="CompactRings" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center"/>
             <StackPanel x:Name="CompactAlert" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed"/>
           </Grid>
-          <!-- Pinned to the top and scaled about the top center, so the content recedes toward the screen edge instead of sliding while the panel shrinks.
-               Its width follows the island's, before the panel's scale (MainWindow.Scale.cs). -->
+          <!-- Pinned to the top. Its width follows the island's, before the panel's scale (MainWindow.Scale.cs). It only fades: it has no
+               render transform, because text under a transform that is not exactly the identity is drawn unhinted and off the pixel
+               grid, and snaps onto the grid on the frame the transform reaches the identity. -->
           <Grid x:Name="ExpandedContent" Visibility="Hidden" Opacity="0"
-                   HorizontalAlignment="Center" VerticalAlignment="Top" RenderTransformOrigin="0.5,0">
-            <Grid.RenderTransform><ScaleTransform x:Name="ContentScale"/></Grid.RenderTransform>
+                   HorizontalAlignment="Center" VerticalAlignment="Top">
             <Grid x:Name="ContentCanvas" Width="760" Height="240" Margin="0" HorizontalAlignment="Center">
               <Grid.RowDefinitions><RowDefinition x:Name="ToolbarRow" Height="36"/><RowDefinition Height="*"/></Grid.RowDefinitions>
               <Grid Grid.Row="1" x:Name="UsageContent" Margin="6,0,6,10"/>

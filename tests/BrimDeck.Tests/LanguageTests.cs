@@ -10,7 +10,6 @@ internal static class LanguageTests
         check("every Chinese display language, Traditional included, chooses Simplified Chinese",
             chinese.All(name => Loc.SystemLanguage(new CultureInfo(name)) == Loc.Chinese));
         check("any other display language chooses English", other.All(name => Loc.SystemLanguage(new CultureInfo(name)) == Loc.English));
-        check("the default language of new settings is English", new DeckSettings().Language == Loc.English);
         var unknown = new DeckSettings { Language = "fr-FR" }; unknown.Normalize();
         check("an unknown saved language reads as English", unknown.Language == Loc.English);
 

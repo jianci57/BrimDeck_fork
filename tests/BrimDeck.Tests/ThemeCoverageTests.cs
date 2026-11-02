@@ -90,6 +90,8 @@ internal static class ThemeCoverageTests
             ("SettingsError", "Surface", 4.5), ("SettingsError", "Inset", 4.5),
             ("White", "SettingsAccentFill", 4.5), ("White", "SettingsAccentHover", 4.5),
             ("SettingsAccent", "Surface", 3), ("SettingsAccent", "Popup", 3), ("SettingsAccent", "Inset", 3),
+            // The edge of an input (fields, drop-downs, a switch's off track) stands out from everything it can sit on (WCAG 1.4.11).
+            ("InputBorder", "Surface", 3), ("InputBorder", "Inset", 3), ("InputBorder", "Input", 3), ("InputBorder", "Popup", 3),
         ];
         colors[("White", true)] = colors[("White", false)] = ThemeColor.White;
         var failures = new List<string>();

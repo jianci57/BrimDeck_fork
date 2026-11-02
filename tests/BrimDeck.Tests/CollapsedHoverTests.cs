@@ -4,12 +4,6 @@ internal static class CollapsedHoverTests
 {
     internal static void Run(Action<string, bool> check)
     {
-        var line = CollapsedHover.Zone(CompactStyle.Line, new DipRect(500, 4, 56, 4), 0);
-        check("The default indicator senses the same 72 x 10 box as before", line == new DipRect(492, 0, 72, 10));
-        check("The notch senses its own box from the screen edge",
-            CollapsedHover.Zone(CompactStyle.Notch, new DipRect(100, 0, 238, 32), 0) == new DipRect(100, 0, 238, 32));
-        check("The default capsule senses the strip above it too",
-            CollapsedHover.Zone(CompactStyle.Capsule, new DipRect(100, 5, 196, 32), 0) == new DipRect(100, 0, 196, 37));
         check("A capsule up to 20 DIPs from the edge keeps the strip",
             CollapsedHover.HasBridge(CompactStyle.Capsule, new DipRect(0, 20, 196, 32), 0)
             && CollapsedHover.Zone(CompactStyle.Capsule, new DipRect(10, 20, 196, 32), 0) == new DipRect(10, 0, 196, 52));

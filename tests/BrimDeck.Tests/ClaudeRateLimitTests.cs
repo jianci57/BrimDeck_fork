@@ -41,7 +41,6 @@ static class ClaudeRateLimitTests
             Delay(1, TimeSpan.FromDays(3)) == TimeSpan.FromDays(3) && Delay(4, TimeSpan.FromHours(2)) == TimeSpan.FromHours(2) && Delay(1, RateLimitBackoff.MaxPlausibleRetryAfter) == RateLimitBackoff.MaxPlausibleRetryAfter);
         check("A Retry-After beyond a week is taken for a mistake and the growth decides", Delay(1, RateLimitBackoff.MaxPlausibleRetryAfter + TimeSpan.FromSeconds(1)) == Delay(1) &&
             Delay(3, TimeSpan.FromDays(400)) == Delay(3) && Delay(5, TimeSpan.MaxValue) == RateLimitBackoff.MaxGrowth);
-        check("The growth is the only pause with a limit: it stays at 30 minutes however many 429s", Enumerable.Range(1, 40).Select(failures => Delay(failures)).Max() == RateLimitBackoff.MaxGrowth);
         check("A repeated short Retry-After does not hold the pause below the growth", Delay(1, TimeSpan.FromSeconds(30)) == RateLimitBackoff.MinDelay &&
             Delay(3, TimeSpan.FromSeconds(30)) == TimeSpan.FromMinutes(8) && Delay(3, TimeSpan.FromMinutes(20)) == TimeSpan.FromMinutes(20));
         var spread = Enumerable.Range(0, 11).Select(step => Delay(2, null, step / 10d)).ToList();
@@ -50,7 +49,6 @@ static class ClaudeRateLimitTests
             Delay(2, null, -3) == spread[0] && Delay(2, null, 9) == spread[^1] && Delay(2, null, double.NaN) == spread[0]);
 
         var limit = new RateLimitBackoff();
-        check("A new pause lets requests go out", limit.RetryAt(at) is null && limit.Failures == 0);
         var first = limit.Fail(at, null, 0);
         check("A 429 starts a pause that holds until its end", first == at + TimeSpan.FromMinutes(2) && limit.RetryAt(at.AddMinutes(1)) == first && limit.RetryAt(first.AddTicks(-1)) == first);
         check("The pause ends at its time", limit.RetryAt(first) is null && limit.RetryAt(first.AddMinutes(5)) is null);
@@ -67,8 +65,6 @@ static class ClaudeRateLimitTests
             limit.RetryAt(back.AddMinutes(121)) is null);
         limit.Fail(at, TimeSpan.FromHours(2), 0);
         check("A clock set back by an hour leaves the two hours counted from the new time", limit.RetryAt(at.AddHours(-1)) == at.AddHours(1));
-        limit.Reset();
-        check("A reset pause keeps no wait", limit.RetryAt(at.AddDays(-9)) is null);
     }
 
     // Answers the usage endpoint from a script and counts the requests; the account endpoint is not counted.

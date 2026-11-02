@@ -29,8 +29,8 @@ public sealed partial class SettingsWindow
 
     private void HideHotkeySection()
     {
-        SectionTitle(Loc.T("快捷键", "Shortcut"));
-        Group(HotkeyRow(HotkeyKind.Hide));
+        SectionTitle(Loc.T("快捷操作", "Shortcuts"));
+        Group(HotkeyRow(HotkeyKind.Hide), GripDoubleClickRow());
     }
 
     private static string HotkeyName(HotkeyKind kind) => kind switch
@@ -94,7 +94,7 @@ public sealed partial class SettingsWindow
         var chrome = new Border
         {
             Child = inner, Width = arrows ? ArrowBoxWidth : HotkeyBoxWidth, Height = 30, CornerRadius = new CornerRadius(6), Background = UI.Brush(_palette.Input),
-            BorderBrush = UI.Brush(_palette.Border), BorderThickness = new Thickness(1), VerticalAlignment = VerticalAlignment.Center
+            BorderBrush = UI.Brush(_palette.InputBorder), BorderThickness = new Thickness(1), VerticalAlignment = VerticalAlignment.Center
         };
         // Messages fill the space between the label and the box (at most 300 DIP wide and two lines), so neither the box nor the row height moves.
         var note = TextLine("", 11.5, _palette.Dark ? "#F0A6AA" : "#B12E3A");
@@ -116,7 +116,7 @@ public sealed partial class SettingsWindow
             text.Foreground = UI.Brush(recording ? TextSecondary : saved.Length == 0 ? TextTertiary : TextPrimary);
             // A long combination is trimmed in the box; hovering shows it whole.
             box.ToolTip = !recording && saved.Length > 0 ? HotkeyDisplay(saved) : null;
-            chrome.BorderBrush = UI.Brush(recording ? _palette.Accent : _palette.Border);
+            chrome.BorderBrush = UI.Brush(recording ? _palette.Accent : _palette.InputBorder);
             clear.IsEnabled = saved.Length > 0; clear.Opacity = clear.IsEnabled ? 1 : .35;
             if (!recording) Note(HotkeyProblem(kind, saved, Others()));
             AutomationProperties.SetHelpText(box, (saved.Length == 0 ? Loc.T("未设置。", "Not set. ") : HotkeyDisplay(saved) + Loc.T("。", ". ")) + help);

@@ -95,6 +95,105 @@ internal sealed class MediaSessions : IDisposable
         Changed?.Invoke();
         return enabled;
     }
+    // NetEase Cloud Music's full control through its changed libcef.dll (NeteaseFullControl), kept like KuGou's: once on, every
+    // start opens the port on its own. The state is read off the UI thread by the source; the settings switch reads it here, or
+    // from NeteaseInstall directly when media is off.
+    public LibcefPatchState? NeteasePatchState => Netease?.FilePatchState;
+    public bool NeteaseFileControlWanted { set { if (Netease is { } source) source.FileFullControl = value; } }
+    public void CheckNeteaseFile() => Netease?.CheckFile();
+    public async Task<string?> EnableNeteaseFileControlAsync()
+    {
+        if (Netease is not { } source) return null;
+        var error = await source.EnableFileControlAsync();
+        if (!_disposed) { await RefreshAsync(); Changed?.Invoke(); }
+        return error;
+    }
+    public async Task<string?> DisableNeteaseFileControlAsync()
+    {
+        if (Netease is not { } source) return null;
+        var error = await source.DisableFileControlAsync();
+        if (!_disposed) { await RefreshAsync(); Changed?.Invoke(); }
+        return error;
+    }
+    // KuGou's full control. Once its libcef.dll is changed, every start of KuGou opens the debugging port, so full control is a
+    // lasting state: the setting KugouFullControl. The file's state is read off the UI thread when it is needed
+    // (CheckKugouInstall); while the setting is on, a file found unchanged (as after a KuGou update) is changed again and a
+    // running KuGou restarts, once for each start of KuGou.
+    private KugouCdpConnection? Kugou => _connections.OfType<KugouCdpConnection>().FirstOrDefault();
+    public bool RestartingKugou { get; private set; }
+    public LibcefPatchState? KugouState { get; private set; }
+    public bool KugouFullControl => Kugou?.Ready == true;
+    // Why the last attempt to enable full control failed; cleared by the next attempt.
+    public string? KugouError { get; private set; }
+    public bool CanEnableKugouFullControl => KugouState is LibcefPatchState.Original or LibcefPatchState.Patched or LibcefPatchState.Partial
+        && Current is { IsKugou: true } current && _routes.TryGetValue(current.Id, out var route) && route.Connection is null;
+    public bool KugouFullControlWanted
+    {
+        get => _kugouAuto;
+        set { if (_kugouAuto == value) return; _kugouAuto = value; _kugouAttempted = null; if (value) CheckKugouInstall(now: true); }
+    }
+    private bool _kugouAuto, _kugouChecking, _kugouRead;
+    private string? _kugouAttempted;
+    private long _kugouCheckedAt = long.MinValue / 2;
+    // The file is read when asked (now: the settings page, a change of the setting, the first KuGou song shown), and while the
+    // setting is on and KuGou runs without full control, as after an update left the file original: at most every 5 seconds,
+    // found by KuGou's process (its system media session may be off). The 150 MB file is searched only once it has changed
+    // (LibcefFile).
+    public void CheckKugouInstall(bool now = false)
+    {
+        if (!now && (!_kugouAuto || KugouFullControl)) return;
+        if (_kugouChecking || !now && Environment.TickCount64 - _kugouCheckedAt < 5_000) return;
+        _kugouChecking = true; _kugouCheckedAt = Environment.TickCount64;
+        _ = Task.Run(() =>
+        {
+            var processes = KugouInstall.Processes();
+            bool read = now || processes.Key.Length > 0;
+            return (Read: read, State: read ? KugouInstall.State() : null, Processes: processes);
+        }).ContinueWith(check => _dispatcher.BeginInvoke(() =>
+        {
+            _kugouChecking = false;
+            if (_disposed || !check.IsCompletedSuccessfully || !check.Result.Read) return;
+            var (_, state, (processes, started)) = check.Result;
+            _kugouRead = true;
+            if (state != KugouState) { KugouState = state; Changed?.Invoke(); }
+            // An unchanged file is changed again at once; a KuGou with the debugging port is connected within a few seconds of its
+            // start, so one that runs longer without it started before the change and restarts.
+            bool unchanged = state is LibcefPatchState.Original or LibcefPatchState.Partial;
+            bool stale = state is LibcefPatchState.Patched && !KugouFullControl && started is { } at && DateTime.UtcNow - at > TimeSpan.FromSeconds(8);
+            if (_kugouAuto && !RestartingKugou && (unchanged || stale) && _kugouAttempted != processes)
+            {
+                _kugouAttempted = processes;
+                _ = EnableKugouFullControlAsync(start: false);
+            }
+        }), TaskScheduler.Default);
+    }
+    // Patches KuGou (which may ask for administrator rights) and restarts it when it runs, or starts it when start asks for
+    // it, then waits for the connection. Null when it is done, otherwise what went wrong, which KugouError keeps.
+    public async Task<string?> EnableKugouFullControlAsync(bool start = true)
+    {
+        if (RestartingKugou || Kugou is not { } kugou) return null;
+        RestartingKugou = true; KugouError = null; Changed?.Invoke();
+        try
+        {
+            bool running = start || await Task.Run(KugouInstall.Running);
+            await Task.Run(() => KugouInstall.EnableAsync(start, CancellationToken.None));
+            if (!running) return null;
+            for (var deadline = Environment.TickCount64 + 30_000; Environment.TickCount64 < deadline && !_disposed;)
+            {
+                await Task.Delay(250);
+                if (kugou.Ready) return null;
+            }
+            return KugouError = Loc.T("酷狗已重启，但未能连接", "KuGou restarted, but could not be connected");
+        }
+        catch (Exception ex) { return KugouError = ex.Message; }
+        finally
+        {
+            RestartingKugou = false;
+            // The restarted KuGou is a new start; it is not changed again by the setting.
+            _kugouAttempted = (await Task.Run(KugouInstall.Processes)).Key;
+            if (!_disposed) { CheckKugouInstall(now: true); Changed?.Invoke(); Schedule(); }
+        }
+    }
     // A pinned source stays on screen whatever other players do, until it is unpinned or closes.
     public string? Pinned => _pinned;
     public event Action? Changed;
@@ -102,7 +201,7 @@ internal sealed class MediaSessions : IDisposable
     public MediaSessions(Dispatcher dispatcher, bool connectPlayers = true)
     {
         _dispatcher = dispatcher;
-        _connections = connectPlayers ? [new NeteaseSource(), new QqMediaConnection()] : [];
+        _connections = connectPlayers ? [new NeteaseSource(), new QqMediaConnection(), new KugouCdpConnection()] : [];
         _debounce = new PromptTimer(dispatcher, async () => { _debounce!.Stop(); await RefreshAsync(); }) { Interval = TimeSpan.FromMilliseconds(100) };
         _poll = new DispatcherTimer(TimeSpan.FromSeconds(30), DispatcherPriority.Background,
             async (_, _) => await RefreshAsync(), dispatcher);
@@ -346,7 +445,8 @@ internal sealed class MediaSessions : IDisposable
                 _announcedPin = _pinned; _announcedRestarting = restarting;
                 Tracks = tracks; Current = current; Cover = cover;
                 Error = connectionError;
-                UpdateMeter();
+                // The music page's full control entry for KuGou needs the file's state once a KuGou song shows.
+                UpdateMeter(); CheckKugouInstall(now: current is { IsKugou: true } && !_kugouRead);
                 if (changed) Changed?.Invoke();
             } while (_again && !_disposed);
         }
@@ -374,14 +474,16 @@ internal sealed class MediaSessions : IDisposable
         {
             if (connection.ProcessId is not { } pid || connection.Snapshot is not { } snapshot) continue;
             bool netease = connection is NeteaseSource;
-            string name = netease ? "cloudmusic" : "QQMusic";
-            var systems = _sessions.Values.Where(s => AppMatches(s, name + ".exe")).ToArray();
+            string name = connection switch { NeteaseSource => "cloudmusic", KugouCdpConnection => "kugou", _ => "QQMusic" };
+            // KuGou's session is named "kugou", the others by their executable.
+            var systems = _sessions.Values.Where(s => connection is KugouCdpConnection
+                ? string.Equals(s.App, name, StringComparison.OrdinalIgnoreCase) : AppMatches(s, name + ".exe")).ToArray();
             var system = systems.FirstOrDefault(s => s.Session == current) ?? systems.FirstOrDefault();
             // A disconnected QQ pipe falls back as a whole to GSMTC. Retain its last
             // song without capabilities only when there is no system replacement.
             if (connection is QqMediaConnection { Ready: false } && system is not null) continue;
             foreach (var entry in systems) consumed.Add(entry);
-            string identity = connection is NeteaseSource ns ? ns.Identity : ((QqMediaConnection)connection).Identity;
+            string identity = connection switch { NeteaseSource ns => ns.Identity, KugouCdpConnection kugou => kugou.Identity, _ => ((QqMediaConnection)connection).Identity };
             routes.Add(new(identity, name, system, connection, netease && snapshot.IsNeteaseLog));
         }
         foreach (var source in _sessions.Values.Where(s => !consumed.Contains(s)))
@@ -561,12 +663,15 @@ internal sealed class MediaSessions : IDisposable
         }
         catch { return null; }
 
+        // At most CoverPixels wide, and never wider than the picture itself: a smaller cover is not enlarged into a larger bitmap.
         BitmapSource Decode(BitmapCreateOptions options)
         {
             using var memory = new MemoryStream(bytes);
+            int width = BitmapDecoder.Create(memory, options | BitmapCreateOptions.DelayCreation, BitmapCacheOption.None).Frames[0].PixelWidth;
+            memory.Position = 0;
             var image = new BitmapImage(); image.BeginInit(); image.CacheOption = BitmapCacheOption.OnLoad;
             image.CreateOptions = options;
-            image.DecodePixelWidth = CoverPixels; image.StreamSource = memory; image.EndInit(); image.Freeze(); return image;
+            image.DecodePixelWidth = Math.Clamp(width, 1, CoverPixels); image.StreamSource = memory; image.EndInit(); image.Freeze(); return image;
         }
     }
 
@@ -668,30 +773,19 @@ internal sealed class MediaSessions : IDisposable
     private static MediaDispatchResult DispatchResult(DesktopCommandResult result) => result switch
     { DesktopCommandResult.Unavailable => MediaDispatchResult.Unavailable, DesktopCommandResult.Sent => MediaDispatchResult.Sent, _ => MediaDispatchResult.Uncertain };
     public float Peak() => _meter.Peak;
-    // Flowing bar values from the player's captured audio; false when only the peak meter is available.
-    public bool FlowLevels(Span<double> levels) => _meter.TryFill(levels);
+    // The bars' levels from the player's captured audio, flowing along the bars or as the spectrum, one band for each of the levels.Length bars; false when only the peak meter is available.
+    public bool FlowLevels(Span<double> levels, EqualizerMode mode) => _meter.TryFill(levels, mode);
     // The playing player's sound while its bars are seen; otherwise the whole system's, while bars shown at all times ask for it.
     private void UpdateMeter()
     {
         bool player = _visible && Current?.State == MediaState.Playing;
-        _meter.SetSource(Current is not null && _routes.TryGetValue(Current.Id, out var route) ? route.ProcessName : null, player, !player && _systemVisible);
+        _meter.SetSource(CurrentOwner, player, !player && _systemVisible);
     }
 
-    // The application playing the current song, for bringing its window forward.
+    // The application playing the current song, for bringing its window forward and for the bars' sound.
     public MediaAppOwner? CurrentOwner => Current is not null && _routes.TryGetValue(Current.Id, out var route)
         ? new(route.Connection?.ProcessId, route.ProcessName, route.System?.App ?? "") : null;
-    internal static string SourceName(string id)
-    {
-        string lower = id.ToLowerInvariant();
-        if (lower.Contains("cloudmusic") || lower.Contains("netease")) return "网易云音乐";
-        if (lower.Contains("qqmusic")) return "QQ 音乐";
-        if (lower.Contains("msedge")) return "Microsoft Edge";
-        if (lower.Contains("chrome")) return "Google Chrome";
-        if (lower.Contains("spotify")) return "Spotify";
-        if (lower.Contains("itunes") || lower.Contains("applemusic")) return "Apple Music";
-        if (lower.Contains("qiyi")) return "爱奇艺";
-        return Path.GetFileNameWithoutExtension(id.Split('!')[0]);
-    }
+    internal static string SourceName(string id) => MediaAppTarget.DisplayName(id, AppIdentity.RegisteredName);
     public void Dispose()
     {
         _disposed = true; _debounce.Stop(); _poll.Stop(); _recheck.Stop();

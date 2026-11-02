@@ -8,7 +8,8 @@ namespace BrimDeck.Core;
 // starting speed stays within what never passes the target, so a bar never overshoots and comes back.
 public struct Eased
 {
-    public const double Seconds = .42, Hover = .16;
+    // Hover: a hover's feedback arriving; HoverOut: leaving, a little quicker (seven tenths), so what the pointer left never trails it.
+    public const double Seconds = .42, Hover = .16, HoverOut = Hover * .7;
     // A move's starting speed as a multiple of its average: 0 is a smoothstep, 3 an ease-out cubic, the most that never overshoots.
     // A change too small to see (a third of a percent; the values are shares, slots or opacities) is taken at once, so an idle
     // core does not keep its graph redrawing.
@@ -23,16 +24,22 @@ public struct Eased
 
     // Returns whether the value moves.
     public bool Set(double target, bool motion) => Set(target, motion, Now);
-    public bool Set(double target, bool motion, double now)
+    public bool Set(double target, bool motion, double now) => Set(target, motion, now, _seconds);
+    // A hover's feedback (0 to 1): in over Hover, out over HoverOut.
+    public bool Fade(bool on, bool motion) => Set(on ? 1 : 0, motion, Now, on ? Hover : HoverOut);
+    // The move takes seconds from here on; one under way goes on from where it is, at its speed.
+    public bool Set(double target, bool motion, double now, double seconds)
     {
         if (!double.IsFinite(target)) target = 0;
         bool moving = Moving(now);
         if (Math.Abs(target - _to) < 1e-6 && !moving) return false;
         if (!motion) { _from = _to = target; _start = _speed = 0; return false; }
         if (Math.Abs(target - _to) < 1e-6) return true;
-        double current = At(now), distance = target - current, d = Duration;
+        double current = At(now), distance = target - current, speed = moving ? Speed(now) : 0;
+        _seconds = seconds;
+        double d = Duration;
         if (Math.Abs(distance) < Unseen && !moving) { _from = _to = target; _start = _speed = 0; return false; }
-        double carried = moving ? Speed(now) * d / distance : 0;
+        double carried = moving ? speed * d / distance : 0;
         _speed = Math.Clamp(Math.Max(Launch, carried), 0, Fastest) * distance / d;
         _from = current; _to = target; _start = now;
         return true;
@@ -122,18 +129,26 @@ public static class Curves
     public static double Follow(double x) => x <= 0 ? 0 : x >= 1 ? 1 : 1.5 * x - .5 * x * x * x;
 
     // A spring thrown toward its target, fitted into the move: it leaves at speed (half way there after a tenth of the move),
-    // passes the target by under 2 percent a little after the middle, and has settled by the end (the last few thousandths are
-    // taken at once). This is the island's own gesture: a quick attack and a soft landing with a slight give, for what opens or
-    // appears. Thrown with the speed that cancels the sine term, the spring's path is 1 - e^(-decay x) cos(omega x).
-    public const double BounceDamping = .85;
+    // passes the target by about a third of a percent of the move a little after its two thirds, and has settled by the end.
+    // This is the island's own gesture: a quick attack and a soft landing with a slight give that is felt more than seen, for
+    // what opens or appears. Thrown with the speed that cancels the sine term, the spring's path is 1 - e^(-decay x) cos(omega x).
+    // The damping is what sets the give: at .85 the path passed its target by 1.7 percent, which at the bottom edge of a
+    // tall panel was a visible bounce of several DIPs; at .91 it passes by .32 percent (about one DIP on the tallest move, half a
+    // DIP on a usual one) and the way back is under a third as fast, so the landing no longer reads as a rebound. The attack stays
+    // (half way at .105 of the move instead of .100, nine tenths at .31 instead of .27).
+    public const double BounceDamping = .91;
     // The envelope e^(-decay x) is down to 0.2 percent at the end.
     private const double BounceDecay = 6.2;
     private static double BounceOmega => BounceDecay / BounceDamping * Math.Sqrt(1 - BounceDamping * BounceDamping);
+    private static double BouncePath(double x) => 1 - Math.Exp(-BounceDecay * x) * Math.Cos(BounceOmega * x);
+    // The path ends at 1.002, not 1: it is divided by that end so that it lands exactly where it is going and the surface does not
+    // jump a fraction of a DIP on the last frame (as SpringEase does for the glass's spring).
+    private static readonly double BounceEnd = BouncePath(1);
     public static double Bounce(double x)
     {
         if (x <= 0) return 0;
         if (x >= 1) return 1;
-        return 1 - Math.Exp(-BounceDecay * x) * Math.Cos(BounceOmega * x);
+        return BouncePath(x) / BounceEnd;
     }
     // How far Bounce passes its target, as a fraction of the move.
     public static double BounceOvershoot
@@ -141,6 +156,7 @@ public static class Curves
         get
         {
             // The peak, where the path's slope e^(-decay x) (decay cos + omega sin) is zero.
+            // (The end division moves the height of the peak, not its place.)
             double x = (Math.PI - Math.Atan(BounceDecay / BounceOmega)) / BounceOmega;
             return Bounce(x) - 1;
         }

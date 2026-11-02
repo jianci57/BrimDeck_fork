@@ -29,7 +29,8 @@ public partial class MainWindow
     // at the top of the monitor and _windowOffset DIPs to the right of its left edge; the island is drawn with the same offset.
     private Rect HoverZoneOnStage()
     {
-        var zone = CollapsedHover.Zone(Collapsed.Style, Collapsed.Surface, WorkDip.Y);
+        // A capsule docked with the bottom bridges to the line it is docked with (MainWindow.Edge.cs), the frame's edge.
+        var zone = CollapsedHover.Zone(Collapsed.Style, Collapsed.Surface, Collapsed.Style == CompactStyle.Capsule && _frame.Edge != ScreenEdge.Top ? 0 : WorkDip.Y);
         return new Rect(zone.X - _windowOffset, zone.Y, Math.Max(0, zone.Width), Math.Max(0, zone.Height));
     }
 }

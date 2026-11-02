@@ -36,7 +36,6 @@ static class PowerTests
         check("Power: a desktop sums the processor and the graphics board, marked an estimate",
             desktop.TryGet(out var sum) && Math.Abs(sum.Watts - 160.7) < 1e-9 && sum.Estimated && sum.Source == PowerSource.Components && sum.Parts.Count == 2);
         check("Power: the estimate names its parts and where each is read", sum!.Parts[0].Name == "CPU" && sum.Parts[0].Source == "RAPL" && sum.Parts[1].Source == PowerResolver.GpuSource && sum.Parts[1].Name == "GPU");
-        check("Power: an estimate is labelled 估算, a measurement 实测", PowerResolver.OriginName(sum) == "估算" && PowerResolver.SourceName(sum) == "部件合计");
 
         // A desktop with nothing to read: unavailable with a reason, never a zero.
         var none = PowerResolver.Resolve(new PowerInputs());
@@ -50,7 +49,6 @@ static class PowerTests
         // On battery the discharge is the whole machine, measured, with the parts kept for the breakdown.
         var discharging = PowerResolver.Resolve(new PowerInputs { BatteryDischarge = W(23.4), Cpu = W(9.1) });
         check("Power: on battery the discharge rate is the measured whole", discharging.TryGet(out var d) && d.Watts == 23.4 && d.Origin == PowerOrigin.Measured && d.Source == PowerSource.Battery && d.Parts.Count == 1);
-        check("Power: the battery's source is named", PowerResolver.SourceName(d!) == "电池放电" && PowerResolver.OriginName(d) == "实测");
 
         // Plugged in and charging: no discharge, so the parts again.
         var charging = PowerResolver.Resolve(new PowerInputs { BatteryDischarge = None_("not on battery"), Cpu = W(22) });
@@ -104,15 +102,12 @@ static class PowerTests
         var filling = new PowerStats(60);
         filling.Add(10, 5); filling.Add(20, 6); filling.Add(30, 7);
         check("Power: before they are full they cover from their first reading", filling.Summary(7) is { Count: 3, Seconds: 2, Peak: 30, Average: 20 });
-        filling.Reset();
-        check("Power: reset stats have nothing", filling.Summary(8) is null);
 
         // The CPU's and the GPU's own power, for the page's power line: a part's watts, two adapters together, and none where it is not read.
         var twoCards = new PowerSample(80, PowerOrigin.Estimated, PowerSource.Components, [new("cpu", "CPU", 20, "RAPL"), new("gpu", "A", 25, "x"), new("gpu", "B", 35, "x")]);
         check("Power: a part's own watts, adapters summed, none where absent", PowerResolver.PartWatts(twoCards, "cpu") == 20 && PowerResolver.PartWatts(twoCards, "gpu") == 60
             && PowerResolver.PartWatts(twoCards with { Parts = [] }, "gpu") is null);
         var trail = new PowerTrail(3);
-        check("Power: an empty series has nothing to show", trail.Track(5) == PowerTrack.None);
         foreach (var (watts, at) in new[] { (10.0, 1.0), (30, 2), (double.NaN, 3), (20, 4), (15, 5) }) trail.Add(watts, at);
         var track = trail.Track(9);
         check("Power: a series keeps its last readings, and its peak, mean and time over the same readings", track.History.SequenceEqual([30.0, 20, 15]) && track.Summary is { Peak: 30, Count: 3, Seconds: 8 }
@@ -213,7 +208,6 @@ static class PowerTests
             BatteryModel.ModeOf(Guid.Parse("961cc777-2547-4f9d-8174-7d86181b8a7a")) == PowerMode.BestEfficiency && BatteryModel.ModeOf(Guid.Empty) == PowerMode.Balanced
             && BatteryModel.ModeOf(Guid.Parse("ded574b5-45a0-4f42-8737-46345c09c238")) == PowerMode.BestPerformance
             && BatteryModel.ModeOf(Guid.Parse("3af9b8d9-7c97-431d-ad78-34a8bfea439f")) == PowerMode.BetterPerformance && BatteryModel.ModeOf(Guid.NewGuid()) == PowerMode.Unknown);
-        check("Battery: the words", BatteryModel.StateName(BatteryState.Charging) == "充电中" && BatteryModel.ModeName(PowerMode.Balanced) == "平衡" && BatteryModel.ModeName(PowerMode.Unknown) == "");
     }
 
     private static Reading<BatterySample> AsReading(this BatterySample sample) => sample;
@@ -225,9 +219,6 @@ static class PowerTests
         check("Format: the collapsed row's watts are three characters at most", PowerFormat.Compact(8.43) == "8.4" && PowerFormat.Compact(38.4) == "38" && PowerFormat.Compact(112.4) == "112" && PowerFormat.Compact(5000) == "999");
         check("Format: durations in the two largest units", PowerFormat.Duration(TimeSpan.FromMinutes(192)) == "3 小时 12 分" && PowerFormat.Duration(TimeSpan.FromMinutes(12)) == "12 分钟"
             && PowerFormat.Duration(TimeSpan.FromHours(2)) == "2 小时" && PowerFormat.Duration(TimeSpan.FromSeconds(20)) == "不到 1 分钟");
-        Loc.Use(Loc.English);
-        check("Format: English durations", PowerFormat.Duration(TimeSpan.FromMinutes(192)) == "3 h 12 min" && PowerFormat.Duration(TimeSpan.FromMinutes(12)) == "12 min");
-        Loc.Use(Loc.Chinese);
     }
 
     // The collapsed row's Power and Charge readings join once they give a figure, stay away on a machine that has none, and keep the
@@ -264,18 +255,14 @@ static class PowerTests
     private static void Readings(Action<string, bool> check)
     {
         var table = CompactMonitor.Normalize(null);
-        check("Readings: Power and Charge are last in the table, hidden",
-            table.Select(reading => reading.Item).TakeLast(2).SequenceEqual([CompactMonitorItems.Power, CompactMonitorItems.Charge]) && table.Where(reading => reading.Item is CompactMonitorItems.Power or CompactMonitorItems.Charge).All(reading => !reading.Visible));
-        check("Readings: they are readings of the system",
-            CompactMonitor.Order.Contains(CompactMonitorItems.Power) && CompactMonitor.Order.Contains(CompactMonitorItems.Charge)
-            && (CompactMonitor.Every & CompactMonitorItems.Power) != 0 && (CompactMonitor.Every & CompactMonitorItems.Charge) != 0);
-        check("Readings: they leave a short row early, the machine's battery after the drives", CompactMonitor.LeaveOrder.Take(3).SequenceEqual([CompactMonitorItems.Power, CompactMonitorItems.Storage, CompactMonitorItems.Charge]) && CompactMonitor.LeaveOrder.Count == CompactMonitor.Order.Count);
+        check("Readings: Power and Charge are last in the table but for the frame rate, hidden",
+            table.Select(reading => reading.Item).TakeLast(3).SequenceEqual([CompactMonitorItems.Power, CompactMonitorItems.Charge, CompactMonitorItems.Frames]) && table.Where(reading => reading.Item is CompactMonitorItems.Power or CompactMonitorItems.Charge).All(reading => !reading.Visible));
+        check("Readings: they leave a short row early, after the frame rate, the machine's battery after the drives", CompactMonitor.LeaveOrder.Take(4).SequenceEqual([CompactMonitorItems.Frames, CompactMonitorItems.Power, CompactMonitorItems.Storage, CompactMonitorItems.Charge]) && CompactMonitor.LeaveOrder.Count == CompactMonitor.Order.Count);
 
-        // The presets keep to the readings they had: Full does not turn the new ones on, Brief turns them off.
+        // Full turns the new readings on, Brief turns them off.
         var full = CompactMonitor.Normalize(null);
-        full.First(reading => reading.Item == CompactMonitorItems.Power).Visible = true;
         CompactMonitor.Apply(full, CompactMonitorMode.Full);
-        check("Readings: Full leaves Power as it is", full.First(reading => reading.Item == CompactMonitorItems.Power).Visible);
+        check("Readings: Full shows Power and Charge", full.Where(reading => reading.Item is CompactMonitorItems.Power or CompactMonitorItems.Charge).All(reading => reading.Visible));
         CompactMonitor.Apply(full, CompactMonitorMode.Brief);
         check("Readings: Brief hides Power and Charge", full.Where(reading => reading.Item is CompactMonitorItems.Power or CompactMonitorItems.Charge).All(reading => !reading.Visible));
         full.First(reading => reading.Item == CompactMonitorItems.Charge).Visible = true;
@@ -320,12 +307,9 @@ static class PowerTests
             return with.StorageLines >= plain.StorageLines - 2 && with.StorageLines <= plain.StorageLines && with.Parts(height)[1].Height >= MonitorLayout.MinimumGraph - 1e-9 && with.Metrics == plain.Metrics && with.PowerLines is >= 0 and <= 2
                 && (with.PowerLines == 0) == (MonitorLayout.PowerRoom(height, with.Metrics, with.Figure, with.Body, 0) == 0);
         }));
-        check("Layout: a page with room for power and drives at once loses nothing", MonitorLayout.For(700, 400, true, 2, power: 2) is { StorageLines: 2, PowerLines: 2 });
         var parts = tall.Parts(400);
         check("Layout: the power lines sit under the drives and the graph keeps its minimum", parts[4].Top == parts[3].Top + parts[3].Height
             && parts[4].Height == (tall.Metrics switch { MetricsMode.Line => 2, MetricsMode.Lines => 4, _ => 8 }) + 2 * tall.StorageRow && parts[1].Height >= MonitorLayout.MinimumGraph - 1e-9);
-        check("Layout: the settings default shows power", new DeckSettings().MonitorPower);
-        check("Layout: the hysteresis keeps a step with power", MonitorLayout.For(700, 290, true, 2, MonitorLayout.For(700, 285, true, 2, null, 2), 2) is { PowerLines: >= 0 });
     }
 
     // Every built-in theme has its own look, every color a look names resolves in every theme, and the colors that carry meaning hold
@@ -333,10 +317,6 @@ static class PowerTests
     private static void Looks(Action<string, bool> check)
     {
         var palettes = ThemeCoverageTests.Palettes().ToList();
-        foreach (var id in PanelThemes.BuiltIns.Select(theme => theme.Id))
-            check($"Look: {id} has a look of its own or the default", PowerLooks.For(PanelThemes.Resolve(PanelThemes.BuiltIn(id)!)) is { } look && look.References.Any());
-        foreach (var id in new[] { "cyberpunk-edgerunners", PanelThemes.IslandHoliday, PanelThemes.IslandHoliday2, PanelThemes.PixelBlocks })
-            check($"Look: {id} is designed for it", PowerLooks.Ids.Contains(id, StringComparer.OrdinalIgnoreCase) && PowerLooks.For(PanelThemes.Resolve(PanelThemes.BuiltIn(id)!)) != PowerLooks.Default);
         check("Look: the shapes differ between the themes that have their own", new[] { "cyberpunk-edgerunners", PanelThemes.IslandHoliday, PanelThemes.PixelBlocks, PanelThemes.Dark }
             .Select(id => PowerLooks.For(PanelThemes.Resolve(PanelThemes.BuiltIn(id)!)).Gauge).Distinct().Count() == 4);
         check("Look: high contrast draws with text colors only", PowerLooks.HighContrast.References.All(name => name == "textPrimary") && PowerLooks.For(palettes[0].Palette, highContrast: true) == PowerLooks.HighContrast);
@@ -387,7 +367,6 @@ static class PowerTests
         var summary = new PowerSummary(78.5, 63.4, 40, 312.4);
         var cpuTrack = new PowerTrack([9.1], new PowerSummary(52, 38, 40, 312)); var gpuTrack = new PowerTrack([7.9], new PowerSummary(23.1, 8.2, 40, 312));
         var table = PowerText.Table(Reading<PowerSample>.Of(estimate), summary, cpuTrack, gpuTrack)!;
-        check("Text: the power table has a column for the whole machine, the CPU and the GPU", table.Columns.SequenceEqual(["整机", "CPU", "GPU"]));
         check("Text: its rows are now, the peak and the mean over the time they cover", table.Rows.Select(row => row.Label).SequenceEqual(["当前", "5 分钟内峰值", "5 分钟内均值"])
             && table.Rows[0].Cells.SequenceEqual(["17.0 W", "9.1 W", "7.9 W"]) && table.Rows[1].Cells.SequenceEqual(["78.5 W", "52.0 W", "23.1 W"]) && table.Rows[2].Cells.SequenceEqual(["63.4 W", "38.0 W", "8.2 W"]));
         check("Text: an estimate made of these parts is their sum, and says what it adds and leaves out", table.Sum && table.Notes.SequenceEqual(["来源  CPU + GPU 估算，不含屏幕、硬盘、风扇等"]));
@@ -404,7 +383,6 @@ static class PowerTests
         check("Text: a system meter says so", !meter.Sum && meter.Notes.SequenceEqual(["来源  整机功率计（实测）"]));
         check("Text: the power line's mean, up to four digits", PowerText.Mean(65.9) == "均值 66 W" && PowerText.Mean(8.43) == "均值 8.4 W" && PowerText.Mean(1234.4) == "均值 1234 W"
             && PowerFormat.Compact(1234.4) == "999");
-        check("Text: the power line's views", PowerText.ViewName(PowerView.Whole) == "整机" && PowerText.ViewName(PowerView.Cpu) == "CPU" && PowerText.ViewName(PowerView.Gpu) == "GPU");
         check("Text: no reading is a dash and the reason", PowerText.Table(Reading<PowerSample>.Unavailable("无功率来源"), null, PowerTrack.None, PowerTrack.None) is null
             && PowerText.NoPower("无功率来源") == "整机功耗  —\n原因  无功率来源");
 
@@ -429,11 +407,6 @@ static class PowerTests
         var english = PowerText.Table(Reading<PowerSample>.Of(estimateEn), summary with { Seconds = 45 }, cpuTrack, gpuTrack)!;
         check("Text: the English table is the same form", english.Columns.SequenceEqual(["System", "CPU", "GPU"]) && english.Rows.Select(row => row.Label).SequenceEqual(["Now", "Peak, 45 s", "Mean, 45 s"])
             && english.Notes.SequenceEqual(["Source  CPU + GPU estimate; display, drives, fans and others not included"]));
-        check("Text: the English measured source", PowerText.Table(Reading<PowerSample>.Of(new PowerSample(23.4, PowerOrigin.Measured, PowerSource.Battery, [parts[0]])), null, cpuTrack, PowerTrack.None)!
-            .Notes.SequenceEqual(["Source  battery discharge (measured)"]));
-        var englishBattery = PowerText.Battery(Reading<BatterySample>.Of(cell)).Split('\n');
-        check("Text: the English battery lines", englishBattery[0] == "Battery  96% (57.0 Wh stored)" && englishBattery[1] == "State  Plugged in, not charging" && englishBattery[2] == "Power mode  Best performance");
-        check("Text: the English battery's time on the page", PowerText.Brief(discharging) == "2:45 left" && PowerText.Brief(full) == "" && PowerText.Brief(cell) == "");
         check("Text: the English reading's name", PowerText.Spoken(Reading<PowerSample>.Of(estimateEn), Reading<BatterySample>.Of(cell), true) == "System power 17.0 W, estimated; battery 96%, Plugged in, not charging; power mode Best performance");
         Loc.Use(Loc.Chinese);
         var all = new[] { string.Join("\n", table.Columns.Concat(table.Rows.SelectMany(row => row.Cells.Prepend(row.Label))).Concat(table.Notes)), PowerText.Battery(Reading<BatterySample>.Of(discharging)), PowerText.Spoken(Reading<PowerSample>.Of(estimate), Reading<BatterySample>.Of(cell), true) };

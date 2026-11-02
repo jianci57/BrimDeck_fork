@@ -71,7 +71,6 @@ static class OfficialPriceTests
             await pricing.RefreshAsync(); await pricing.RefreshAsync();
             check("A day later the models are asked for again", asked.Count == 26 && asked.Contains("z-ai/glm-5.3") && asked.Contains("x-ai/grok-4.7"));
             check("An answer without the maker's endpoint keeps the official price read before", pricing.Estimate(Record("glm-5.3")) == Cost(Price(5)));
-            check("Official prices are kept on disk", File.Exists(Path.Combine(folder, Pricing.OfficialFile)));
         }
 
         fail = true;

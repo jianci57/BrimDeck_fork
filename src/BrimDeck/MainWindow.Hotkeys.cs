@@ -26,7 +26,7 @@ public partial class MainWindow
         // A collapsed preview of the settings ends as hovering would end it; a preview of the open panel is left alone.
         if (_preview) { if (_previewExpanded) return; _app.EndPreviewFromDeck(); }
         // The full-screen rule hides the panel; the hotkey does not override it.
-        if (Settings.Behavior(_context, _host.App.Name, _host.App.Path) == WindowBehavior.Hide) return;
+        if (Settings.Behavior(_context, _host.App.Name, _host.App.Path, _host.BackgroundKind) == WindowBehavior.Hide) return;
         if (_app.UserHidden && !_hotkeyOpened) { _hotkeyOpened = true; ApplySettings(); }
         _hover.Stop(); _leave.Stop();
         _hotkeyPinned = true;

@@ -13,14 +13,19 @@ var root = Path.Combine(Path.GetTempPath(), "BrimDeck-Tests-" + Guid.NewGuid().T
 Directory.CreateDirectory(root);
 try
 {
+    await PiUsageTests.Run(root, Check);
     ModelUsageTests.Run(Check);
     AntigravityUsageTests.Run(root, Check);
     await MusicTests.Run(Check);
     await AppleMusicLyricsTests.Run(root, Check);
+    await KugouTests.Run(Check);
     EqualizerSignalTests.Run(Check);
+    EqualizerSpectrumTests.Run(Check);
+    EqualizerModeTests.Run(root, Check);
     ColorMathTests.Run(Check);
     CompactSpacingTests.Run(Check);
     CompactDragTests.Run(Check);
+    RingLetterTests.Run(root, Check);
     PanelThemeTests.Run(root, Check);
     PanelThemeEditorTests.Run(root, Check);
     PixelBlocksTests.Run(root, Check);
@@ -28,31 +33,41 @@ try
     DisplayLayoutTests.Run(Check);
     MediaAppTargetTests.Run(Check);
     CollapsedHoverTests.Run(Check);
+    EdgeFrameTests.Run(Check);
+    CollapsedMoveTests.Run(Check);
     HotkeyTests.Run(Check);
     KeyboardResizeTests.Run(Check);
     CollapsedGeometryTests.Run(root, Check);
     PanelHeaderTests.Run(Check);
     SystemMonitorTests.Run(Check);
+    MonitorSpeechTests.Run(Check);
     CompactReadingTests.Run(Check);
     TemperatureTests.Run(Check);
     StorageTests.Run(Check);
     SensorStopTests.Run(Check);
     StripAdmissionTests.Run(Check);
     PowerTests.Run(Check);
+    FrameRateTests.Run(Check);
     ResizeMotionTests.Run(Check);
     CurvesTests.Run(Check);
+    ExpandBounceTests.Run(Check);
+    ExpandStillTests.Run(Check);
+    ExpandSnapTests.Run(Check);
     MotionReviewTests.Run(Check);
     IdleCostTests.Run(Check);
     MusicCostTests.Run(Check);
+    MusicTitleMarqueeTests.Run(Check);
     DisplayWatchTests.Run(Check);
     DotMotionTests.Run(Check);
     DatePickerMotionTests.Run(Check);
     SystemMonitorTests.Store(root, Check);
     GpuAdapterTests.Run(root, Check);
+    CpuSensorTests.Run(Check);
     GpuIdentityTests.Run(Check);
     NeteaseLogTests.Run(Check);
     await DashboardUsageTests.Run(root, Check);
     await AppUpdateTests.Run(root, Check);
+    ReleaseHistoryTests.Run(root, Check);
     await InstallerUpdateTests.Run(root, Check);
     await PortableUpdateTests.Run(root, Check);
     SettingsMigrationTests.Run(root, Check);
@@ -357,8 +372,8 @@ try
         desktopFixture.State = new(true, desktopCredentials);
         var historyPath = Path.Combine(classicProfile, "plan-usage-history.json");
         string History(DateTimeOffset time, int fiveHour, int sevenDay) => JsonSerializer.Serialize(new { version = 2, samples = new[] {
-            new { t = time.AddMinutes(-30).ToUnixTimeMilliseconds(), org = "test", u = new { fh = 60, sd = 50 } },
-            new { t = time.ToUnixTimeMilliseconds(), org = "test", u = new { fh = fiveHour, sd = sevenDay } } } });
+            new { t = time.AddMinutes(-30).ToUnixTimeMilliseconds(), org = "org", u = new { fh = 60, sd = 50 } },
+            new { t = time.ToUnixTimeMilliseconds(), org = "org", u = new { fh = fiveHour, sd = sevenDay } } } });
         Check("Desktop usage history yields its newest sample", ClaudeUsageHistory.Parse(Json(History(now, 37, 7))) is { FiveHour: 37, SevenDay: 7 } parsedSample && parsedSample.Time == DateTimeOffset.FromUnixTimeMilliseconds(now.ToUnixTimeMilliseconds()));
         quotaHandler.Override = (_, _) => new(System.Net.HttpStatusCode.TooManyRequests);
         File.WriteAllText(historyPath, History(usageClock.AddMinutes(2), 37, 7));
@@ -455,7 +470,7 @@ try
         var cacheClock = usageClock;
         using (var steady = new UsageService(desktopFixture, locations, quotaClient, () => cacheClock, quotaCache: quotaFile))
         {
-            DateTimeOffset? KeptTime() => ClaudeQuotaCache.Load(quotaFile, cacheClock, "current")?.Time;
+            DateTimeOffset? KeptTime() => ClaudeQuotaCache.Load(quotaFile, cacheClock, "current", "org")?.Time;
             await steady.RefreshAsync(onlyClaude);
             var firstKept = KeptTime();
             cacheClock = usageClock.AddMinutes(5);
@@ -468,7 +483,69 @@ try
         File.Delete(quotaFile);
         quotaHandler.Override = null;
 
-        var savedRow = System.Text.Json.Nodes.JsonNode.Parse(JsonSerializer.Serialize(Only(ProviderId.Claude)))!.AsObject();
+        // An account with a personal subscription and a Team seat: the desktop app keeps a sign-in for each organization, and one
+        // Claude row shows both, the personal one first.
+        object Seat(string token, string subscription, string tier) => new { token, expiresAt = future, subscriptionType = subscription, rateLimitTier = tier };
+        var seats = JsonSerializer.SerializeToElement(new Dictionary<string, object?>
+        {
+            ["acct:current|client:org-team:https://api.anthropic.com:user:profile"] = Seat("test-team", "team", "default_claude_max_5x"),
+            ["acct:current|client:org-pro:https://api.anthropic.com:user:profile"] = Seat("test-pro", "pro", "default_claude_ai")
+        });
+        var seatCredentials = ClaudeDesktopCache.Parse(seats, "current", now);
+        Check("Desktop sign-ins name their organization, and a Team seat is not taken for Max",
+            seatCredentials.Count == 2 && seatCredentials.Any(c => c is { Organization: "org-team", Plan: "Team Premium" }) && seatCredentials.Any(c => c is { Organization: "org-pro", Plan: "pro" }));
+        Check("The account endpoint names Team Standard and Team Premium seats",
+            PlanParser.ClaudeOrganization(Json("""{"organization":{"organization_type":"claude_team","rate_limit_tier":"default_claude_max_5x","seat_tier":"team_tier_1"}}""")) == "Team Premium" &&
+            PlanParser.ClaudeOrganization(Json("""{"organization":{"organization_type":"claude_team","rate_limit_tier":"default_raven","seat_tier":"team_standard"}}""")) == "Team Standard" &&
+            PlanParser.ClaudeOrganization(Json("""{"organization":{"organization_type":"claude_team","rate_limit_tier":"default_claude_max_5x"}}""")) == "Team Premium" &&
+            PlanParser.ClaudeOrganization(Json("""{"organization":{"organization_type":"claude_team","rate_limit_tier":"default_raven"}}""")) == "Team");
+        Check("The local record names the seat by its own tier, not the Team's default",
+            PlanParser.ClaudeProfile(Json("""{"oauthAccount":{"organizationType":"claude_team","organizationRateLimitTier":"default_raven","userRateLimitTier":"default_claude_max_5x","seatTier":"team_tier_1"}}""")) == "Team Premium" &&
+            PlanParser.ClaudeProfile(Json("""{"oauthAccount":{"organizationType":"claude_team","organizationRateLimitTier":"default_raven"}}""")) == "Team" &&
+            PlanParser.ClaudeTier("default_raven", "team") == "Team");
+        Check("The local record names Pro and Max by the organization's type and tier",
+            PlanParser.ClaudeProfile(Json("""{"oauthAccount":{"organizationType":"claude_pro","organizationRateLimitTier":"default_claude_ai"}}""")) == "Pro" &&
+            PlanParser.ClaudeProfile(Json("""{"oauthAccount":{"organizationType":"claude_max","organizationRateLimitTier":"default_claude_max_20x"}}""")) == "Max 20x" &&
+            PlanParser.ClaudeProfile(Json("""{"oauthAccount":{"organizationType":"claude_max"}}""")) == "Max");
+        string Usage(int fiveHour, int weekly, int? fable = null) => JsonSerializer.Serialize(new
+        {
+            five_hour = new { utilization = fiveHour, resets_at = usageClock.AddHours(3) },
+            seven_day = new { utilization = weekly, resets_at = usageClock.AddDays(3) },
+            limits = fable is { } share ? new object[] { new { kind = "weekly_scoped", group = "weekly", percent = share, resets_at = usageClock.AddDays(3), scope = new { model = new { display_name = "Fable" } } } } : []
+        });
+        desktopFixture.State = new(true, seatCredentials);
+        // Claude Code itself uses the Team, as Claude Code in the desktop app does when the app has the Team selected.
+        File.WriteAllText(profilePath, """{"oauthAccount":{"accountUuid":"current","organizationUuid":"org-team","organizationType":"claude_team","seatTier":"team_tier_1"}}""");
+        quotaHandler.Override = (token, _) => new(System.Net.HttpStatusCode.OK) { Content = new StringContent(token == "test-team" ? Usage(4, 1, 0) : Usage(20, 30)) };
+        using (var seatsService = new UsageService(desktopFixture, locations, quotaClient, () => usageClock, quotaCache: quotaFile))
+        {
+            var statistics = (await seatsService.RefreshAsync(new DeckSettings { Apps = [new AppEntry { Id = ProviderId.Claude, QuotaOnline = false }] }))
+                .Single(snapshot => !snapshot.Configurations.Contains(ProviderCatalog.LocalQuota));
+            Check("Without an online Claude row, the statistics snapshot names the local account record's plan for a row switched on to show before its first reading",
+                statistics.Plan == "Team Premium" && statistics.PlanSource == "Claude 本地账户记录");
+            var both = (await seatsService.RefreshAsync(onlyClaude)).Single();
+            Check("Each organization of the account is read, the personal one first and each under its name", both.LiveQuota && both.Plan == "Pro + Team Premium" &&
+                both.Quotas.Select(q => q.Label).SequenceEqual(["Pro · 5 小时额度", "Pro · 每周额度", "Team · 5 小时额度", "Team · 每周额度", "Team · Fable 每周"]) &&
+                both.Quotas.Single(q => q.Label == "Team · 5 小时额度").UsedPercent == 4 && both.Quotas.Single(q => q.Label == "Pro · 5 小时额度").UsedPercent == 20);
+            Check("Each organization's reading is kept apart on disk", ClaudeQuotaCache.Load(quotaFile, usageClock, "current", "org-team") is { Quotas.Count: 3 } &&
+                ClaudeQuotaCache.Load(quotaFile, usageClock, "current", "org-pro") is { Quotas.Count: 2 });
+            quotaHandler.Override = (token, _) => token == "test-team" ? new(System.Net.HttpStatusCode.ServiceUnavailable)
+                : new(System.Net.HttpStatusCode.OK) { Content = new StringContent(Usage(21, 30)) };
+            var held = (await seatsService.RefreshAsync(onlyClaude)).Single();
+            Check("An organization that fails for a moment keeps showing its last reading beside the other's new one",
+                held.Quotas.Count == 5 && held.Quotas.Single(q => q.Label == "Pro · 5 小时额度").UsedPercent == 21 && held.Quotas.Single(q => q.Label == "Team · 5 小时额度").UsedPercent == 4);
+        }
+        using (var withoutKept = new UsageService(desktopFixture, locations, quotaClient, () => usageClock))
+        {
+            var partial = (await withoutKept.RefreshAsync(onlyClaude)).Single();
+            Check("An organization that cannot be read is named in the status while the other's quotas show",
+                partial.LiveQuota && partial.Quotas.Count == 2 && partial.Quotas.All(q => q.Label.StartsWith("Pro · ", StringComparison.Ordinal)) && partial.Status.Contains("Team 暂时无法读取"));
+        }
+        File.Delete(profilePath); File.Delete(quotaFile);
+        desktopFixture.State = new(true, desktopCredentials);
+        quotaHandler.Override = null;
+
+        var savedRow =System.Text.Json.Nodes.JsonNode.Parse(JsonSerializer.Serialize(Only(ProviderId.Claude)))!.AsObject();
         foreach (var app in savedRow["Apps"]!.AsArray()) app!.AsObject().Remove("QuotaOnline");
         Check("Claude rows read online by default, including in files saved before the setting existed",
             new AppEntry().QuotaOnline && SettingsMigrations.Read(savedRow.ToJsonString()).Apps.Single().QuotaOnline);
@@ -551,7 +628,6 @@ try
     Check("Cursor quota alone does not imply a paid plan", PlanParser.Cursor(Json("""{"planUsage":{"totalPercentUsed":0}}""")) == "");
     Check("Antigravity uses the named user tier before its service plan", PlanParser.Antigravity(Json("""{"userStatus":{"userTier":{"name":"Example Tier"},"planStatus":{"planInfo":{"planName":"Pro"}}}}""")) == "Example Tier");
     Check("Missing Antigravity subscription is not inferred from quota", PlanParser.Antigravity(Json("""{"groups":[{"buckets":[{"bucketId":"gemini-weekly","remainingFraction":1}]}]}""")) == "");
-    Check("Claude local account tier preserves Max multiplier", PlanParser.ClaudeProfile(Json("""{"oauthAccount":{"organizationRateLimitTier":"default_claude_max_20x"}}""")) == "Max 20x");
     Check("Unknown Claude profile does not invent a plan", PlanParser.ClaudeProfile(Json("""{"oauthAccount":{"organizationRateLimitTier":"unknown"}}""")) == "");
     var eventItem = UsageService.ParseCursorEvent(Json("""{"timestamp":"1789000000000","model":"composer-2.5","tokenUsage":{"inputTokens":100,"cacheReadTokens":900,"cacheWriteTokens":20,"outputTokens":30,"totalCents":3.45131}}"""));
     Check("Cursor token categories are disjoint", eventItem!.Total == 1050);

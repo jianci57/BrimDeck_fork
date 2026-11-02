@@ -16,15 +16,25 @@
     <Compile Include="..\..\src\BrimDeck\Native\StorageReader.cs" Link="StorageReader.cs" />
     <Compile Include="..\..\src\BrimDeck\Native\SensorGuard.cs" Link="SensorGuard.cs" />
     <Compile Include="..\..\src\BrimDeck\Native\SettingsChrome.cs" Link="SettingsChrome.cs" />
-    <Compile Include="..\..\src\BrimDeck\Native\ProcessLoopbackCapture.cs" Link="ProcessLoopbackCapture.cs" />
     <Compile Include="..\..\src\BrimDeck\Native\WindowsHost.cs" Link="WindowsHost.cs" />
+    <Compile Include="..\..\src\BrimDeck\Native\FrameRates.cs" Link="FrameRates.cs" />
+    <Compile Include="..\..\src\BrimDeck\Native\ProcessSnapshot.cs" Link="ProcessSnapshot.cs" />
+    <Compile Include="..\..\src\BrimDeck\Native\Displays.cs" Link="Displays.cs" />
     <Compile Include="..\..\src\BrimDeck\Native\GpuProvider.cs" Link="GpuProvider.cs" />
+    <Compile Include="..\..\src\BrimDeck\Native\GpuDrivers.cs" Link="GpuDrivers.cs" />
     <Compile Include="..\..\src\BrimDeck\Native\Why.cs" Link="Why.cs" />
+    <Compile Include="..\..\src\BrimDeck\Native\AppIdentity.cs" Link="AppIdentity.cs" />
     <Compile Include="..\..\src\BrimDeck\MainWindow.Shadow.cs" Link="MainWindow.Shadow.cs" />
     <Compile Include="..\..\src\BrimDeck\LayoutRetry.cs" Link="LayoutRetry.cs" />
     <Compile Include="..\..\src\BrimDeck\MainWindow.PageSwitch.cs" Link="MainWindow.PageSwitch.cs" />
     <Compile Include="..\..\src\BrimDeck\PageHandover.cs" Link="PageHandover.cs" />
+    <Compile Include="..\..\src\BrimDeck\RadioGroups.cs" Link="RadioGroups.cs" />
+    <Compile Include="..\..\src\BrimDeck\RowFocus.cs" Link="RowFocus.cs" />
+    <Compile Include="..\..\src\BrimDeck\FieldBox.cs" Link="FieldBox.cs" />
+    <Compile Include="..\..\src\BrimDeck\EmptyClickFocus.cs" Link="EmptyClickFocus.cs" />
+    <Compile Include="..\..\src\BrimDeck\DrawnAutomation.cs" Link="DrawnAutomation.cs" />
     <Compile Include="..\..\src\BrimDeck\Soft.cs" Link="Soft.cs" />
+    <Compile Include="..\..\src\BrimDeck\RingLetter.cs" Link="RingLetter.cs" />
     <!-- The island itself: the shadow observes its properties, and the settled clip is checked on its drawing. -->
     <Compile Include="..\..\src\BrimDeck\IslandBorder.cs" Link="IslandBorder.cs" />
     <Compile Include="..\..\src\BrimDeck\IslandDecor.cs" Link="IslandDecor.cs" />

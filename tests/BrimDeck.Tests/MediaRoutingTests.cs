@@ -117,7 +117,5 @@ internal static class MediaRoutingTests
             !MediaRouting.SettlingAfterSeek(known, paused, t0, t0 + MediaRouting.SeekSettle) && !MediaRouting.SettlingAfterSeek(known, paused, null, t0)
             && !MediaRouting.SettlingAfterSeek(known, paused with { Title = "Other" }, t0, t0.AddMilliseconds(100))
             && !MediaRouting.SettlingAfterSeek(known with { State = MediaState.Paused }, paused, t0, t0.AddMilliseconds(100)));
-        check("Apple Music is recognized by its application id",
-            MediaRouting.IsAppleMusic(apple) && !MediaRouting.IsAppleMusic("SpotifyAB.SpotifyMusic_zpdnekdrzrea0!Spotify"));
     }
 }

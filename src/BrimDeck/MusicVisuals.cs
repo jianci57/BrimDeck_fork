@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Windows;
 using BrimDeck.Core;
 using System.Windows.Automation;
+using System.Windows.Automation.Peers;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
@@ -196,7 +197,8 @@ internal sealed class MusicEqualizer : FrameworkElement
 
 internal sealed class MusicMarquee : FrameworkElement
 {
-    private static readonly Typeface Typeface = new(UI.PanelFont, FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
+    private static readonly Typeface Plain = new(UI.PanelFont, FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
+    private Typeface _typeface = Plain;
     // Width of the edge fade, and the scroll speed in DIP per second.
     internal const double Edge = 6, Speed = 24;
     private readonly TranslateTransform _shift = new();
@@ -205,6 +207,8 @@ internal sealed class MusicMarquee : FrameworkElement
     // An edge fades only while text is hidden beyond it: none on the left before the text moves,
     // none on the right once its end is in view. The first and last characters rest unfaded.
     private readonly GradientStop _left = new(Colors.White, 0), _right = new(Colors.White, 1);
+    // The same fade for the tail's own color (InkFade): its stops follow the text's clocks and offsets.
+    private readonly GradientStop _tailLeft = new(Colors.White, 0), _tailRight = new(Colors.White, 1);
     private string _text = "";
     private double _fontSize = 11.5, _overflow, _fadeWidth = -1;
     private FormattedText? _formatted;
@@ -240,11 +244,26 @@ internal sealed class MusicMarquee : FrameworkElement
         get => _text;
         set { if (_text == value) return; _text = value; ResetText(); AutomationProperties.SetName(this, value); }
     }
+    // For screen readers: the whole line as text, however much of it shows. The open page's title reads with its own name
+    // ("Title ..." and the artist merged into the line); every other line reads as it is drawn.
+    public string AccessibleName { get; init; } = "";
+    internal string Reading => AccessibleName.Length > 0 ? AccessibleName : _text + Tail;
+    protected override AutomationPeer OnCreateAutomationPeer() => new DrawnPeer(this, AutomationControlType.Text, () => Reading);
     public double FontSize
     {
         get => _fontSize;
         set { if (_fontSize == value) return; _fontSize = value; ResetText(); }
     }
+    // The open page's title is semibold; the collapsed row and the lyrics are regular.
+    public FontWeight FontWeight { init => _typeface = new Typeface(UI.PanelFont, FontStyles.Normal, value, FontStretches.Normal); }
+    // A second run after the text in its own size and color: the merged title of a short page ("title · artist"). It scrolls with
+    // the text as one line. Over a gradient or scan lines (InkFade) it fades at its ends like the text, in its own color, so it
+    // is the same color whether the line fits or scrolls.
+    public string Tail { get; init; } = "";
+    public double TailFontSize { get; init; }
+    public Brush? TailForeground { get; init; }
+    // Whether the text overhangs the room it was last drawn in: the window shows the whole title in a tooltip then.
+    public bool Overflows => _overflow > 0;
     public bool CenterWhenFits { get; init; } = true;
     // The edge fade's width; the collapsed row scales it with its height. The scroll speed does not change.
     public double EdgeWidth { get; init; } = Edge;
@@ -293,8 +312,21 @@ internal sealed class MusicMarquee : FrameworkElement
     protected override Visual GetVisualChild(int index) => _glyphs ?? throw new ArgumentOutOfRangeException(nameof(index));
     protected override Size MeasureOverride(Size availableSize) { _glyphs?.Measure(availableSize); return default; }
     protected override Size ArrangeOverride(Size finalSize) { _glyphs?.Arrange(new Rect(finalSize)); return finalSize; }
-    private FormattedText Formatted => _formatted ??= new(Text, CultureInfo.CurrentUICulture, FlowDirection.LeftToRight,
-        Typeface, FontSize, _ink ?? Foreground, VisualTreeHelper.GetDpi(this).PixelsPerDip);
+    private Brush? _tailInk;
+    private FormattedText Formatted => _formatted ??= Format();
+    private FormattedText Format()
+    {
+        var text = new FormattedText(Text + Tail, CultureInfo.CurrentUICulture, FlowDirection.LeftToRight,
+            _typeface, FontSize, _ink ?? Foreground, VisualTreeHelper.GetDpi(this).PixelsPerDip);
+        if (Tail.Length > 0)
+        {
+            text.SetFontWeight(FontWeights.Normal, Text.Length, Tail.Length);
+            if (TailFontSize > 0) text.SetFontSize(TailFontSize, Text.Length, Tail.Length);
+            if (_ink is not null && _tailInk is not null) text.SetForegroundBrush(_tailInk, Text.Length, Tail.Length);
+            else if (_ink is null && TailForeground is not null) text.SetForegroundBrush(TailForeground, Text.Length, Tail.Length);
+        }
+        return text;
+    }
     public void SetScrolling(bool enabled) { _scrolling = enabled; UpdateAnimation(); }
     private void ResetText() { _formatted = null; _rested = false; ResetAnimation(); Painter.InvalidateVisual(); }
     // Scrolls the laps again from the start (the panel closed and the row shows again).
@@ -310,7 +342,7 @@ internal sealed class MusicMarquee : FrameworkElement
     {
         _turn?.Stop(); ReleaseGlide(); ShowGliding();
         _scroll = null; _running = false; _since = double.NaN; _elapsed = 0;
-        _shift.X = 0; _unshift.X = 0; _left.Offset = 0; _right.Offset = 1 - EdgeStop;
+        _shift.X = 0; _unshift.X = 0; _left.Offset = _tailLeft.Offset = 0; _right.Offset = _tailRight.Offset = 1 - EdgeStop;
     }
     private void UpdateAnimation()
     {
@@ -363,7 +395,7 @@ internal sealed class MusicMarquee : FrameworkElement
         // Its laps done, the text rests at its start with no clock or timer left.
         bool done = Laps && _running && cycle.Done(played);
         if (done) at = cycle.Played(played);
-        _shift.X = cycle.Shift(at); _unshift.X = cycle.Unshift(at); _left.Offset = cycle.Left(at); _right.Offset = cycle.Right(at);
+        _shift.X = cycle.Shift(at); _unshift.X = cycle.Unshift(at); _left.Offset = _tailLeft.Offset = cycle.Left(at); _right.Offset = _tailRight.Offset = cycle.Right(at);
         if (done)
         {
             _rested = true; _running = false; _since = double.NaN; _elapsed = 0; _turn.Stop();
@@ -399,6 +431,9 @@ internal sealed class MusicMarquee : FrameworkElement
         _shift.ApplyAnimationClock(TranslateTransform.XProperty, (AnimationClock)_glide.Children[0]);
         _left.ApplyAnimationClock(GradientStop.OffsetProperty, (AnimationClock)_glide.Children[1]);
         _right.ApplyAnimationClock(GradientStop.OffsetProperty, (AnimationClock)_glide.Children[2]);
+        // The tail's fade shares the clocks (a clock may drive several stops).
+        _tailLeft.ApplyAnimationClock(GradientStop.OffsetProperty, (AnimationClock)_glide.Children[1]);
+        _tailRight.ApplyAnimationClock(GradientStop.OffsetProperty, (AnimationClock)_glide.Children[2]);
         _unshift.ApplyAnimationClock(TranslateTransform.XProperty, (AnimationClock)_glide.Children[3]);
     }
     private void ReleaseGlide()
@@ -409,6 +444,8 @@ internal sealed class MusicMarquee : FrameworkElement
         _unshift.ApplyAnimationClock(TranslateTransform.XProperty, null);
         _left.ApplyAnimationClock(GradientStop.OffsetProperty, null);
         _right.ApplyAnimationClock(GradientStop.OffsetProperty, null);
+        _tailLeft.ApplyAnimationClock(GradientStop.OffsetProperty, null);
+        _tailRight.ApplyAnimationClock(GradientStop.OffsetProperty, null);
     }
     // Gliding is raised once a turn has settled, and only when whether a clock glides has changed: a turn that lets one clock go
     // and starts the next (a new room for the text) raised it twice, and the bars' timer was stopped and started again for it.
@@ -430,7 +467,7 @@ internal sealed class MusicMarquee : FrameworkElement
         double Snap(double value) => Math.Round(value * scale) / scale;
         // Whole device pixels for the scroll distance, the centred start and the baseline, so resting glyphs are not split across
         // pixels at 150 %. The small allowance keeps rounding noise from starting a one-pixel scroll.
-        double overflow = Math.Max(0, Math.Ceiling((text.Width - size.Width) * scale - .01) / scale);
+        double overflow = MusicTitleFit.Overflow(text.Width, size.Width, scale);
         double fadeWidth = overflow > 0 ? size.Width : 0;
         if (_fadeWidth != fadeWidth)
         {
@@ -442,6 +479,12 @@ internal sealed class MusicMarquee : FrameworkElement
                 _left.Color = _right.Color = ink;
                 var clear = Color.FromArgb(0, ink.R, ink.G, ink.B);
                 _ink = fadeWidth > 0 ? new LinearGradientBrush(new GradientStopCollection { new(clear, 0), _left, _right, new(clear, 1) },
+                    new Point(0, 0), new Point(fadeWidth, 0)) { MappingMode = BrushMappingMode.Absolute, Transform = _unshift } : null;
+                // The tail fades in its own color (TailForeground, as it is drawn when the line fits); its stops take the same offsets.
+                var tailColor = (TailForeground as SolidColorBrush)?.Color ?? ink;
+                _tailLeft.Color = _tailRight.Color = tailColor;
+                var tailClear = Color.FromArgb(0, tailColor.R, tailColor.G, tailColor.B);
+                _tailInk = fadeWidth > 0 && Tail.Length > 0 ? new LinearGradientBrush(new GradientStopCollection { new(tailClear, 0), _tailLeft, _tailRight, new(tailClear, 1) },
                     new Point(0, 0), new Point(fadeWidth, 0)) { MappingMode = BrushMappingMode.Absolute, Transform = _unshift } : null;
                 _formatted = null; text = Formatted;
             }
@@ -489,10 +532,14 @@ internal abstract class GlideCarousel : Grid
     // Position within the cycle; the window hands it to the next carousel so a rebuild continues where this one was.
     public TimeSpan Elapsed => _cycle is not null ? TimeSpan.FromSeconds(Position(Eased.Now)) : _elapsed;
 
-    // Starts the cycle that moves the strip (with a TranslateTransform) left by travel and back.
-    protected void Glide(FrameworkElement strip, double travel, TimeSpan elapsed, bool animate)
+    // The direction the strip moves in: left, or up for the collapsed column (ColumnCarousel).
+    private DependencyProperty _axis = TranslateTransform.XProperty;
+
+    // Starts the cycle that moves the strip (with a TranslateTransform) left by travel and back; up when vertical.
+    protected void Glide(FrameworkElement strip, double travel, TimeSpan elapsed, bool animate, bool vertical = false)
     {
         _strip = strip; _discrete = !animate; _elapsed = elapsed;
+        _axis = vertical ? TranslateTransform.YProperty : TranslateTransform.XProperty;
         Loaded += (_, _) => Update();
         Unloaded += (_, _) => Update();
         IsVisibleChanged += (_, _) => Update();
@@ -515,7 +562,7 @@ internal abstract class GlideCarousel : Grid
         if (Travel <= 0)
         {
             _cycle = null; _turn?.Stop(); _since = double.NaN;
-            if (_strip?.RenderTransform is TranslateTransform shift) shift.X = 0;
+            if (_strip?.RenderTransform is TranslateTransform shift) shift.SetValue(_axis, 0d);
             if (_strip is not null) _strip.Opacity = 1;
             return;
         }
@@ -570,7 +617,7 @@ internal abstract class GlideCarousel : Grid
             return;
         }
         Release();
-        shift.X = cycle.Shift(at); _strip.Opacity = cycle.Opacity(at);
+        shift.SetValue(_axis, cycle.Shift(at)); _strip.Opacity = cycle.Opacity(at);
         if (!running) { _turn.Stop(); return; }
         var stretch = cycle.StretchAt(at);
         var turn = CycleTurn.Plan(stretch, cycle.StretchAt(stretch.End), at);
@@ -609,7 +656,7 @@ internal abstract class GlideCarousel : Grid
             group.Children.Add(back); group.Children.Add(fade);
         }
         _move = (ClockGroup)group.CreateClock(true); _moving = move;
-        shift.ApplyAnimationClock(TranslateTransform.XProperty, (AnimationClock)_move.Children[0]);
+        shift.ApplyAnimationClock(_axis, (AnimationClock)_move.Children[0]);
         if (!glide) _strip!.ApplyAnimationClock(OpacityProperty, (AnimationClock)_move.Children[1]);
     }
 
@@ -618,7 +665,7 @@ internal abstract class GlideCarousel : Grid
     {
         if (_move is null) return;
         _move.Controller?.Remove(); _move = null; _moving = null;
-        if (_strip?.RenderTransform is TranslateTransform shift) shift.ApplyAnimationClock(TranslateTransform.XProperty, null);
+        if (_strip?.RenderTransform is TranslateTransform shift) shift.ApplyAnimationClock(_axis, null);
         _strip?.ApplyAnimationClock(OpacityProperty, null);
     }
 }
@@ -627,10 +674,25 @@ internal abstract class GlideCarousel : Grid
 internal sealed class QuotaCarousel : GlideCarousel
 {
     private readonly Canvas _strip;
+    // For screen readers: its name, every ring's tooltip line, rotating or not.
+    protected override AutomationPeer OnCreateAutomationPeer() => new DrawnPeer(this, AutomationControlType.Text, () => AutomationProperties.GetName(this).Replace("\n", Loc.T("；", "; ")));
+    // One ring with its application's letter inside, at the size the system readings' dials carry theirs for this height, in the secondary text color.
+    internal static Grid Ring((double Used, string Color, string Tip, string Letter) item, double size, double thickness, double scale)
+    {
+        var ring = UI.Ring(item.Used, item.Color, size, thickness);
+        // Empty without the setting (DeckSettings.QuotaRingLetters): the ring is then as it was without letters.
+        if (item.Letter.Length > 0
+            && RingLetter.Create(item.Letter, Math.Max(1, BrimDeck.Core.CompactMusicLayout.Half(7 * scale)), size, Math.Max(1, size - 2 * thickness),
+                Application.Current?.MainWindow is { } window ? VisualTreeHelper.GetDpi(window).PixelsPerDip : 1, UI.PanelFont, UI.Brush(UI.Secondary)) is { } letter)
+            ring.Children.Add(letter);
+        return ring;
+    }
+
+    // rowScale: the row's scale, which sizes the letter inside each ring (as the system readings' dials size theirs).
     // count: the whole rings the window holds (CompactSpacing.Window); gap: the row's gap, which the rings keep between them too.
     // flowing: the window as wide as the room gives it, not whole rings (the surface is being dragged; CompactSpacing.ShareFlowing),
     // with the ring it cuts faded over cut DIPs; nothing glides then.
-    public QuotaCarousel(IReadOnlyList<(double Used, string Color, string Tip)> items, double size, double thickness, double gap, int count, double edge,
+    public QuotaCarousel(IReadOnlyList<(double Used, string Color, string Tip, string Letter)> items, double size, double thickness, double rowScale, double gap, int count, double edge,
         TimeSpan elapsed = default, bool animate = true, double? flowing = null, double cut = 0)
     {
         // Ring positions, the window and the travel all use whole device pixels. Layout rounding would otherwise widen each gap
@@ -648,7 +710,7 @@ internal sealed class QuotaCarousel : GlideCarousel
         _strip = new Canvas { Width = items.Count * step, Height = size, RenderTransform = new TranslateTransform() };
         for (int i = 0; i < items.Count; i++)
         {
-            var ring = UI.Ring(items[i].Used, items[i].Color, size, thickness);
+            var ring = Ring(items[i], size, thickness, rowScale);
             Canvas.SetLeft(ring, edge + i * step); _strip.Children.Add(ring);
         }
         // A Canvas measures the strip at its full width. Inside the Grid the strip would be
@@ -707,5 +769,31 @@ internal sealed class ReadingsCarousel : GlideCarousel
             Background = Brushes.Transparent;
         }
         Glide(strip, travel, elapsed, animate);
+    }
+}
+
+// The collapsed column on a side edge (MainWindow.CompactColumn.cs) when it is longer than the notch: it rests with its start in
+// view, glides up until its end is, rests there and fades back, as the readings do sideways. The fades lie over the window's top
+// and bottom edges, outside it (over the notch's ends), so nothing at rest is faded.
+internal sealed class ColumnCarousel : GlideCarousel
+{
+    public ColumnCarousel(FrameworkElement column, double width, double window, double travel, double edge, TimeSpan elapsed, bool animate)
+    {
+        window = Math.Max(0, window); travel = Math.Max(0, travel);
+        Rotates = travel > 0;
+        edge = Rotates ? Math.Max(0, edge) : 0;
+        Width = width; Height = edge + window + edge; ClipToBounds = true;
+        column.VerticalAlignment = VerticalAlignment.Top; column.RenderTransform = new TranslateTransform();
+        Canvas.SetTop(column, edge);
+        // A Canvas measures the column at its full length, as for the rings.
+        var host = new Canvas(); host.Children.Add(column); Children.Add(host);
+        if (Rotates && edge > 0)
+        {
+            Margin = new Thickness(0, -edge, 0, -edge);
+            OpacityMask = new LinearGradientBrush(new GradientStopCollection { new(Colors.Transparent, 0), new(Colors.White, edge / Height),
+                new(Colors.White, (Height - edge) / Height), new(Colors.Transparent, 1) }, new Point(0, 0), new Point(0, Height)) { MappingMode = BrushMappingMode.Absolute };
+            Background = Brushes.Transparent;
+        }
+        Glide(column, travel, elapsed, animate, vertical: true);
     }
 }

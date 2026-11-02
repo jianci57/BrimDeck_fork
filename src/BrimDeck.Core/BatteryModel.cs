@@ -128,14 +128,6 @@ public static class BatteryModel
         return percent <= low ? MemoryLevel.Critical : percent <= low + 10 ? MemoryLevel.Elevated : MemoryLevel.Normal;
     }
 
-    public static string StateName(BatteryState state) => state switch
-    {
-        BatteryState.Charging => Loc.T("充电中", "Charging"),
-        BatteryState.Full => Loc.T("已充满", "Fully charged"),
-        BatteryState.PluggedIn => Loc.T("已接通电源，未在充电", "Plugged in, not charging"),
-        _ => Loc.T("使用电池", "On battery")
-    };
-
     public static string ModeName(PowerMode mode) => mode switch
     {
         PowerMode.BestEfficiency => Loc.T("最佳能效", "Best power efficiency"),

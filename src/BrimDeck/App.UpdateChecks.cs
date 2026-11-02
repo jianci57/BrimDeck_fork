@@ -9,6 +9,7 @@ public partial class App
 {
     private bool _updateEvents;
     private string? _noticeVersion;
+    private bool _notesNotice;
 
     private void StartBackgroundUpdates()
     {
@@ -16,7 +17,7 @@ public partial class App
         SystemEvents.PowerModeChanged += PowerModeChanged;
         Updates.Changed += UpdateNoticeChanged;
         _updateEvents = true;
-        _noticeVersion = Updates.NoticeVersion; foreach (var deck in Decks) deck.UpdateNotice();
+        _noticeVersion = Updates.NoticeVersion; _notesNotice = Updates.UpdatedFrom is not null; foreach (var deck in Decks) deck.UpdateNotice();
     }
 
     private void StopBackgroundUpdates()
@@ -54,11 +55,11 @@ public partial class App
         if (e.Mode == PowerModes.Resume) Dispatcher.BeginInvoke(CheckUpdatesIfDue);
     }
 
-    // Download progress also raises Changed; the panel is touched only when the marked version changes.
+    // Download progress also raises Changed; the panel is touched only when the marked version or the update's notes notice changes.
     private void UpdateNoticeChanged()
     {
         if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke(UpdateNoticeChanged); return; }
-        if (Updates.NoticeVersion == _noticeVersion) return;
-        _noticeVersion = Updates.NoticeVersion; foreach (var deck in Decks) deck.UpdateNotice();
+        if (Updates.NoticeVersion == _noticeVersion && Updates.UpdatedFrom is not null == _notesNotice) return;
+        _noticeVersion = Updates.NoticeVersion; _notesNotice = Updates.UpdatedFrom is not null; foreach (var deck in Decks) deck.UpdateNotice();
     }
 }

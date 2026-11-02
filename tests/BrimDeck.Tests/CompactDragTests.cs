@@ -33,8 +33,8 @@ internal static class CompactDragTests
     }
 
     // seconds of frames at fps. surface(t): the width then (called once per frame, in order); dragging(t): the surface is dragged;
-    // changes: when the settings changed the width. flowing: with the flow, or the rest's whole items only.
-    private static (double Worst, int Jerks, double FlowAtEnd) Run(double seconds, double fps, Func<double, double> surface, Func<double, bool> dragging, double[] changes, bool flowing)
+    // changes: when the settings changed the width.
+    private static (double Worst, int Jerks, double FlowAtEnd) Run(double seconds, double fps, Func<double, double> surface, Func<double, bool> dragging, double[] changes)
     {
         var flow = new RowFlow();
         double frame = 1 / fps, worst = 0, previousWidth = Math.Round(surface(0));
@@ -45,10 +45,10 @@ internal static class CompactDragTests
         for (double t = frame; t <= seconds; t += frame)
         {
             double width = Math.Round(surface(t));
-            while (next < changes.Length && changes[next] <= t) { if (flowing) flow.NoteChange(changes[next]); next++; }
+            while (next < changes.Length && changes[next] <= t) { flow.NoteChange(changes[next]); next++; }
             bool drag = dragging(t);
             flow.Advance(t, drag, true);
-            bool rising = flow.Target(drag) > 0, active = flowing && flow.Eased > 0;
+            bool rising = flow.Target(drag) > 0, active = flow.Eased > 0;
             if (active) { if (!rising) held = false; else if (!held) { rest = Row(width, 0, -1, false).Whole; held = true; } }
             var row = Row(width, active ? flow.Eased : 0, rest, rising && held);
             if (!active) { rest = row.Whole; held = true; }
@@ -66,14 +66,10 @@ internal static class CompactDragTests
         {
             double limit = fps > 100 ? 3 : 6.5;
             // The pointer or the resize shortcut: the surface follows a ramp on the drag's spring and is dragged until it rests.
-            foreach (bool flowing in new[] { true, false })
-            {
-                var spring = new Spring(220);
-                var drag = Run(3.5, fps, t => { spring.Target = 220 + 360 * Math.Clamp((t - .1) / 1.2, 0, 1); spring.Step(1 / fps); return spring.Value; },
-                    t => t >= .1 && (t < 1.4 || spring.Value != spring.Target), [], flowing);
-                if (flowing) check($"Entries ({fps:0} fps): dragging the surface moves no frame's row by more than {limit} DIPs beyond the surface's own move", drag.Worst <= limit);
-                else check($"Entries ({fps:0} fps): dragging the surface without the flow jumps the row by more than 10 DIPs", drag.Worst > 10);
-            }
+            var spring = new Spring(220);
+            var drag = Run(3.5, fps, t => { spring.Target = 220 + 360 * Math.Clamp((t - .1) / 1.2, 0, 1); spring.Step(1 / fps); return spring.Value; },
+                t => t >= .1 && (t < 1.4 || spring.Value != spring.Target), []);
+            check($"Entries ({fps:0} fps): dragging the surface moves no frame's row by more than {limit} DIPs beyond the surface's own move", drag.Worst <= limit);
 
             // The settings slider: a value every 16 ms, 6 DIPs at a time, then 1 DIP every 45 ms; then left alone.
             foreach (var (name, step, every) in new[] { ("quick slider", 6.0, .016), ("slow slider", 1.0, .045) })
@@ -82,12 +78,10 @@ internal static class CompactDragTests
                 double[] changes = Enumerable.Range(0, count + 1).Select(k => k * every).ToArray();
                 double Width(double t) => 150 + Math.Min(Math.Floor(t / every + 1e-9) * step, 420);
                 double seconds = count * every + 1.5;
-                var flowing = Run(seconds, fps, Width, _ => false, changes, true);
-                var whole = Run(seconds, fps, Width, _ => false, changes, false);
+                var flowing = Run(seconds, fps, Width, _ => false, changes);
                 // A value every 16 ms moves the surface 6 DIPs in some frames and none in the next: the row follows in the same lumps.
                 double sliderLimit = limit + 2;
                 check($"Entries ({fps:0} fps): the {name} moves no frame's row by more than {sliderLimit} DIPs beyond the surface's own move, and the flow is back to 0 after", flowing.Worst <= sliderLimit && flowing.FlowAtEnd == 0);
-                check($"Entries ({fps:0} fps): the {name} without the flow jumps the row by more than 10 DIPs (what the flow spares)", whole.Worst > 10);
             }
 
             // A slider dragged again after the last one stopped, while its flow is still falling: the flow rises again from where it is.
@@ -96,12 +90,12 @@ internal static class CompactDragTests
                 double[] first = Enumerable.Range(0, 71).Select(k => k * .016).ToArray();
                 double[] second = Enumerable.Range(0, 300).Select(k => gap + k * .045).ToArray();
                 double Width(double t) => t < gap ? 216 + Math.Min(Math.Floor(t / .016 + 1e-9) * 6, 420) : start - Math.Min(Math.Floor((t - gap) / .045 + 1e-9), 299);
-                var again = Run(gap + 300 * .045 + 1.5, fps, Width, _ => false, [.. first, .. second], true);
+                var again = Run(gap + 300 * .045 + 1.5, fps, Width, _ => false, [.. first, .. second]);
                 check($"Entries ({fps:0} fps): a slider dragged again while the flow of the last one falls moves no frame's row by more than {limit + 2} DIPs beyond the surface's own move", again.Worst <= limit + 2 && again.FlowAtEnd == 0);
             }
 
             // One change (a number typed, a reset): a new layout, not a motion; the flow stays 0.
-            var once = Run(2, fps, t => t < .5 ? 396 : 480, _ => false, [.5], true);
+            var once = Run(2, fps, t => t < .5 ? 396 : 480, _ => false, [.5]);
             check($"Entries ({fps:0} fps): a width changed once does not flow", once.FlowAtEnd == 0);
         }
         var held = new RowFlow(); held.NoteChange(1);
@@ -173,36 +167,30 @@ internal static class CompactDragTests
     private static void Drag(Action<string, bool> check)
     {
         double clock = 36, unit = 8;
-        (double ReadingsRight, double ClockLeft) Row(double width, bool flowing)
+        (double ReadingsRight, double ClockLeft) Row(double width)
         {
             double pool = Math.Max(0, width - clock - unit);
-            var shared = flowing ? CompactSpacing.ShareFlowing([], RingGap, Readings, ReadingGap, pool).Second : CompactSpacing.Share([], RingGap, Readings, ReadingGap, pool).Second;
+            var shared = CompactSpacing.ShareFlowing([], RingGap, Readings, ReadingGap, pool).Second;
             var place = CompactSpacing.Arrange([new(shared.Window), new(clock)], -1, 0, 0, width, unit, 1, 1);
             return (place.Left[0] + place.Room[0], place.Left[1]);
         }
         foreach (var (name, rampMs) in new[] { ("slow", 1500), ("quick", 300) })
         {
-            double jumpFlowing = 0, jumpWhole = 0;
-            foreach (bool flowing in new[] { true, false })
+            var spring = new Spring(220);
+            var previous = Row(220); double previousWidth = 220, worst = 0;
+            double frame = 1.0 / 144;
+            for (int i = 0; i < 2 * 144 * 3; i++)
             {
-                var spring = new Spring(220);
-                var previous = Row(220, flowing); double previousWidth = 220, worst = 0;
-                double frame = 1.0 / 144;
-                for (int i = 0; i < 2 * 144 * 3; i++)
-                {
-                    double t = i * frame, phase = t % (2 * rampMs / 1000.0);
-                    double ramp = phase < rampMs / 1000.0 ? phase / (rampMs / 1000.0) : 2 - phase / (rampMs / 1000.0);
-                    spring.Target = 220 + 360 * ramp;
-                    spring.Step(frame);
-                    var now = Row(Math.Round(spring.Value), flowing);
-                    double moved = Math.Abs(Math.Round(spring.Value) - previousWidth);
-                    worst = Math.Max(worst, Math.Max(Math.Abs(now.ReadingsRight - previous.ReadingsRight), Math.Abs(now.ClockLeft - previous.ClockLeft)) - moved);
-                    previous = now; previousWidth = Math.Round(spring.Value);
-                }
-                if (flowing) jumpFlowing = worst; else jumpWhole = worst;
+                double t = i * frame, phase = t % (2 * rampMs / 1000.0);
+                double ramp = phase < rampMs / 1000.0 ? phase / (rampMs / 1000.0) : 2 - phase / (rampMs / 1000.0);
+                spring.Target = 220 + 360 * ramp;
+                spring.Step(frame);
+                var now = Row(Math.Round(spring.Value));
+                double moved = Math.Abs(Math.Round(spring.Value) - previousWidth);
+                worst = Math.Max(worst, Math.Max(Math.Abs(now.ReadingsRight - previous.ReadingsRight), Math.Abs(now.ClockLeft - previous.ClockLeft)) - moved);
+                previous = now; previousWidth = Math.Round(spring.Value);
             }
-            check($"Dragging ({name}): from frame to frame the readings' end and the clock move no more than the surface did, within 2 DIPs (the window follows the room)", jumpFlowing <= 2);
-            check($"Dragging ({name}): whole-item windows jump the row by more than 10 DIPs in a frame (what the flowing windows replace)", jumpWhole > 10);
+            check($"Dragging ({name}): from frame to frame the readings' end and the clock move no more than the surface did, within 2 DIPs (the window follows the room)", worst <= 2);
         }
     }
 }

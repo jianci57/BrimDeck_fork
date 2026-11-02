@@ -142,10 +142,8 @@ public sealed class DshSessions
         item.Length = info.Length; item.Modified = info.LastWriteTimeUtc;
     }
 
-    // The length of the complete Zstandard frames at the start of the data, read from the frame and block headers
-    // (RFC 8878 section 3.1) without decompressing them.
-    public static int CompleteFrames(ReadOnlySpan<byte> data) => Frames(data) is { Count: > 0 } frames ? frames[^1].Start + frames[^1].Length : 0;
-
+    // The complete Zstandard frames at the start of the data, read from the frame and block headers (RFC 8878 section 3.1)
+    // without decompressing them.
     private static List<(int Start, int Length)> Frames(ReadOnlySpan<byte> data)
     {
         var frames = new List<(int Start, int Length)>();

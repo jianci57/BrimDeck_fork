@@ -131,7 +131,7 @@ internal static class AppUpdateTests
 
 internal sealed class UpdateFixture : IAppUpdateBackend
 {
-    public string CurrentVersion => "0.1.0";
+    public string CurrentVersion { get; set; } = "0.1.0";
     public bool CanInstall { get; set; } = true;
     public AppRelease? PendingRelease { get; set; }
     public AppRelease? Release { get; set; } = new("0.2.0", "Update notes", 100);

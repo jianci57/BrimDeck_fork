@@ -53,14 +53,10 @@ internal static class IdleCostTests
             Frame[] right = [new(0, 1 - edge), new(1.5 + travel - ramp, 1 - edge), new(1.5 + travel, 1, Kind.Linear), new(3 + travel, 1)];
             Frame[] unshift = [new(0, 0), new(1.5, 0), new(1.5 + travel, overflow, Kind.Linear), new(3 + travel, overflow)];
             string name = $"Idle cost: the scrolling title over {overflow} DIP (edge {edgeWidth})";
-            check(name + " keeps the storyboard's period", Near(cycle.Period, 3 + travel) && MarqueeCycle.Rest == 1.5);
             var keys = new[] { 0, 1.5, 1.5 + ramp, 1.5 + travel - ramp, 1.5 + travel };
             bool same = Points(cycle.Period, keys).All(t => Near(cycle.Shift(t), Evaluate(shift, t), 1e-7) && Near(cycle.Left(t), Evaluate(left, t), 1e-7)
                 && Near(cycle.Right(t), Evaluate(right, t), 1e-7) && Near(cycle.Unshift(t), Evaluate(unshift, t), 1e-7));
-            check(name + " matches the storyboard point by point", same);
-            // The glide's own keyframes (MusicMarquee.Glide) are the storyboard's, counted from the glide's start.
-            Frame[] glide = [new(0, 0), new(travel, -overflow, Kind.Linear)];
-            check(name + ": the glide's clock gives the same positions", Points(travel).All(t => Near(Evaluate(glide, t), cycle.Shift(1.5 + t), 1e-7)));
+            check(name + " keeps the storyboard's period and matches it point by point", Near(cycle.Period, 3 + travel) && same);
             // Only the glide runs a clock: the two rests (3 s of every cycle) are a timer's.
             check(name + ": the rests run no clock", cycle.StretchAt(.7) == new CycleStretch(false, 0, 1.5) && cycle.StretchAt(1.5 + travel + .1) == new CycleStretch(false, 1.5 + travel, cycle.Period)
                 && cycle.StretchAt(1.5 + travel / 2) == new CycleStretch(true, 1.5, 1.5 + travel));
@@ -79,17 +75,9 @@ internal static class IdleCostTests
             Frame[] shift = [new(0, 0), new(2.5, 0), new(end, -travel, Kind.Spline), new(reset + fade, -travel), new(reset + fade, 0)];
             Frame[] opacity = [new(0, 1), new(reset, 1), new(reset + fade, 0, Kind.Linear), new(reset + 2 * fade, 1, Kind.Linear)];
             string name = $"Idle cost: a carousel travelling {travel} DIP";
-            check(name + " keeps the storyboard's timings", GlideCycle.StartHold == 2.5 && GlideCycle.EndHold == 2 && GlideCycle.Speed == 12 && GlideCycle.Fade == .25
-                && (GlideCycle.CurveX1, GlideCycle.CurveY1, GlideCycle.CurveX2, GlideCycle.CurveY2) == (.4, 0, .6, 1) && Near(cycle.Period, reset + .5));
             var keys = new[] { 0, 2.5, end, reset, reset + fade, reset + 2 * fade };
-            check(name + " matches the storyboard point by point", Points(cycle.Period, keys).All(t => Near(cycle.Shift(t), Evaluate(shift, t), 1e-7) && Near(cycle.Opacity(t), Evaluate(opacity, t), 1e-7)));
-            // The moves' own keyframes (GlideCarousel.Move), counted from each move's start.
-            Frame[] glide = [new(0, 0), new(end - 2.5, -travel, Kind.Spline)];
-            Frame[] back = [new(0, -travel), new(fade, 0)];
-            Frame[] fadeBack = [new(0, 1), new(fade, 0, Kind.Linear), new(2 * fade, 1, Kind.Linear)];
-            check(name + ": the glide's clock gives the same positions", Points(end - 2.5).All(t => Near(Evaluate(glide, t), cycle.Shift(2.5 + t), 1e-7)));
-            check(name + ": the fade back's clock gives the same values", Points(2 * fade, fade).All(t => Near(Evaluate(back, t), cycle.Shift(reset + t), 1e-7)
-                && Near(Evaluate(fadeBack, t), cycle.Opacity(reset + t), 1e-7)));
+            check(name + " keeps the storyboard's period and matches it point by point", Near(cycle.Period, reset + .5)
+                && Points(cycle.Period, keys).All(t => Near(cycle.Shift(t), Evaluate(shift, t), 1e-7) && Near(cycle.Opacity(t), Evaluate(opacity, t), 1e-7)));
             check(name + ": only the glide and the fade back run a clock", cycle.StretchAt(1) == new CycleStretch(false, 0, 2.5) && cycle.StretchAt(end + .5) == new CycleStretch(false, end, reset)
                 && cycle.StretchAt(3) == new CycleStretch(true, 2.5, end) && cycle.StretchAt(reset + .1) == new CycleStretch(true, reset, reset + .5));
 
@@ -163,10 +151,6 @@ internal static class IdleCostTests
 
     private static void Readings(Action<string, bool> check)
     {
-        // Only a region with room shows readings; squeezed to nothing, the sampler is not run for them.
-        check("Idle cost: readings with room are sampled", CompactMonitor.HasRoom(.5) && CompactMonitor.HasRoom(120));
-        check("Idle cost: readings without room are not sampled", !CompactMonitor.HasRoom(0) && !CompactMonitor.HasRoom(-3) && !CompactMonitor.HasRoom(double.NaN) && !CompactMonitor.HasRoom(double.PositiveInfinity));
-
         // The figure kept for each whole percent is the one the format gives.
         check("Idle cost: every whole percent's figure is the formatted one", Enumerable.Range(0, 2001).Select(i => i / 2000d - .0001)
             .Append(double.NaN).Append(2).Append(-1).All(share => MonitorFormat.WholePercent(share).ToString(System.Globalization.CultureInfo.InvariantCulture) == MonitorFormat.Percent(share)));

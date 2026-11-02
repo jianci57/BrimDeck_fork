@@ -4,7 +4,7 @@ using System.Windows.Threading;
 
 namespace BrimDeck;
 
-// Gives memory back while BrimDeck sits collapsed, when the user turns it on (DeckSettings.TrimMemoryWhenIdle, off by default).
+// Gives memory back while BrimDeck sits collapsed, unless the user turns it off (DeckSettings.TrimMemoryWhenIdle, on by default).
 // Reading the usage logs, building a page and loading covers allocate in bursts; afterwards the garbage collector keeps the room
 // it grew into, and Windows keeps the pages in the working set, so an idle panel that had peaked at over 200 MB stayed there. Once every panel has been collapsed and left alone for a while, the heap is
 // compacted, the room it no longer needs is returned, and the working set is trimmed. Never while a panel is open or a surface
@@ -16,7 +16,8 @@ public partial class App
     private DispatcherTimer? _trim;
     private DateTime _trimmedAt = DateTime.MinValue;
 
-    // Called after a burst of work (a usage refresh) and whenever a panel collapses: the trim waits for a quiet stretch after it.
+    // Called after a burst of work (a usage refresh), whenever a panel collapses and when the settings window closes: the trim
+    // waits for a quiet stretch after it.
     internal void RequestTrim()
     {
         if (Exiting || !Settings.TrimMemoryWhenIdle) { _trim?.Stop(); return; }

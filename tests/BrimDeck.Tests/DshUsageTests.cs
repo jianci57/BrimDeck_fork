@@ -133,7 +133,6 @@ static class DshUsageTests
         var fork = Path.Combine(DshSessions.Folder(home), "--C-work--", "session-b");
         Directory.CreateDirectory(fork);
         File.WriteAllText(Path.Combine(fork, "session.v4.jsonl"), header + "\n" + Message("m1", At(1), 5000, 200, 20000) + "\n" + Message("m3", At(3), 7, 3) + "\n");
-        check("Only complete frames of the current generation in each session are read", DshSessions.CompleteFrames(File.ReadAllBytes(log)) < new FileInfo(log).Length);
         var reader = new DshSessions();
         var snapshot = new ProviderSnapshot(ProviderId.Dsh);
         reader.Read(snapshot, home, start, start.AddDays(1));

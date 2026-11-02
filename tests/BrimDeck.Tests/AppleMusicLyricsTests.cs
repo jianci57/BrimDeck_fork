@@ -142,6 +142,34 @@ internal static class AppleMusicLyricsTests
         using (var service = new LyricsService(web.Http, () => [remembered]))
             check("A song looked up midway takes a file as long as the song from before a pause",
                 (await service.FindAsync(Track with { ReportedPosition = TimeSpan.FromSeconds(60), PositionAt = DateTimeOffset.UtcNow }, true, default)).Source == "Apple Music");
+        // Seen as it started and looked up again a minute in, the song played before has no new file; another song's is not taken.
+        using (var web = new Web())
+        using (var service = new LyricsService(web.Http, () => [remembered]))
+            check("A song seen from its start does not take a file from long before when looked up again later",
+                (await service.FindAsync(Track with { State = MediaState.Playing, PositionAt = DateTimeOffset.UtcNow.AddSeconds(-60) }, true, default)).Lines.Count == 0);
+        string twoEarlier = Path.Combine(root, "apple-two-earlier"); Directory.CreateDirectory(twoEarlier);
+        string ownSong = Path.Combine(twoEarlier, "ttmlLyrics[1].json"), otherSong = Path.Combine(twoEarlier, "ttmlLyrics[2].json");
+        File.Copy(firstPlay, ownSong); File.SetCreationTimeUtc(ownSong, now.AddMinutes(-30)); File.SetLastWriteTimeUtc(ownSong, now.AddMinutes(-30));
+        File.WriteAllText(otherSong, JsonSerializer.Serialize(new { lyricsId = "AP_1524793900", status = "success", ttml = Other("同长的另一首歌", "4:37.500") }));
+        File.SetCreationTimeUtc(otherSong, now.AddMinutes(-5)); File.SetLastWriteTimeUtc(otherSong, now.AddMinutes(-5));
+        var midwayTrack = Track with { ReportedPosition = TimeSpan.FromSeconds(60), PositionAt = DateTimeOffset.UtcNow };
+        using (var web = new Web())
+        using (var service = new LyricsService(web.Http, () => [twoEarlier]))
+            check("A song looked up midway takes no file from long before when two of its length differ", (await service.FindAsync(midwayTrack, true, default)).Lines.Count == 0);
+        string claimed = Path.Combine(root, "apple-music-lyrics-claimed.json");
+        File.WriteAllText(claimed, JsonSerializer.Serialize(new Dictionary<string, string> { ["exile\nTaylor Swift\nfolklore\n278"] = "AP_1632686041" }));
+        using (var web = new Web())
+        using (var service = new LyricsService(web.Http, () => [remembered], claimed))
+            check("A song looked up midway does not take a file matched to a song of another title", (await service.FindAsync(midwayTrack, true, default)).Lines.Count == 0);
+        // Kept from an earlier version: the same lyrics matched to songs of different titles are dropped when loaded.
+        string shared = Path.Combine(root, "apple-music-lyrics-shared.json");
+        File.WriteAllText(shared, JsonSerializer.Serialize(new Dictionary<string, string> { [Track.SongKey] = "AP_1632686041", ["exile\nTaylor Swift\nfolklore\n278"] = "AP_1632686041" }));
+        using (var web = new Web())
+        using (var service = new LyricsService(web.Http, () => [remembered], shared))
+            check("Lyrics kept for songs of different titles are matched again", (await service.FindAsync(Track, true, default)).Lines.Count == 0);
+        using (var web = new Web())
+        using (var service = new LyricsService(web.Http, () => [remembered], saved))
+            check("Lyrics kept for one song are still used", (await service.FindAsync(Track, true, default)).Source == "Apple Music");
         // Apple Music once wrote a song's lyrics minutes into the song.
         string late2 = Path.Combine(root, "apple-written-late"); Directory.CreateDirectory(late2);
         string lateFile = Path.Combine(late2, "ttmlLyrics[1].json");

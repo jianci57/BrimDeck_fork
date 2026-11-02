@@ -43,6 +43,8 @@ public sealed class ProviderSnapshot(ProviderId id)
     public DateTime? UsageStart { get; set; }
     public List<Quota> Quotas { get; set; } = [];
     public List<TokenEntry> Entries { get; set; } = [];
+    // A shallow copy: setting a property of the copy leaves this snapshot as it was, but the two share their lists.
+    public ProviderSnapshot Copy() => (ProviderSnapshot)MemberwiseClone();
 }
 
 public static class JsonValue

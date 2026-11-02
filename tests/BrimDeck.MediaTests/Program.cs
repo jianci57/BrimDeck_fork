@@ -21,6 +21,7 @@ async Task Until(string name, Func<bool> test, int milliseconds = 4000)
     Check(name, test());
 }
 NeteaseBridgeTests.Run(Check);
+KugouConnectionTests.Run(Check);
 using var self = Process.GetCurrentProcess();
 var owner = new NeteaseProcess(self.Id, self.StartTime.ToUniversalTime().Ticks, self.MainModule!.FileName, null, 0);
 var root = Path.Combine(Path.GetTempPath(), "BrimDeck-MediaTests-" + Guid.NewGuid().ToString("N"));

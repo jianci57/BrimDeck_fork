@@ -11,12 +11,12 @@ public partial class MainWindow
 {
     private const string GearGlyph = "\uE713";
 
-    // A newer version that was not skipped adds a small blue dot to the settings gear. Without one the button shows the plain glyph.
-    // Rebuilt only when the update state changes, never per frame.
+    // A newer version that was not skipped, or an update whose notes were not opened yet, adds a small blue dot to the settings
+    // gear. Without either the button shows the plain glyph. Rebuilt only when the update state changes, never per frame.
     internal void UpdateNotice()
     {
         RefreshStatus();
-        SettingsButton.Content = _app.Updates.NoticeVersion is null ? GearGlyph : NoticeGear();
+        SettingsButton.Content = _app.Updates.NoticeVersion is null && _app.Updates.UpdatedFrom is null ? GearGlyph : NoticeGear();
     }
 
     // The 16 x 16 glyph box sits at (6, 4) in the 28 x 24 button, so the dot's center (20, 6), on the top-right tooth tip, is (14, 2)

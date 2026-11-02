@@ -7,6 +7,8 @@ public readonly record struct SensorStates(SensorState Cpu, SensorState Gpu, Sen
     // Whether the machine gives a power reading (PowerResolver), and whether it has a battery of its own (BatteryModel).
     public SensorState Power { get; init; }
     public SensorState Charge { get; init; }
+    // Whether frame rates can be read (FrameRates): by event tracing, or else by capturing the screen.
+    public SensorState Frames { get; init; }
     public static SensorStates Unknown => default;
 }
 
@@ -38,6 +40,21 @@ public static class CompactFigures
         CompactMonitorItems.Gpu when snapshot?.Gpu.OrDefault?.Temperature is { } gpu => (gpu, Temperatures.OfGpu(gpu)),
         _ => null
     };
+}
+
+// Whether the collapsed frame rate shows the icon of the program it counts in place of the screen glyph (CompactReading.Figures of
+// the frame rate: the icon, or an empty choice for the glyph). Without a choice, the icon. The desktop and a program without an
+// icon show the glyph. Its name shows on the page only: a name of any length in the row would need a room of fixed width, and leave
+// a gap after a short one.
+public static class CompactFrames
+{
+    public const string Icon = "Icon";
+    public static IReadOnlyList<string> Of(CompactReading reading) => reading.Figures ?? [Icon];
+    public static bool Shows(CompactReading reading, string part) => Of(reading).Contains(part);
+
+    // The icon or nothing; null stays the default, and an empty choice stays empty.
+    public static List<string>? Normalize(IEnumerable<string?>? parts) =>
+        parts is null ? null : [.. new[] { Icon }.Where(part => parts.Any(chosen => string.Equals(chosen?.Trim(), part, StringComparison.OrdinalIgnoreCase)))];
 }
 
 // The drive letters the collapsed row's drive reading shows (CompactReading.Sources): each lettered volume's space in use and,

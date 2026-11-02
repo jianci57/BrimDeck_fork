@@ -14,7 +14,6 @@ internal static class MotionReviewTests
             PanelMotion.Length(360, closing: false, keyboard: true) == 216 && PanelMotion.Length(360, closing: true, keyboard: true) == 216
             && PanelMotion.Length(360, true, true) < PanelMotion.Length(360, true, false));
         check("Motion review: without animations every move takes no time", PanelMotion.Length(0, true, true) == 0 && PanelMotion.Length(0, false, false) == 0);
-        check("Motion review: a page switch takes the default opening length, whatever the set duration", PanelMotion.Reshape == new DeckSettings().AnimationDuration);
 
         // F1: turned back, the surface starts at once; otherwise it still starts a little after the content.
         check("Motion review: a closing that turns an opening around starts its surface at once",

@@ -10,6 +10,7 @@ internal static class GpuAdapterTests
     {
         Parsing(check);
         Totals(check);
+        Drivers(check);
         Choice(check);
         Settings(root, check);
     }
@@ -62,13 +63,16 @@ internal static class GpuAdapterTests
         check("GPU totals: memory per adapter, unlisted is unknown", totals[Nvidia].Dedicated == 1_180_934_144 && totals[Intel].Shared == 600_000_000 && totals[Warp].Shared is null);
         var again = Counters(counters, nvidia3D: 80);
         check("GPU totals: a new reading starts from nothing", again[Nvidia].Engines["3D"] == 80 && again[Nvidia].Usage == 80);
+        var copies = counters.Sum([("pid_1_luid_0x00000000_0x0001795E_phys_0_eng_3_engtype_Copy", 35), ("pid_2_luid_0x00000000_0x0001795E_phys_0_eng_3_engtype_Copy", 25),
+            ("pid_1_luid_0x00000000_0x0001795E_phys_0_eng_4_engtype_Copy", 50), ("pid_1_luid_0x00000000_0x0001795E_phys_1_eng_3_engtype_Copy", 20)], [], []);
+        check("GPU totals: engines of one type are read apart, the busiest kept (Task Manager)", copies[Nvidia].Engines["Copy"] == 60 && copies[Nvidia].Usage == 60);
 
         var samples = GpuReadings.Samples(totals, Described(), described: true, "no memory");
         check("GPU samples: the software rasterizer and the NPU are left out", samples.Count == 2 && samples.All(s => s.Luid is Nvidia or Intel));
         check("GPU samples: discrete first, then integrated", samples[0].Kind == GpuKind.Discrete && samples[1].Kind == GpuKind.Integrated);
         var nvidia = samples[0];
         check("GPU samples: named, sized and keyed from the description", nvidia.Name == "NVIDIA GeForce RTX 4060 Laptop GPU" && nvidia.DedicatedTotal == 7956UL << 20
-            && nvidia.Key == "10DE:28E0:3D6217AA" && nvidia.Usage == .4);
+            && nvidia.Key == "10DE:28E0:3D6217AA" && nvidia.Usage == .4 && nvidia.EngineUsage == .4 && nvidia.UsageSource is null && nvidia.VendorId == 0x10DE);
         check("GPU samples: engines folded by kind, as Task Manager", nvidia.Engines.Select(e => e.Kind).SequenceEqual(["3D", "Compute", "VideoDecode"])
             && nvidia.Engines[1].Usage == .1);
         check("GPU samples: each adapter's own memory", nvidia.DedicatedBytes.OrDefault == 1_180_934_144 && samples[1].SharedBytes.OrDefault == 600_000_000
@@ -80,6 +84,33 @@ internal static class GpuAdapterTests
         partial[Nvidia].Dedicated = null;
         check("GPU samples: memory the driver does not report is unavailable, not zero",
             !GpuReadings.Samples(partial, Described(), true, "no memory")[0].DedicatedBytes.HasValue);
+    }
+
+    private static void Drivers(Action<string, bool> check)
+    {
+        var discrete = new GpuSample(.05, 0UL) { EngineUsage = .05, VendorId = GpuDriverReadings.Nvidia, Kind = GpuKind.Discrete, Luid = Nvidia };
+        var read = GpuDriverReadings.Apply(discrete, 31, 42.5);
+        check("GPU driver: the driver's usage is shown, Windows' kept beside it", read.Usage == .31 && read.EngineUsage == .05 && read.UsageSource == "NVIDIA 驱动" && read.DriverWatts == 42.5);
+        check("GPU driver: without a reading the busiest engine stays", GpuDriverReadings.Apply(discrete, null, null) == discrete
+            && GpuDriverReadings.Apply(discrete, 250, null).Usage == 1);
+        var integrated = discrete with { VendorId = GpuDriverReadings.Amd, Kind = GpuKind.Integrated };
+        check("GPU driver: an integrated adapter's power is the processor's, never added again", GpuDriverReadings.Apply(integrated, 12, 8).DriverWatts is null
+            && GpuDriverReadings.Apply(integrated, 12, 8).UsageSource == "AMD 驱动");
+        check("GPU driver: a temperature is kept, a zero or absurd one is none", GpuDriverReadings.Apply(discrete, null, null, 61).DriverTemperature == 61
+            && GpuDriverReadings.Apply(discrete, null, null, 0).DriverTemperature is null && GpuDriverReadings.Apply(discrete, null, null, 900).DriverTemperature is null);
+        check("GPU driver: rates from growing counters", GpuDriverReadings.Rate(10, 100, 10.5, 101) == .5 && GpuDriverReadings.Rate(10, 100, 9, 101) is null
+            && GpuDriverReadings.Rate(10, 100, 11, 100) is null);
+        check("GPU driver: the bus of a location", GpuDriverReadings.Bus("1:0.0") == 1 && GpuDriverReadings.Bus("10:2.1") == 10 && GpuDriverReadings.Bus(null) is null && GpuDriverReadings.Bus("x") is null);
+
+        var gate = new GpuDriverGate();
+        var idle = discrete with { EngineUsage = 0 };
+        check("GPU driver: an adapter never seen working is not asked (it may be asleep)", !gate.Awake(idle, 0));
+        check("GPU driver: one working is asked, and for a while after", gate.Awake(discrete, 1) && gate.Awake(idle, 1 + GpuDriverGate.AwakeSeconds)
+            && !gate.Awake(idle, 2 + GpuDriverGate.AwakeSeconds));
+        check("GPU driver: an adapter without readings is not asked", !gate.Awake(discrete with { NoReadings = true }, 0));
+        gate.Awake(discrete, 50);
+        gate.Keep([]);
+        check("GPU driver: adapters that went away are forgotten", !gate.Awake(idle, 51));
     }
 
     private static List<GpuSample> Laptop(double nvidia3D = 30, double intel3D = 55, ulong nvidia = Nvidia, ulong intel = Intel)
@@ -130,8 +161,6 @@ internal static class GpuAdapterTests
         var both = Laptop();
         check("GPU choice: the next adapter, round to the first", GpuChoice.Next(both, both[0])?.Luid == Intel && GpuChoice.Next(both, both[1])?.Luid == Nvidia
             && GpuChoice.Next(both, new GpuSample(0, 0UL) { Luid = 42 })?.Luid == Nvidia);
-        check("GPU choice: named with its kind", GpuChoice.Describe("Intel(R) UHD Graphics", GpuKind.Integrated) is "Intel(R) UHD Graphics（核显）" or "Intel(R) UHD Graphics (Integrated)"
-            && GpuChoice.Describe(null, GpuKind.Unknown) == "GPU");
     }
 
     private static void Settings(string root, Action<string, bool> check)

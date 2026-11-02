@@ -56,6 +56,8 @@ public sealed record MusicLayout(MusicMetrics Metrics, double Density, double Bo
         double byWidth = Math.Clamp(1 + 2 * (width - standard.Width) / (spacious.Width - standard.Width), 1, 3);
         return Math.Min(byHeight, byWidth);
     }
+    // The height of the upper part, above the progress bar; the cover is centred in it.
+    public double UpperHeight { get; init; }
     // The lyric lines the room beside the cover holds, whether or not there are lyrics to show in them.
     public int LyricRoom => (int)Math.Clamp(Math.Floor((MiddleHeight - Metrics.MiddleGap) / Metrics.LyricLine), 0, 3);
     // lyricsExpected lays out the titles as if lyrics were shown, so they keep their place while lyrics are still looked up,
@@ -95,7 +97,59 @@ public sealed record MusicLayout(MusicMetrics Metrics, double Density, double Bo
         if (!enable) fullControlRoom = 0;
         double radius = Math.Clamp(Math.Round(cover * .08), 5, 16);
         return new(c, density, bodyW, bodyH, cover, coverY, radius, textX, textW, merge, headH, cover - headH, lines, showMessage,
-            timeline ? progressY : 0, timeline ? c.SeekRow : 0, timesY, controlsY, gap, tripletX, tripletW, modeX, enable, fullControlRoom);
+            timeline ? progressY : 0, timeline ? c.SeekRow : 0, timesY, controlsY, gap, tripletX, tripletW, modeX, enable, fullControlRoom) { UpperHeight = upper };
+    }
+
+    // Without the cover the upper part has two columns, so the titles and the lyrics are not read as one block: the title,
+    // artist and album centred in the left one, and the lyrics right of a thin divider. The left column takes about a third of
+    // the width; a wider panel gives the lyrics the rest. The lyrics fill the upper part's height, the current line a size
+    // larger, with as many lines before it as after it (one more after when the count is even). Without lyrics the titles
+    // are centred across the whole width. The album, then the equalizer below the titles, give way to a short upper part.
+    public MusicColumns Columns(bool lyrics)
+    {
+        var c = Metrics;
+        double height = Math.Max(0, UpperHeight), gap = c.Gap;
+        double info = lyrics ? Math.Round(Math.Clamp(BodyWidth * .36, 120, 480), MidpointRounding.AwayFromZero) : BodyWidth;
+        double lyricsX = lyrics ? info + 2 * gap + 1 : BodyWidth, lyricsW = Math.Max(0, BodyWidth - lyricsX);
+        double currentFont = Math.Round(c.Lyric * 1.15 * 2, MidpointRounding.AwayFromZero) / 2, currentLine = Math.Round(c.LyricLine * 1.15, MidpointRounding.AwayFromZero);
+        int lines = !lyrics ? 0 : (int)Math.Clamp(1 + Math.Floor((height - currentLine) / c.LyricLine), 1, 7);
+        int before = Math.Max(0, lines - 1) / 2, after = Math.Max(0, lines - 1 - before);
+        bool album = c.TitleLine + 2 * c.ArtistLine <= height;
+        double titles = c.TitleLine + (album ? 2 : 1) * c.ArtistLine;
+        bool equalizer = titles + c.SectionGap + c.Equalizer <= height;
+        return new(height, info, gap, lyricsX, lyricsW, currentFont, currentLine, before, after, album, equalizer, c.SectionGap);
+    }
+}
+
+// The two columns of the music page without the cover (MusicLayout.Columns). Widths and positions are relative to the page body.
+public sealed record MusicColumns(double Height, double InfoWidth, double DividerGap, double LyricsX, double LyricsWidth,
+    double CurrentLyric, double CurrentLine, int Before, int After, bool ShowAlbum, bool ShowEqualizer, double EqualizerGap)
+{
+    public int LyricLines => LyricsWidth > 0 ? Before + 1 + After : 0;
+}
+
+// What the open music page's title needs worked out outside the window. The title's room is decided by the page's grid (the line
+// less the equalizer's column, EqualizerWidth + EqualizerGap) and whether it scrolls by the MusicMarquee itself, which measures
+// its text against its room with Overflow; this holds the equalizer's width from the bar count (3 to 20), that measure, and the
+// name a screen reader reads.
+public static class MusicTitleFit
+{
+    // The gap between the title's room and the equalizer.
+    public const double EqualizerGap = 16;
+    // Five bars span 1.7 times their height (at least 27); other counts keep the five bars' spacing.
+    public static double EqualizerWidth(double equalizerHeight, int bars)
+    {
+        double fiveBars = Math.Max(27, Math.Round(equalizerHeight * 1.7));
+        return Math.Round(3 + (CompactMusicLayout.SafeBars(bars) - 1) * (fiveBars - 3) / 4);
+    }
+    // What a screen reader reads for the title: the whole title, and the artist when the short page merges it into the line.
+    public static string ReadAs(string title, string tail = "") => Loc.T("歌名 ", "Title ") + title + tail;
+    // How far the text overhangs its room, in whole device pixels (scale: device pixels per DIP). The small allowance keeps
+    // rounding noise from starting a one-pixel scroll.
+    public static double Overflow(double textWidth, double room, double scale)
+    {
+        if (scale <= 0 || double.IsNaN(textWidth) || double.IsNaN(room)) return 0;
+        return Math.Max(0, Math.Ceiling((textWidth - room) * scale - .01) / scale);
     }
 }
 

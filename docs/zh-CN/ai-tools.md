@@ -18,6 +18,7 @@ AI 用量页的每一列可以在"设置 › 配额与统计"中分别配置：
 | ZCode | ✓ | ✓ | 在本机登录 ZCode |
 | DeepSeek Harness | ✓ | ✓ | 在 DeepSeek Harness 桌面版或本地 Web 版中登录 DeepSeek 账户，或在其中保存 API 密钥 |
 | Kimi Code | ✓ | ✓ | 在本机登录 Kimi Code（CLI、桌面版或 VS Code 扩展） |
+| Pi | | ✓ | 在本机使用 Pi Coding Agent（读取会话 Token 与费用统计） |
 | OpenCode | ✓ | ✓ | 配额：在本机的 OpenCode（CLI 或桌面版）中登录 OpenCode Console，且工作区订阅了 OpenCode Go。用量统计只需在本机使用 OpenCode |
 | 智谱 GLM、Z.ai GLM | ✓ | | 在设置中填写 API 密钥 |
 | DeepSeek | ✓ | | 在设置中填写 API 密钥 |
@@ -46,7 +47,7 @@ AI 用量页的每一列可以在"设置 › 配额与统计"中分别配置：
 
 配额来源为 Claude 或 Grok Bot 的行可以展开，每一行可以单独开关"联网获取额度"（默认开启）：
 
-- **开启**：使用该应用在本机的登录，联网读取账户额度。读取失败时，显示最近一次成功读取的额度或桌面版在本机记录的额度，并标明时间。Claude 重启 BrimDeck 后仍会显示同一账户上次读取的额度。Claude 的账户接口提示请求频繁（429）时，按接口给出的等待时间暂停请求（超过 7 天的当作无效），没有给出时依次等待 2、4、8、16 分钟，最长 30 分钟；暂停期间不再每分钟请求，手动刷新也不会绕过，状态里会写明下次请求的时间。
+- **开启**：使用该应用在本机的登录，联网读取账户额度。读取失败时，显示最近一次成功读取的额度或桌面版在本机记录的额度，并标明时间。Claude 重启 BrimDeck 后仍会显示同一账户上次读取的额度。Claude 账户同时属于多个组织（例如个人 Pro 与 Team）时，同一行显示各组织的额度，个人订阅在前，点击该列翻到下一页。Claude 的账户接口提示请求频繁（429）时，按接口给出的等待时间暂停请求（超过 7 天的当作无效），没有给出时依次等待 2、4、8、16 分钟，最长 30 分钟；暂停期间不再每分钟请求，手动刷新也不会绕过，状态里会写明下次请求的时间。
 - **关闭**：不读取登录，也不联网，只显示桌面版在本机记录的最新额度。这些数据标为旧数据，不触发额度提醒。
 
 ## Grok Bot
@@ -74,6 +75,13 @@ Kimi Code CLI、桌面版与 VS Code 扩展共用同一个数据目录与登录�
 - **服务地址**：按 Kimi Code 的设置读取。设置了 `KIMI_CODE_BASE_URL` 时使用该地址，须为 HTTPS；同时支持 `KIMI_CODE_OAUTH_HOST` 与 `KIMI_CODE_REGION_MARKER`，与 Kimi Code 的用法一致。
 - **Token 用量与费用**：读取本机的 Kimi Code 会话记录，包含 CLI、桌面版与 VS Code 扩展，以及其中的子代理。K3（`kimi-k3`）、K3.1 Pro（`kimi-k3.1-pro`）与 K3.1 Pro Highspeed（`kimi-k3.1-pro-highspeed`）按 OpenRouter 上 Moonshot AI 官方渠道的单价估算费用（包括缓存读取，渠道提供时也包括缓存写入），不采用其他服务商的价格；该价格随单价表每天更新并保存在本机，更新失败时沿用上次保存的价格，从未获取到时只统计 Token。`k3-256k` 单独列出，按 K3 的单价计算。`kimi-for-coding` 与 `kimi-for-coding-highspeed` 是 Kimi Code 会随时间指向不同模型的别名，只统计 Token，不计算费用。手动添加的单价优先，包括为 `k3-256k` 单独添加的单价。
 
+## Pi
+
+支持读取 Pi Coding Agent（`~/.pi/agent`）在本机的会话用量与费用统计，无需安装任何 Pi 插件。
+
+- **统计应用**：在“统计应用”中选择 Pi，可与现有配额来源搭配使用；“配额来源”中不提供 Pi。不读取 Pi 登录、不查询第三方订阅额度，也不提供 Pi 多账号切换。
+- **Token 用量与费用**：读取 `~/.pi/agent/sessions` 中的会话记录，统计各模型的今日与七日 Token 用量；费用采用 Pi 记录的数值，不代表订阅账单。
+- **会话路径**：`PI_CODING_AGENT_SESSION_DIR` 优先；未设置时读取 `PI_CODING_AGENT_DIR` 下的 `sessions`，两者均未设置时使用默认目录。Pi 专用解析支持 `~`、`~/...`、相对路径和本地 `file://` URL；Windows 下也支持 `~\...` 与 Git Bash/MSYS/Cygwin/WSL 的盘符路径。相对路径以 BrimDeck 进程的工作目录为基准，不保证与另一个终端中 Pi 的工作目录相同。只读取所选目录，不自动扫描所有 Pi 配置。
 ## OpenCode
 
 OpenCode CLI 与桌面版共用同一个数据目录（`%USERPROFILE%\.local\share\opencode`），登录与会话记录都保存在其中的 `opencode.db`，任选其一登录即可。OpenCode 1.x 与 2.x 也使用这个目录。

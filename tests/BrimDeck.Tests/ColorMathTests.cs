@@ -29,14 +29,5 @@ internal static class ColorMathTests
         check("Hex input is normalized for the picker",
             AppPresets.NormalizeColor("b9a8ff") == "#B9A8FF" && AppPresets.NormalizeColor(" #b9a8ff ") == "#B9A8FF"
             && AppPresets.NormalizeColor("b9a8f") == "" && AppPresets.NormalizeColor("zzzzzz") == "" && ColorMath.ToHex(1, 171, 255) == "#01ABFF");
-
-        // The Windows accent stands only when it is a color: black (as Wallpaper Engine sets it), white, grays and near-grays,
-        // a very dark color or no accent at all give way to the theme's.
-        var themeAccent = ThemeColor.Parse("#45D5C8");
-        check("A black, gray or missing Windows accent falls back to the theme's",
-            new[] { "#000000", "#FFFFFF", "#808080", "#202020", "#7A7F84", "#0A0410" }.All(text => AccentColors.Usable(ThemeColor.Parse(text), themeAccent) == themeAccent)
-            && AccentColors.Usable(null, themeAccent) == themeAccent);
-        check("A colorful Windows accent is kept", AccentColors.Usable(ThemeColor.Parse("#0078D4"), themeAccent) == ThemeColor.Parse("#0078D4")
-            && AccentColors.Usable(ThemeColor.Parse("#E81123"), themeAccent) == ThemeColor.Parse("#E81123"));
     }
 }

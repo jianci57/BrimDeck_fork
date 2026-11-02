@@ -80,5 +80,29 @@ internal static class FullscreenRuleTests
         var many = new DeckSettings { FullscreenRules = Enumerable.Range(0, 40).Select(i => new FullscreenRule("App" + i)).ToList() };
         many.Normalize();
         check("The rule list is capped", many.FullscreenRules.Count == AppPresets.MaximumFullscreenExceptions);
+        // A full-screen window behind the foreground one has no rules of its own: the way it fills the screen picks the
+        // rule, the app's own first and the global one after it, as if that window were in front.
+        var bg = new DeckSettings { Maximized = WindowBehavior.Line, Borderless = WindowBehavior.Hide };
+        check("A background full screen follows the global rule for the way it fills the screen",
+            bg.Behavior(ScreenContext.BackgroundFullscreen, null, null, ScreenContext.Maximized) == WindowBehavior.Line
+            && bg.Behavior(ScreenContext.BackgroundFullscreen, null, null, ScreenContext.Borderless) == WindowBehavior.Hide
+            && bg.Behavior(ScreenContext.BackgroundFullscreen, "Player", @"C:\Apps\Player.exe", ScreenContext.Maximized) == WindowBehavior.Line);
+        bg.Maximized = WindowBehavior.Normal;
+        check("Changing the global rule changes the background answer with it",
+            bg.Behavior(ScreenContext.BackgroundFullscreen, null, null, ScreenContext.Maximized) == WindowBehavior.Normal);
+        check("A background full screen without a kind, and the desktop itself, leave the panel as it is",
+            bg.Behavior(ScreenContext.BackgroundFullscreen) == WindowBehavior.Normal
+            && bg.Behavior(ScreenContext.Desktop) == WindowBehavior.Normal);
+        var browser = new DeckSettings
+        {
+            Maximized = WindowBehavior.Line, Borderless = WindowBehavior.Hide,
+            FullscreenRules = [new FullscreenRule("chrome") { Maximized = WindowBehavior.Normal }]
+        };
+        check("An app that keeps the style while maximised keeps it behind the foreground window too",
+            browser.Behavior(ScreenContext.BackgroundFullscreen, "chrome", "", ScreenContext.Maximized) == WindowBehavior.Normal
+            && browser.Behavior(ScreenContext.Maximized, "chrome", "") == WindowBehavior.Normal);
+        check("A background window its app's rule says nothing about takes the global rule",
+            browser.Behavior(ScreenContext.BackgroundFullscreen, "firefox", "", ScreenContext.Maximized) == WindowBehavior.Line
+            && browser.Behavior(ScreenContext.BackgroundFullscreen, "chrome", "", ScreenContext.Borderless) == WindowBehavior.Hide);
     }
 }

@@ -522,10 +522,23 @@ begin
     RegDeleteValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', '{#RunValue}');
 end;
 
+// Enhanced sensors set up a service in Program Files (BrimDeck's SensorSetup); it goes with BrimDeck, removed by BrimDeck itself
+// with one administrator prompt. PawnIO is the user's own install and stays.
+procedure RemoveSensorService;
+var
+  Code: Integer;
+begin
+  if RegKeyExists(HKLM, 'SYSTEM\CurrentControlSet\Services\BrimDeckSensors') and FileExists(ExpandConstant('{app}\{#MainExe}')) then
+    ShellExec('runas', ExpandConstant('{app}\{#MainExe}'), '--sensor-service remove', '', SW_HIDE, ewWaitUntilTerminated, Code);
+end;
+
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin
   if (CurUninstallStep = usUninstall) and not HasParam('/UPGRADE') then
-    RemoveStartupEntry
+  begin
+    RemoveStartupEntry;
+    RemoveSensorService;
+  end
   else if (CurUninstallStep = usPostUninstall) and DeleteUserData and not HasParam('/UPGRADE') then
     DelTree(ExpandConstant('{#DataDir}'), True, True, True)
   else if (CurUninstallStep = usDone) and HasParam('/UI') then

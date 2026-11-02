@@ -90,10 +90,6 @@ internal static class GpuIdentityTests
                 && GpuChoice.Resolve(after, chosen, "NVIDIA GeForce RTX 4060", 0, out bool automatic, out var upgrade)?.Luid == first && !automatic && upgrade is null;
         }
         check("GPU identity: the chosen card stays chosen across restarts, whatever its LUID and order", kept);
-        var legacyBefore = Samples(Card(0x1000, null), Card(0x2000, null));
-        string legacy = legacyBefore.Single(gpu => gpu.Luid == 0x2000).Key;
-        var legacyAfter = Samples(Card(0x9000, null), Card(0x8000, null));
-        check("GPU identity: without locations a restart can swap identical cards (the reason for locations)", GpuChoice.Saved(legacyAfter, legacy, null)?.Luid == 0x9000);
     }
 
     private static void RemovalAndReconnect(Action<string, bool> check)

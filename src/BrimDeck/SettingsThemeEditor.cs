@@ -135,7 +135,7 @@ public sealed partial class SettingsWindow
         var text = TextLine(color.ToString(), 12, TextPrimary); text.VerticalAlignment = VerticalAlignment.Center;
         line.Children.Add(text);
         var chip = new Button { Style = (Style)FindResource("SettingsButton"), Content = line, MinWidth = 120, HorizontalContentAlignment = HorizontalAlignment.Left,
-            Background = UI.Brush(_palette.Input), BorderBrush = UI.Brush(_palette.Border), Padding = new Thickness(10, 5, 12, 5) };
+            Background = UI.Brush(_palette.Input), BorderBrush = UI.Brush(_palette.InputBorder), Padding = new Thickness(10, 5, 12, 5) };
         AutomationProperties.SetName(chip, title + " " + color); chip.ToolTip = Loc.T("选择颜色", "Choose a color");
         var popup = new Popup { PlacementTarget = chip, Placement = PlacementMode.Bottom, StaysOpen = false, AllowsTransparency = true, VerticalOffset = 4 };
         popup.Child = ColorPicker(color.WithAlpha(255).ToString(), !canUndo, value =>

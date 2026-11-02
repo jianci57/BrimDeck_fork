@@ -150,10 +150,13 @@
       <Setter Property="Template"><Setter.Value>
         <ControlTemplate TargetType="ScrollBar">
           <Track x:Name="PART_Track" IsDirectionReversed="True" Orientation="Vertical" Minimum="{TemplateBinding Minimum}" Maximum="{TemplateBinding Maximum}" Value="{TemplateBinding Value}" ViewportSize="{TemplateBinding ViewportSize}">
+            <!-- The track ignores the thumb's MinHeight: it gives the thumb at least half of this button height, and a thumb with a
+                 larger MinHeight is cut to that slot, leaving only its top. This sets the shortest thumb to 22. -->
+            <Track.Resources><sys:Double x:Key="{x:Static SystemParameters.VerticalScrollBarButtonHeightKey}">44</sys:Double></Track.Resources>
             <Track.DecreaseRepeatButton><RepeatButton Command="ScrollBar.PageUpCommand" Opacity="0" Focusable="False"/></Track.DecreaseRepeatButton>
             <!-- At rest a thin, faint handle that keeps out of the text's way; under the pointer, or while dragged, it widens and
                  strengthens. The bar keeps its width, so nothing moves when the handle changes. -->
-            <Track.Thumb><Thumb MinHeight="22"><Thumb.Template><ControlTemplate TargetType="Thumb">
+            <Track.Thumb><Thumb><Thumb.Template><ControlTemplate TargetType="Thumb">
               <Border Background="Transparent">
                 <Border x:Name="Handle" Width="3" HorizontalAlignment="Right" Background="{DynamicResource PanelScrollThumb}" CornerRadius="{DynamicResource PanelR3}" Margin="0,2,1,2" Opacity="{DynamicResource PanelScrollThumbRest}"/>
               </Border>

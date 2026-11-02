@@ -26,7 +26,7 @@ public sealed class MusicControlButton : Button
         if (Template?.FindName("Hover", this) is Ellipse hover)
         {
             double opacity = !IsEnabled ? 0 : IsPressed ? .16 : (bool)GetValue(IsMouseOverProperty) ? .10 : 0;
-            Animate(hover, OpacityProperty, opacity, AnimationsEnabled, Soft.Hover);
+            Animate(hover, OpacityProperty, opacity, AnimationsEnabled, opacity >= hover.Opacity ? Soft.Hover : Soft.HoverOut);
         }
         if (Template?.FindName("ControlScale", this) is ScaleTransform scale)
         {

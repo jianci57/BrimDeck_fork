@@ -14,7 +14,7 @@ internal sealed class GpuProvider
     private const string MemoryPath = @"\GPU Adapter Memory(*)\Dedicated Usage";
     private const string SharedPath = @"\GPU Adapter Memory(*)\Shared Usage";
     private readonly PdhQuery? _pdh;
-    private readonly bool _engines, _memory, _shared;
+    private bool _wanted, _engines, _memory, _shared;
     private readonly GpuCounters _counters = new();
     // By LUID. Read once, and again when the counters name an adapter not described: the LUIDs change when a driver restarts.
     // A read that fails or misses an adapter never shuts it out for long (GpuDescriptions): it is asked about again after a pause
@@ -25,16 +25,24 @@ internal sealed class GpuProvider
     public GpuProvider(PdhQuery? pdh)
     {
         _pdh = pdh;
-        _engines = pdh?.Add(EnginePath) == true;
-        _memory = pdh?.Add(MemoryPath) == true;
-        _shared = pdh?.Add(SharedPath) == true;
         _descriptions = new GpuDescriptions(GpuAdapters.Read, Now());
+    }
+
+    // The counters are in the query only while something shows an adapter: the engine counter has an instance per process and engine,
+    // often thousands, and is the costliest part of a collection. Called on every tick, before the collection.
+    public void Want(bool wanted)
+    {
+        if (wanted == _wanted || _pdh is null) return;
+        _wanted = wanted;
+        if (wanted) { _engines = _pdh.Add(EnginePath); _memory = _pdh.Add(MemoryPath); _shared = _pdh.Add(SharedPath); }
+        else { _pdh.Remove(EnginePath); _pdh.Remove(MemoryPath); _pdh.Remove(SharedPath); }
     }
     private static double Now() => Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency;
 
     // Every adapter with counters, or why there is none.
     public Reading<IReadOnlyList<GpuSample>> Sample(bool collected)
     {
+        if (!_wanted && _pdh is not null) return Reading<IReadOnlyList<GpuSample>>.Unavailable(Why.Waiting);
         if (!_engines) return Reading<IReadOnlyList<GpuSample>>.Unavailable(_pdh?.IsOpen == true ? Why.NoGpu : Why.NoCounters);
         if (!collected) return Reading<IReadOnlyList<GpuSample>>.Unavailable(Why.NoCounters);
         var engines = _pdh!.Read(EnginePath);

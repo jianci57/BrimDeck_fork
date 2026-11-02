@@ -36,15 +36,27 @@ public partial class MainWindow
     partial void ApplyCompactGeometry(CollapsedShape shape)
     {
         double scale = CompactMusicLayout.SafeScale(shape.Scale), dpi = VisualTreeHelper.GetDpi(this).DpiScaleX;
-        Compact.Width = SnapDown(CompactContentWidth(shape), dpi);
-        // The content box: the 24 DIP row with a DIP above and below, as at the default height.
-        Compact.Height = Math.Max(1, CompactMusicLayout.Whole(26 * scale));
+        if (ColumnFor(shape.Style))
+        {
+            // A notch on a side edge: the column across it and its length down the edge (MainWindow.CompactColumn.cs). The content is
+            // upright (IslandContent), so its width is the notch's depth.
+            Compact.Width = SnapDown(ColumnWidth(shape), dpi);
+            Compact.Height = SnapDown(CompactContentWidth(shape), dpi);
+        }
+        else
+        {
+            Compact.Width = SnapDown(CompactContentWidth(shape), dpi);
+            // The content box: the 24 DIP row with a DIP above and below, as at the default height.
+            Compact.Height = Math.Max(1, CompactMusicLayout.Whole(26 * scale));
+        }
         if (shape.Style == CompactStyle.Line)
         {
-            // The progress bar is as thick as the indicator, at least one device pixel, and rounded at its ends.
+            // The progress bar is as thick as the indicator, at least one device pixel, and rounded at its ends. On a side edge it
+            // runs down the screen (MainWindow.Edge.cs).
             double thickness = double.IsFinite(shape.Surface.Height) && shape.Surface.Height > 0 ? shape.Surface.Height : 4;
             thickness = Math.Max(1, Math.Round(thickness * dpi, MidpointRounding.AwayFromZero)) / dpi;
-            MusicIndicator.Height = thickness; MusicIndicator.CornerRadius = new CornerRadius(thickness / 2);
+            if (_frame.Across) MusicIndicator.Width = thickness; else MusicIndicator.Height = thickness;
+            MusicIndicator.CornerRadius = new CornerRadius(thickness / 2);
         }
         // RenderCompact runs these hooks again; by then the shape matches, so this does not repeat.
         if (!Equals(shape, _compactRendered) && !_compactRendering)
@@ -88,6 +100,25 @@ public partial class MainWindow
         }
         double nameWidth = Natural(name), usedWidth = Natural(used), resetWidth = reset is null ? 0 : Natural(reset);
         var layout = CompactAlertLayout.Calculate(double.MaxValue, scale, nameWidth, usedWidth, resetWidth);
+        if (ColumnFor(shape.Style))
+        {
+            // A notch on a side edge: the ring, then each text on its own line, cut with an ellipsis to the column.
+            double column = SnapDown(ColumnWidth(shape), dpi);
+            var stack = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Width = column, Tag = AlertRegionTag };
+            var mark = UI.Ring(alert.Used, PanelTheme.QuotaTheme(alert.Entry), layout.RingSize, layout.RingThickness);
+            mark.HorizontalAlignment = HorizontalAlignment.Center; mark.Margin = new Thickness(0, 0, 0, layout.Gap / 2);
+            stack.Children.Add(mark);
+            name.MaxWidth = column;
+            foreach (var text in new[] { name, used, reset })
+            {
+                if (text is null) continue;
+                text.ClearValue(WidthProperty); text.MaxWidth = column; text.TextTrimming = TextTrimming.CharacterEllipsis; text.TextAlignment = TextAlignment.Center;
+                text.HorizontalAlignment = HorizontalAlignment.Center;
+                stack.Children.Add(text);
+            }
+            CompactAlert.Children.Add(stack);
+            return;
+        }
         double row = Math.Max(layout.RingSize, layout.LineHeight);
         var ring = UI.Ring(alert.Used, PanelTheme.QuotaTheme(alert.Entry), layout.RingSize, layout.RingThickness);
         var parts = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };

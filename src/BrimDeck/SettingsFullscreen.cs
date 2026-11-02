@@ -85,7 +85,7 @@ public sealed partial class SettingsWindow
         // Pointing at the icon shows the description; a click on it should not also open the row.
         info.MouseLeftButtonDown += (_, e) => e.Handled = true;
         var heading = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-        heading.Children.Add(label); heading.Children.Add(info);
+        heading.Children.Add(new HelpHeading(label, info));
         Button? arrow = null;
         void CaptureHeight()
         {

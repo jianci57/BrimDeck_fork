@@ -9,7 +9,8 @@ namespace BrimDeck.Core;
 //   2. Battery: the power the battery supplies while the machine runs on it (Windows.Devices.Power.Battery's charge rate), which is
 //      all that the machine draws, display and fans included. Measured, but only on battery.
 //   3. Components: the processor package (RAPL, through the Energy Meter counters), memory where it has a meter of its own, and each
-//      graphics adapter that reports its board power (NVIDIA through the driver's nvidia-smi). A sum of what can be read: the display, drives, fans,
+//      discrete graphics adapter that reports its board power (NVIDIA through the driver's nvidia-smi, AMD and Intel through their
+//      drivers; an integrated adapter's is inside the package). A sum of what can be read: the display, drives, fans,
 //      other chips and the power supply's losses are not in it, so it is labelled an estimate and never shown as a measurement.
 //   4. None: the reading says why there is none, and the page shows a dash with that reason.
 public enum PowerSource { SystemMeter, Battery, Components }
@@ -26,8 +27,8 @@ public sealed record PowerSample(double Watts, PowerOrigin Origin, PowerSource S
     public bool Estimated => Origin == PowerOrigin.Estimated;
 }
 
-// One graphics adapter's board power as its driver reports it; Awake: the adapter is doing work, so reading it does not wake it.
-public sealed record GpuPowerInput(string Name, Reading<double> Watts);
+// One graphics adapter's board power as its driver reports it; Source: where it was read, NVIDIA's nvidia-smi without one.
+public sealed record GpuPowerInput(string Name, Reading<double> Watts, string? Source = null);
 
 // What the probes read in one tick, each part a Reading in watts (unavailable with the reason where the machine has no such meter).
 public sealed record PowerInputs
@@ -71,7 +72,7 @@ public static class PowerResolver
         {
             // One adapter is "GPU"; several are told apart by their names.
             string name = inputs.Gpus.Count > 1 && gpu.Name.Length > 0 ? gpu.Name : "GPU";
-            if (Value(gpu.Watts) is { } watts) parts.Add(new PowerPart("gpu", name, watts, GpuSource));
+            if (Value(gpu.Watts) is { } watts) parts.Add(new PowerPart("gpu", name, watts, gpu.Source ?? GpuSource));
             else if (!gpu.Watts.HasValue && gpu.Watts.Reason.Length > 0) missing.Add(name + Loc.T("（", " (") + gpu.Watts.Reason + Loc.T("）", ")"));
         }
         PowerSample Make(double watts, PowerOrigin origin, PowerSource source) => new(watts, origin, source, parts) { Missing = missing };
@@ -107,16 +108,6 @@ public static class PowerResolver
             if (part.Key == key) sum = (sum ?? 0) + part.Watts;
         return sum;
     }
-
-    // Where a figure comes from, in the words the page shows beside it.
-    public static string SourceName(PowerSample sample) => sample.Source switch
-    {
-        PowerSource.SystemMeter => Loc.T("整机能量计", "System meter"),
-        PowerSource.Battery => Loc.T("电池放电", "Battery discharge"),
-        _ => Loc.T("部件合计", "Sum of parts")
-    };
-    // "实测" or "估算": a figure that is not a measurement is always marked.
-    public static string OriginName(PowerSample sample) => sample.Origin == PowerOrigin.Measured ? Loc.T("实测", "Measured") : Loc.T("估算", "Estimate");
 
     // The counters behind the first source and the components: instance names of the Energy Meter and Power Meter counters
     // (milliwatts) turned into watts. RAPL domains are named "RAPL_Package<N>_<domain>": PKG is the package (cores, graphics and the

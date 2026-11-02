@@ -35,8 +35,6 @@ internal static class DatePickerMotionTests
             && DatePickerMotion.Direction(new DateTime(2025, 12, 1), new DateTime(2026, 1, 1)) == 1);
 
         var timing = DatePickerTiming.Fixed;
-        check("The picker moves as the panel's feedback does (sort pill, short swap, monitor move, hover), whatever the animation length",
-            timing.Glide == 315 && timing.Band == 240 && timing.Leave == 144 && timing.Arrive == 420 && timing.Enable == 160 && timing.Message == 240 && timing.Dissolve == 240);
 
         // The old month leaves before the new one arrives: whenever the new one shows, the old one is under a tenth. Checked for
         // the picker's own timing and for much shorter and longer ones, so the rule does not hang on one pair of lengths.

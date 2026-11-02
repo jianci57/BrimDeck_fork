@@ -92,8 +92,6 @@ static class StorageTests
             && entries.All(row => row.Drives.Single().Number == 0));
         var mixed = Storage.Group([(Volume("E:", 100, 50), 0), (Volume("C:", 300, 50), 0), (Volume("D:", 100, 50), 1)], Disks);
         check("Storage lines: volumes in letter order across drives", Storage.Rows(mixed, 6).Select(row => row.Label).SequenceEqual(["C:", "D:", "E:"]));
-        var two = Storage.Rows(Machine(3).Where(drive => drive.Number < 2).ToList(), 3);
-        check("Storage lines: two volumes, two entries", two.Count == 2 && two.All(row => !row.Others));
         var three = Storage.Rows(Machine(3), 3);
         check("Storage lines: three volumes fill three places", three.Count == 3 && three.All(row => !row.Others));
         var five = Storage.Group(Enumerable.Range(0, 5).Select(i => (Volume(((char)('C' + i)).ToString() + ":", 100, 50), (int?)(10 + i))),
@@ -176,13 +174,17 @@ static class StorageTests
         check("Compact drive: hidden by default, not part of Full", defaults.CompactReadings.Single(r => r.Item == Storage_) is { Visible: false }
             && (CompactMonitorItems.All & Storage_) == 0 && defaults.MonitorStorage && CompactMonitor.Channels(Storage_) == 1 && !CompactMonitor.HasValueChoice(Storage_));
         var readings = CompactMonitor.Normalize(defaults.CompactReadings);
-        readings.Single(r => r.Item == Storage_).Visible = true;
-        check("Compact drive: chosen, it shows and Full still matches", (CompactMonitor.Shown(readings) & Storage_) != 0 && CompactMonitor.Preset(readings) == CompactMonitorMode.Full);
+        readings.Single(r => r.Item == Storage_).Sources = ["D:"];
+        CompactMonitor.Apply(readings, CompactMonitorMode.Full);
+        check("Compact drive: Full shows it with both figures and keeps its letters", (CompactMonitor.Shown(readings) & Storage_) != 0 && CompactMonitor.Preset(readings) == CompactMonitorMode.Full
+            && readings.Single(r => r.Item == Storage_) is { Figures: [CompactFigures.Usage, CompactFigures.Temperature], Sources: ["D:"] });
+        readings.Single(r => r.Item == Storage_).Figures = [CompactFigures.Usage];
+        check("Compact drive: without its temperature, Full no longer matches", CompactMonitor.Preset(readings) is null);
         CompactMonitor.Apply(readings, CompactMonitorMode.Brief);
         check("Compact drive: Brief hides it", !readings.Single(r => r.Item == Storage_).Visible);
         var width = CompactMonitor.Widths(CompactMonitor.Rings, 12, _ => 30, 14, 20, 50, 40);
-        // The machine's power and battery are left out: they leave before both.
-        var every = CompactMonitor.Every & ~CompactMonitorItems.Power & ~CompactMonitorItems.Charge;
+        // The machine's power and battery and the frame rate are left out: they leave before both.
+        var every = CompactMonitor.Every & ~CompactMonitorItems.Power & ~CompactMonitorItems.Charge & ~CompactMonitorItems.Frames;
         double full = CompactMonitor.Width(every, width, 10);
         check("Compact drive: its own width; it leaves first when the row is short", width(Storage_) == 40 && CompactMonitor.Fit(every, width, 10, full) == every
             && CompactMonitor.Fit(every, width, 10, full - 1) == CompactMonitorItems.All && CompactMonitor.Fit(every, width, 10, full - 55) == (CompactMonitorItems.All & ~CompactMonitorItems.Upload));

@@ -24,7 +24,6 @@ public partial class App
     // The status from the last registration. While SuspendHotkeys is in effect nothing is registered and this keeps the
     // status the combinations will have again.
     public HotkeyStatus StatusOf(HotkeyKind kind) => _hotkeyStatus[kind];
-    public bool IsHotkeyRegistered(HotkeyKind kind) => StatusOf(kind) == HotkeyStatus.Active;
 
     // Creates the registrar and registers the saved hotkeys. Call once the main panel exists.
     internal void InitializeHotkeys()

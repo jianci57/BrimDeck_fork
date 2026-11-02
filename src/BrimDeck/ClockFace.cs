@@ -19,7 +19,7 @@ internal sealed class ClockFace : FrameworkElement
         => new(family, italic ? FontStyles.Italic : FontStyles.Normal, weight ?? FontWeights.Normal, FontStretches.Normal);
 
     private readonly ClockStyle _style;
-    private readonly bool _h24;
+    private readonly bool _h24, _seconds;
     private readonly Color[] _colors;
     private DateTime _time;
     private double? _reserved;
@@ -29,9 +29,9 @@ internal sealed class ClockFace : FrameworkElement
     private readonly bool _plain;
 
     // One color fills the face; more are spread evenly across it from left to right.
-    public ClockFace(ClockStyle style, bool h24, Color[] colors, DateTime time, double scale = 1)
+    public ClockFace(ClockStyle style, bool h24, bool seconds, Color[] colors, DateTime time, double scale = 1)
     {
-        _style = style; _h24 = h24; _colors = colors.Length > 0 ? colors : [ThemeWhite]; _time = time;
+        _style = style; _h24 = h24; _seconds = seconds; _colors = colors.Length > 0 ? colors : [ThemeWhite]; _time = time;
         _scale = CompactMusicLayout.SafeScale(scale);
         Height = FaceHeight * _scale; IsHitTestVisible = false;
         // Under high contrast nothing is dimmed or glows (ClockColors.Glows).
@@ -79,6 +79,7 @@ internal sealed class ClockFace : FrameworkElement
         set { if (value == _time) return; _time = value; InvalidateVisual(); }
     }
     // The widest the face gets on any day: a two-digit hour, a two-digit month and day, every weekday, morning and afternoon.
+    // Every digit takes the same width, so the seconds need no sample of their own.
     // In DIPs at the face's scale. A scaled face is rounded up to a whole DIP so the regions beside it stay on whole DIPs;
     // the default face keeps its measured width, as in the settings preview.
     public double ReservedWidth => _scale == 1 ? UnitReserved : Math.Ceiling(UnitReserved * _scale - .001);
@@ -104,7 +105,8 @@ internal sealed class ClockFace : FrameworkElement
     private double Layout(DrawingContext? dc, DateTime time, double x, Brush paint)
     {
         string hour = _h24 ? time.ToString("HH", CultureInfo.InvariantCulture) : (time.Hour % 12 == 0 ? 12 : time.Hour % 12).ToString(CultureInfo.InvariantCulture);
-        string minute = time.ToString("mm", CultureInfo.InvariantCulture), clock = hour + ":" + minute;
+        string minute = time.ToString("mm", CultureInfo.InvariantCulture), secs = time.ToString("ss", CultureInfo.InvariantCulture);
+        string clock = hour + ":" + minute + (_seconds ? ":" + secs : "");
         // Both languages mark the 12-hour clock with AM or PM after the time.
         string? period = _h24 ? null : time.Hour < 12 ? "AM" : "PM";
         switch (_style)
@@ -114,14 +116,16 @@ internal sealed class ClockFace : FrameworkElement
             case ClockStyle.Segment: return Segments(dc, clock, x);
             case ClockStyle.Digits:
             {
-                // Hours over minutes, both as two digits, the minutes dimmer.
+                // Hours over minutes, both as two digits, the minutes dimmer; the seconds, smaller still, follow at the middle.
                 var hours = new Run(hour.PadLeft(2, '0'), Bold, 11, -.02);
                 var minutes = hours with { Text = minute, Opacity = .55 };
                 double width = Math.Max(RunWidth(hours), RunWidth(minutes));
                 double top = (FaceHeight - 23) / 2;
                 Draw(dc, x + (width - RunWidth(hours)) / 2, Baseline(hours, top + 5.75), paint, hours);
                 Draw(dc, x + (width - RunWidth(minutes)) / 2, Baseline(minutes, top + 17.25), paint, minutes);
-                return width;
+                if (!_seconds) return width;
+                var seconds = new Run(secs, Bold, 8.5, Opacity: .55);
+                return Draw(dc, x + width + 2.5, Baseline(seconds, FaceHeight / 2), paint, seconds) - x;
             }
             case ClockStyle.Stacked:
             {

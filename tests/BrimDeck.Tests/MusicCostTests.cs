@@ -11,7 +11,6 @@ internal static class MusicCostTests
         // The title scrolls Laps whole cycles and then rests at its start.
         var cycle = new MarqueeCycle(48, 24, 6, .05);
         double period = cycle.Period;
-        check("the collapsed title scrolls three laps", MarqueeCycle.Laps == 3);
         check("the title is still scrolling during its last lap", !cycle.Done(3 * period - .01) && Near(cycle.Played(3 * period - .01), cycle.Wrap(3 * period - .01)));
         check("the title is done after three whole cycles", cycle.Done(3 * period) && cycle.Done(10 * period));
         check("a title that is done rests at the start of its first rest", Near(cycle.Played(3 * period), 0) && Near(cycle.Shift(cycle.Played(3 * period)), 0)

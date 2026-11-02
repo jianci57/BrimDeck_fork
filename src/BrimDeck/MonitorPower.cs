@@ -54,6 +54,8 @@ internal sealed class PowerBlock : FrameworkElement
         Height = row;
         SnapsToDevicePixels = true;
         _battery = options.Quick;
+        ToolTip = _tip;
+        ToolTipOpening += (_, _) => Tip(opening: true);
     }
 
     // For screen readers: the items in one line (PowerText.Spoken).
@@ -115,11 +117,11 @@ internal sealed class PowerBlock : FrameworkElement
     private IEnumerable<PowerView> Views => Enum.GetValues<PowerView>().Where(Has);
 
     // One tooltip whose content follows the readings, so an open one shows each new reading: the power's table or the battery's lines,
-    // whichever part is under the pointer.
-    private readonly ToolTip _tip = new();
-    private void Tip()
+    // whichever part is under the pointer. Built only as it opens and while it is open, not for every reading nobody looks at.
+    private readonly ToolTip _tip = new() { MaxWidth = 640 };
+    private void Tip(bool opening = false)
     {
-        if (!ReferenceEquals(ToolTip, _tip)) ToolTip = _tip;
+        if (!opening && !_tip.IsOpen) return;
         if (_overBattery && _options.Battery) _tip.Content = PowerText.Battery(_battery);
         else _tip.Content = PowerText.Table(_power, _summary, _cpu, _gpu) is { } table ? TableView(table) : PowerText.NoPower(_power.Reason);
     }
@@ -135,7 +137,7 @@ internal sealed class PowerBlock : FrameworkElement
             if (i > 0) grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         }
-        int rows = 1 + table.Rows.Count + table.Notes.Count;
+        int rows = 1 + table.Rows.Count;
         for (int i = 0; i < rows; i++) grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         void Put(string text, int row, int column, bool dim, HorizontalAlignment align, Thickness margin, int span = 1)
         {
@@ -156,9 +158,18 @@ internal sealed class PowerBlock : FrameworkElement
                 if (r == 0 && table.Sum && i > 0) Put(i == 1 ? "≈" : "+", r + 1, 2 * i, true, HorizontalAlignment.Center, new Thickness(8, 0, 0, 0));
             }
         }
+        // Notes must not participate in the table's auto column sizing: a long adapter
+        // name used to widen every column and push the GPU beyond the tooltip's edge.
+        var content = new StackPanel();
+        content.Children.Add(grid);
         for (int n = 0; n < table.Notes.Count; n++)
-            Put(table.Notes[n], 1 + table.Rows.Count + n, 0, true, HorizontalAlignment.Left, new Thickness(0, n == 0 ? 4 : 0, 0, 0), grid.ColumnDefinitions.Count);
-        return grid;
+            content.Children.Add(new TextBlock
+            {
+                Text = table.Notes[n], TextWrapping = TextWrapping.Wrap, MaxWidth = 420,
+                HorizontalAlignment = HorizontalAlignment.Left, Opacity = .65,
+                Margin = new Thickness(0, n == 0 ? 4 : 0, 0, 0)
+            });
+        return content;
     }
 
     private bool OverBattery(Point point) => Shared && point.X >= _batteryLeft - Gap / 2;

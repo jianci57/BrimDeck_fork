@@ -15,7 +15,7 @@ public static class CollapsedLimits
     public const double CapsuleWidthDefault = 196, CapsuleWidthMin = 48, CapsuleWidthMax = 8000;
     public const double CapsuleHeightDefault = 32, CapsuleHeightMin = 24, CapsuleHeightMax = 64;
     // CapsuleTopMax is only the limit for saved values; on a monitor the capsule may go down until its bottom edge meets the
-    // bottom of the work area (CapsuleTopRange).
+    // bottom of the monitor, over a bottom taskbar (CapsuleTopRange).
     public const double CapsuleTopDefault = 5, CapsuleTopMin = 0, CapsuleTopMax = 4000;
     public const double LineLengthDefault = 56, LineLengthMin = 24, LineLengthMax = 600;
     // The thickness is chosen in half-DIP steps.
@@ -30,6 +30,9 @@ public static class CollapsedLimits
     // The notch's bottom corners and the curved shoulders that join it to the screen edge keep these sizes at every
     // width and height.
     public const double NotchCorner = 12, NotchShoulder = 16;
+    // A notch on a side edge stands across the screen (EdgeFrame.Across): its content is a column (CompactColumn), with this much
+    // free on either side of it at scale 1. The notch is as deep as the column needs, and never less than its height setting.
+    public const double ColumnPad = 8;
     // A panel that floats below a lowered capsule (see CollapsedGeometry.Panel) is this much taller than its page: the space
     // is added above the header, so the switch sits 10 DIPs below the top edge instead of 4 and the header's icons 12, close
     // to the 14 DIPs between the last row and the bottom edge. (12 DIPs, with the icons 18 below the edge, looked too open.)
@@ -44,6 +47,7 @@ public static class CollapsedLimits
 // The collapsed surface as it is drawn on one monitor.
 // Surface: position and size in DIPs, relative to the monitor's top-left corner.
 // Scale: Surface.Height / CollapsedLimits.BaseHeight for the notch and the capsule (0.75 to 2); 1 for the line, which has no content.
+// A notch on a side edge, deeper than its height for its column, keeps the scale of its height setting.
 // Inset: free space at each end of the content, in DIPs: the style's base inset (30 notch, 16 capsule) times Scale; 0 for the line.
 // ContentWidth: width available to the content in DIPs, Surface.Width - 2 * Inset, never below 0. It is not divided by Scale.
 // BottomRadius and TopRadius: corner radii; Shoulder: the notch's shoulder radius (0 for the other styles).
@@ -59,8 +63,9 @@ public readonly record struct PanelPlacement(double Top, double HeaderExtra);
 // is too small for them only narrows what is drawn on it.
 // monitor: the monitor's bounds in DIPs; only its width and height are used.
 // work: the monitor's work area in DIPs, relative to the monitor's top-left corner.
-// The notch is placed against the top of the monitor, over a top taskbar as before. The capsule and the line stay within the
-// work area. Every result lies on the monitor, with a width and height of at least 0, for any input.
+// The notch is placed against the top of the monitor, over a top taskbar as before. The line stays within the work area; so
+// does the capsule, except that it may go down past the work area's bottom, over a bottom taskbar. Every result lies on the
+// monitor, with a width and height of at least 0, for any input.
 public static class CollapsedGeometry
 {
     // contentWanted: with auto width, the width the notch's or capsule's content asks for (0 for none); null keeps the saved
@@ -72,8 +77,14 @@ public static class CollapsedGeometry
     // panelScale: the scale BrimDeck is drawn at (PanelScales). The saved heights, widths, the line's length and thickness and the notch's
     // corners are multiplied by it, so the content, which follows the height (Scale), grows with them; the offsets and the distances
     // from the top stay as saved, as places on the screen.
+    // column: for a notch on a side edge, the width its column of content needs (CompactColumn.Width); null for the top and bottom
+    // edges. The monitor and the work area are then those of the edge's frame (EdgeFrame), and the notch's width runs along the
+    // edge. Its depth is the column's with ColumnPad on either side, at least its height setting; the height setting still sets the
+    // content's scale.
+    // lineOverTaskbar: the line hangs from the screen's edge over a taskbar there (DeckSettings.Dock); its offset and distance from
+    // the edge are then measured on the monitor's frame rather than within the work area.
     public static CollapsedShape Resolve(DeckSettings settings, CompactStyle style, DipRect monitor, DipRect work, double pixelsPerDip = 1, double? contentWanted = null, double contentRequired = 0,
-        double panelScale = 1)
+        double panelScale = 1, double? column = null, bool lineOverTaskbar = false)
     {
         double s = ValidScale(panelScale);
         bool auto = contentWanted is not null;
@@ -88,7 +99,7 @@ public static class CollapsedGeometry
                 double saved = Value(settings.CapsuleWidth, CollapsedLimits.CapsuleWidthMin, CollapsedLimits.CapsuleWidthMax, CollapsedLimits.CapsuleWidthDefault) * s;
                 double fit = Math.Max(CollapsedLimits.CapsuleWidthMin * s, SurfaceWidth(style, height, wanted));
                 double width = Math.Min(Math.Max(auto ? fit : saved, SurfaceWidth(style, height, required)), area.Width);
-                var (topMin, topMax) = TopRange(height, area.Height, double.PositiveInfinity);
+                var (topMin, topMax) = TopRange(height, screen.Height - area.Y, double.PositiveInfinity);
                 double top = Math.Clamp(Value(settings.CapsuleTop, CollapsedLimits.CapsuleTopMin, CollapsedLimits.CapsuleTopMax, CollapsedLimits.CapsuleTopDefault), topMin, topMax);
                 double scale = height / CollapsedLimits.BaseHeight, inset = CollapsedLimits.CapsuleInset * scale;
                 var surface = new DipRect(area.X + Place(area.Width, width, settings.CapsuleOffsetX), area.Y + top, width, height);
@@ -96,6 +107,7 @@ public static class CollapsedGeometry
             }
             case CompactStyle.Line:
             {
+                if (lineOverTaskbar) area = screen;
                 double length = Math.Min(Value(settings.LineLength, CollapsedLimits.LineLengthMin, CollapsedLimits.LineLengthMax, CollapsedLimits.LineLengthDefault) * s, area.Width);
                 double thickness = Math.Min(SnapToDevicePixels(RoundLineThickness(settings.LineThickness) * s, pixelsPerDip), area.Height);
                 var (topMin, topMax) = TopRange(thickness, area.Height, CollapsedLimits.LineTopMax);
@@ -110,7 +122,8 @@ public static class CollapsedGeometry
                 double fit = Math.Max(CollapsedLimits.NotchWidthMin * s, SurfaceWidth(CompactStyle.Notch, height, wanted));
                 double width = Math.Min(Math.Max(auto ? fit : saved, SurfaceWidth(CompactStyle.Notch, height, required)), screen.Width);
                 double scale = height / CollapsedLimits.BaseHeight, inset = CollapsedLimits.NotchInset * scale;
-                var surface = new DipRect(Place(screen.Width, width, settings.NotchOffsetX), 0, width, height);
+                double depth = column is { } across ? Math.Min(screen.Height, Math.Max(height, Finite(across) + 2 * CollapsedLimits.ColumnPad * scale)) : height;
+                var surface = new DipRect(Place(screen.Width, width, settings.NotchOffsetX), 0, width, depth);
                 return new(CompactStyle.Notch, surface, scale, inset, Math.Max(0, width - 2 * inset), CollapsedLimits.NotchCorner * s, 0, CollapsedLimits.NotchShoulder * s);
             }
         }
@@ -169,9 +182,13 @@ public static class CollapsedGeometry
 
     private static double ValidScale(double scale) => scale > 0 && double.IsFinite(scale) ? scale : 1;
 
-    // The distances from the top of the work area at which a capsule of this height stays within it: 0 to workH - H.
-    public static (double Min, double Max) CapsuleTopRange(double height, DipRect work)
-        => TopRange(Finite(height), Finite(work.Height), double.PositiveInfinity);
+    // The distances from the top of the work area at which a capsule of this height stays on the monitor: 0 to
+    // monitorH - workY - H, so it may cover a bottom taskbar.
+    public static (double Min, double Max) CapsuleTopRange(double height, DipRect monitor, DipRect work)
+    {
+        var (screen, area) = Sanitize(monitor, work);
+        return TopRange(Finite(height), screen.Height - area.Y, double.PositiveInfinity);
+    }
 
     // Where the open panel starts, in DIPs from the top of the monitor (work is relative to the monitor), and how much taller
     // than its page it is (HeaderExtra, added above the header).

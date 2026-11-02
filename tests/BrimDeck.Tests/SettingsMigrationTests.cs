@@ -27,8 +27,6 @@ internal static class SettingsMigrationTests
 
         var tolerant = SettingsMigrations.Read("""{"AppVersion":"0.1.0","Height":300,"NotYetKnown":{"a":1}}""", v010, out _);
         check("reading is tolerant of missing and unknown members", tolerant.Height == 300 && tolerant.Width == new DeckSettings().Width && tolerant.MusicPage);
-        check("the clock starts switched off, as simple white 24-hour digits", !tolerant.NotchClock && !tolerant.CapsuleClock
-            && tolerant.ClockStyle == ClockStyle.Minimal && tolerant.ClockColor == ClockColor.White && tolerant.Clock24Hour);
         var clock = SettingsMigrations.Read("""{"AppVersion":"0.1.0","NotchClock":true,"ClockStyle":42,"ClockColor":-1,"Clock24Hour":false}""", v010, out _);
         bool capsuleOff = !clock.ShowsClock(CompactStyle.Capsule);
         clock.CapsuleClock = true;

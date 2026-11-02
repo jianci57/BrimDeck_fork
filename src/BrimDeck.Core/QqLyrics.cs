@@ -87,7 +87,7 @@ public sealed partial class LyricsService
             {
                 string text = Encoding.UTF8.GetString(Convert.FromBase64String(Str(content, "lyric")));
                 var parsed = ParseQq(text, track);
-                if (parsed.Lines.Count > 0) return parsed with { QqPreview = preview };
+                if (parsed.Lines.Count > 0 || parsed.Instrumental) return parsed with { QqPreview = preview };
             }
             catch (FormatException) { }
         }
@@ -120,6 +120,6 @@ public sealed partial class LyricsService
     {
         var lyrics = Lyrics.Parse(WebUtility.HtmlDecode(text), null, track.Duration.TotalSeconds, "QQ 音乐");
         // Empty timestamp placeholders are not a usable lyric result and must not be cached.
-        return lyrics.Lines.Any(l => !string.IsNullOrWhiteSpace(l.Text)) ? lyrics : Lyrics.Empty;
+        return lyrics.Instrumental || lyrics.Lines.Any(l => !string.IsNullOrWhiteSpace(l.Text)) ? lyrics : Lyrics.Empty;
     }
 }

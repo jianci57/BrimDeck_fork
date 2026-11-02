@@ -11,10 +11,14 @@
     <PackageReference Include="System.Management" Version="10.0.0" />
     <Compile Include="..\..\src\BrimDeck\Native\IMediaPlayerConnection.cs" Link="IMediaPlayerConnection.cs" />
     <Compile Include="..\..\src\BrimDeck\Native\NeteaseSource.cs" Link="NeteaseSource.cs" />
+    <Compile Include="..\..\src\BrimDeck\Native\NeteaseInstall.cs" Link="NeteaseInstall.cs" />
+    <Compile Include="..\..\src\BrimDeck\Native\LibcefFile.cs" Link="LibcefFile.cs" />
     <Compile Include="..\..\src\BrimDeck\Native\NeteaseLogReader.cs" Link="NeteaseLogReader.cs" />
     <Compile Include="..\..\src\BrimDeck\Native\NeteaseCdpConnection.cs" Link="NeteaseCdpConnection.cs" />
     <Compile Include="..\..\src\BrimDeck\Native\NeteaseBridgeScript.cs" Link="NeteaseBridgeScript.cs" />
     <Compile Include="..\..\src\BrimDeck\Native\TcpListeners.cs" Link="TcpListeners.cs" />
     <Compile Include="..\..\src\BrimDeck\Native\QqMediaConnection.cs" Link="QqMediaConnection.cs" />
+    <Compile Include="..\..\src\BrimDeck\Native\KugouCdpConnection.cs" Link="KugouCdpConnection.cs" />
+    <Compile Include="..\..\src\BrimDeck\Native\ProcessSnapshot.cs" Link="ProcessSnapshot.cs" />
   </ItemGroup>
 </Project>

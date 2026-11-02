@@ -24,8 +24,8 @@ public sealed partial class SettingsWindow
         _refreshReadings = null;
         // Shows what the settings hold in place: the colors, the preset they match, and the readings' colors in the table.
         void Refresh() { syncing = true; try { foreach (var update in refresh) update(); } finally { syncing = false; } _refreshReadings?.Invoke(); }
-        // A color per reading, three to a row.
-        var roles = KeepPreview(new UniformGrid { Columns = 3, Width = Loc.IsEnglish ? 450 : 330, Margin = new Thickness(0, 6, 0, 6) });
+        // A color per reading, four to a row.
+        var roles = KeepPreview(new UniformGrid { Columns = 4, Width = Loc.IsEnglish ? 600 : 440, Margin = new Thickness(0, 6, 0, 6) });
         foreach (var role in Enum.GetValues<MonitorRole>()) roles.Children.Add(SwatchCell(RoleName(role), RoleHelp(role), () => RoleSwatch(role, Refresh), refresh));
         // Quick presets under the colors, as under the collapsed readings' table: one sets every color, and the one the colors
         // match is lit, else none (the colors are then the user's own). Each is shown by its CPU, memory and GPU colors as the
@@ -81,6 +81,11 @@ public sealed partial class SettingsWindow
                 Loc.T("在硬盘下方显示整机功耗和本机电池。只在面板展开到系统监控页时读取。",
                     "Shows system power and this PC's battery under the drives. Read only while the panel is open on the system monitor page."),
                 keepPreview: true),
+            WithFrameAccess(Toggle(Loc.T("显示帧率", "Show the frame rate"), S.MonitorFrames, v => { Resize(s => s.MonitorFrames = v, DeckPage.Monitor); if (v) AskFrameAccess(); else FrameAccessChanged?.Invoke(); },
+                help:
+                Loc.T("在网速下方显示前台程序的帧率、程序名称和所在显示器的刷新率；前台程序不在绘制时，显示最近一个在绘制的程序。只在面板展开到系统监控页时读取。首次开启时需要授权。",
+                    "Shows the frame rate of the program in front under the network rates, with its name and its display's refresh rate; while it draws nothing, the last program that did. Read only while the panel is open on the system monitor page. Needs permission the first time."),
+                keepPreview: true), () => S.MonitorFrames && !Reading(S, CompactMonitorItems.Frames).Visible),
             WithSensorStops(Toggle(Loc.T("显示温度", "Show temperatures"), S.MonitorTemperatures, v => Resize(s => s.MonitorTemperatures = v, DeckPage.Monitor),
                 help:
                 Loc.T("读不到的温度不显示。CPU 温度由主板固件提供，许多电脑没有这项数据；有的电脑读到的是主板的温度，不是 CPU 本身的温度。",
@@ -120,6 +125,62 @@ public sealed partial class SettingsWindow
     }
     private void SensorStopsChanged()
     { if (!Dispatcher.HasShutdownStarted) Dispatcher.BeginInvoke(() => { if (IsLoaded) _refreshStops?.Invoke(); }); }
+
+    // Under a frame rate switch while it is on and this user may not read frame events (FramePermission): a line in amber with the
+    // button that grants it, or, once granted, that it works from the next sign-in. Nothing once allowed or while the switch is off.
+    // One line on the page: with both switches on, only under the collapsed readings' table, which comes first.
+    private event Action? FrameAccessChanged;
+    private bool _grantingFrames;
+    private string? _framesGrantFailure;
+    private FrameworkElement WithFrameAccess(FrameworkElement row, Func<bool> wanted)
+    {
+        var line = new Grid { Margin = new Thickness(0, 0, 0, 10) };
+        line.ColumnDefinitions.Add(new ColumnDefinition()); line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var note = TextLine("", 12.5, CautionColor);
+        note.TextWrapping = TextWrapping.Wrap; note.VerticalAlignment = VerticalAlignment.Center; note.Margin = new Thickness(0, 0, 12, 0);
+        var grant = ActionButton(Loc.T("授权", "Allow"), () => _ = GrantFrameAccessAsync());
+        AutomationProperties.SetName(grant, Loc.T("授权读取帧率", "Allow reading frame rates"));
+        grant.VerticalAlignment = VerticalAlignment.Center; Grid.SetColumn(grant, 1);
+        line.Children.Add(note); line.Children.Add(grant);
+        void Update()
+        {
+            var access = Native.FramePermission.Current();
+            line.Visibility = wanted() && access != Native.FrameAccess.Allowed ? Visibility.Visible : Visibility.Collapsed;
+            bool missing = access == Native.FrameAccess.Missing;
+            note.Text = _grantingFrames ? Loc.T("正在授权…", "Allowing…")
+                : !missing ? Loc.T("已授权，重新登录 Windows 后显示帧率", "Allowed; the frame rate shows after you sign in to Windows again")
+                : _framesGrantFailure is { } failure ? Loc.T("授权失败：", "Could not allow: ") + failure
+                : Loc.T("读取帧率需要授权", "Reading the frame rate needs permission");
+            note.Foreground = UI.Brush(_framesGrantFailure is not null && missing ? _palette.Negative : !missing ? TextTertiary : CautionColor);
+            grant.Visibility = missing && !_grantingFrames ? Visibility.Visible : Visibility.Collapsed;
+        }
+        Update();
+        var panel = new StackPanel();
+        panel.Children.Add(row); panel.Children.Add(line);
+        panel.Loaded += (_, _) => { FrameAccessChanged -= Update; FrameAccessChanged += Update; Update(); };
+        panel.Unloaded += (_, _) => FrameAccessChanged -= Update;
+        return panel;
+    }
+    // A frame rate switched on without permission asks for it at once; declined, the switch stays on and its line offers it again.
+    private void AskFrameAccess()
+    {
+        if (!_grantingFrames && Native.FramePermission.Current() == Native.FrameAccess.Missing
+            && Confirm(Loc.T("授权读取帧率", "Allow reading frame rates"),
+                Loc.T("读取帧率需要把当前用户加入 Windows 的“Performance Log Users”组。授权时 Windows 会请求管理员确认，重新登录 Windows 后生效。",
+                    "Reading frame rates needs the user in Windows' Performance Log Users group. Windows asks an administrator to confirm, and it works from the next sign-in."),
+                Loc.T("授权", "Allow"), danger: false))
+            _ = GrantFrameAccessAsync();
+        else FrameAccessChanged?.Invoke();
+    }
+    private async Task GrantFrameAccessAsync()
+    {
+        if (_grantingFrames) return;
+        _grantingFrames = true; _framesGrantFailure = null; FrameAccessChanged?.Invoke();
+        try { await Native.FramePermission.GrantAsync(); }
+        catch (OperationCanceledException) { _framesGrantFailure = Loc.T("管理员确认超时", "The administrator prompt timed out"); }
+        catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception) { _framesGrantFailure = ex.Message; }
+        finally { _grantingFrames = false; FrameAccessChanged?.Invoke(); }
+    }
 
     // The graphics adapter the monitor shows, on the page and in the collapsed readings alike: 自动, or one of the adapters found,
     // named with its kind. The adapters are the ones the monitor reads while it runs, else the ones DXGI lists. A chosen adapter
@@ -171,8 +232,7 @@ public sealed partial class SettingsWindow
             shown = next;
         });
         var label = TextLine(name, 12.5, TextPrimary); label.VerticalAlignment = VerticalAlignment.Center; label.Margin = new Thickness(8, 0, 0, 0);
-        cell.Children.Add(label);
-        if (info && help is not null) cell.Children.Add(HelpIcon(name, () => help, 12, nudge: 0));
+        cell.Children.Add(info && help is not null ? new HelpHeading(label, HelpIcon(name, () => help, 12)) : label);
         return cell;
     }
 
@@ -235,7 +295,7 @@ public sealed partial class SettingsWindow
     {
         MonitorRole.Efficiency => Loc.T("能效核", "Efficiency cores"), MonitorRole.Memory => Loc.T("内存", "Memory"), MonitorRole.Gpu => "GPU",
         MonitorRole.Download => Loc.T("下载", "Download"), MonitorRole.Upload => Loc.T("上传", "Upload"), MonitorRole.Storage => Loc.T("硬盘", "Drives"),
-        MonitorRole.Power => Loc.T("整机功耗", "System power"), MonitorRole.Battery => Loc.T("本机电池", "Battery"), _ => "CPU"
+        MonitorRole.Power => Loc.T("整机功耗", "System power"), MonitorRole.Battery => Loc.T("本机电池", "Battery"), MonitorRole.Frames => Loc.T("帧率", "Frame rate"), _ => "CPU"
     };
     private static string LevelName(MemoryLevel level) => level == MemoryLevel.Critical ? Loc.T("告警", "Critical") : Loc.T("预警", "Warning");
 
@@ -285,7 +345,7 @@ public sealed partial class SettingsWindow
         var presets = new UniformGrid { Columns = 2, Width = 196 };
         foreach (var (mode, label, help) in new[]
         {
-            (CompactMonitorMode.Full, Loc.T("完整", "Full"), Loc.T("显示全部占用和网速读数，CPU、内存和 GPU 带数值。不改变硬盘、显示的数值、顺序和颜色。", "Shows every usage and network reading, with the figures of CPU, memory and GPU. The drives, the figures chosen, the order and the colors stay.")),
+            (CompactMonitorMode.Full, Loc.T("完整", "Full"), Loc.T("显示全部监控项和全部数值。不改变硬盘的盘符、顺序和颜色。", "Shows every reading with every figure. The drive letters, the order and the colors stay.")),
             (CompactMonitorMode.Brief, Loc.T("简洁", "Brief"), Loc.T("只显示 CPU、内存和 GPU 的圆环，不带数值，隐藏硬盘。不改变顺序和颜色。", "Shows only the CPU, memory and GPU rings, without figures, and hides the drives. The order and the colors stay."))
         })
         {
@@ -307,7 +367,7 @@ public sealed partial class SettingsWindow
             [(CompactSmoothing.Off, Loc.T("不平滑", "Off")), (CompactSmoothing.Ten, Loc.T("10 帧", "10 fps")), (CompactSmoothing.Thirty, Loc.T("30 帧", "30 fps"))],
             v => Change(s => s.CompactSmoothing = v));
         Refresh();
-        Group(table, quick, status, smoothing);
+        Group(WithFrameAccess(table, () => Reading(S, CompactMonitorItems.Frames).Visible), quick, status, smoothing);
     }
 
     private static Grid ReadingColumns()
@@ -341,7 +401,7 @@ public sealed partial class SettingsWindow
         CompactMonitorItems.Columns => Loc.T("核心柱", "Core columns"), CompactMonitorItems.Memory => Loc.T("内存", "Memory"), CompactMonitorItems.Gpu => "GPU",
         CompactMonitorItems.Download => Loc.T("下载", "Download"), CompactMonitorItems.Upload => Loc.T("上传", "Upload"),
         CompactMonitorItems.Storage => Loc.T("硬盘", "Drives"), CompactMonitorItems.Power => Loc.T("整机功耗", "System power"),
-        CompactMonitorItems.Charge => Loc.T("本机电池", "This PC's battery"), _ => "CPU"
+        CompactMonitorItems.Charge => Loc.T("本机电池", "This PC's battery"), CompactMonitorItems.Frames => Loc.T("帧率", "Frame rate"), _ => "CPU"
     };
     private static CompactReading Reading(DeckSettings settings, CompactMonitorItems item) => settings.CompactReadings.First(reading => reading.Item == item);
 
@@ -350,7 +410,7 @@ public sealed partial class SettingsWindow
     {
         string name = ReadingName(item);
         var row = ReadingColumns();
-        var handle = new Border { Width = 22, Background = Brushes.Transparent, Cursor = Cursors.SizeAll, HorizontalAlignment = HorizontalAlignment.Left, Child = Grip(TextTertiary) };
+        var handle = new GripHandle { Width = 22, Background = Brushes.Transparent, Cursor = Cursors.SizeAll, HorizontalAlignment = HorizontalAlignment.Left, Child = Grip(TextTertiary) };
         row.Children.Add(handle);
         var label = TextLine(name, 13, TextPrimary); label.VerticalAlignment = VerticalAlignment.Center; label.Margin = new Thickness(6, 0, 6, 0);
         Grid.SetColumn(label, 2); row.Children.Add(label);
@@ -358,6 +418,12 @@ public sealed partial class SettingsWindow
         if (CompactFigures.Has(item))
         {
             var menu = FiguresMenu(item, refresh, edit);
+            Grid.SetColumn(menu, 2); row.Children.Add(menu);
+        }
+        // The frame rate chooses what it shows of its program in a menu at the same place.
+        if (item == CompactMonitorItems.Frames)
+        {
+            var menu = FramesPartsMenu(refresh, edit);
             Grid.SetColumn(menu, 2); row.Children.Add(menu);
         }
         // The reading's colors in the normal state as the scheme gives them, one per channel (the core columns: one per kind of
@@ -377,7 +443,7 @@ public sealed partial class SettingsWindow
         // The figure switch is for the rings only; the core columns (no figure) and the rates (always text) show it off and dimmed.
         bool choice = CompactMonitor.HasValueChoice(item);
         var value = new CheckBox { Style = (Style)FindResource("SettingsToggle"), Padding = new Thickness(0), HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center, IsEnabled = choice, IsChecked = item is CompactMonitorItems.Download or CompactMonitorItems.Upload or CompactMonitorItems.Storage or CompactMonitorItems.Power or CompactMonitorItems.Charge };
+            VerticalAlignment = VerticalAlignment.Center, IsEnabled = choice, IsChecked = item is CompactMonitorItems.Download or CompactMonitorItems.Upload or CompactMonitorItems.Storage or CompactMonitorItems.Power or CompactMonitorItems.Charge or CompactMonitorItems.Frames };
         AutomationProperties.SetName(value, Loc.T("显示数值 ", "Show figure ") + name);
         if (!choice)
         {
@@ -387,6 +453,8 @@ public sealed partial class SettingsWindow
                 CompactMonitorItems.Storage => Loc.T("硬盘始终显示数值，在左侧的菜单中选择显示什么。", "The drives always show figures; choose which in the menu at the left."),
                 CompactMonitorItems.Power => Loc.T("整机功耗，单位 W；是否为估算见悬停提示。无读数的电脑不显示。", "System power in W; the tooltip says whether it is an estimate. Hidden on PCs with no reading."),
                 CompactMonitorItems.Charge => Loc.T("本机电池电量，以电池图形显示。无电池的电脑不显示。", "This PC's battery charge, shown as a battery icon. Hidden on PCs without a battery."),
+                CompactMonitorItems.Frames => Loc.T("前台程序每秒绘制的帧数；前台程序不在绘制时，显示最近一个在绘制的程序。首次开启时需要授权，未授权时不显示。",
+                    "The frames the program in front draws each second; while it draws nothing, the last program that did. Needs permission the first time; hidden until then."),
                 _ => Loc.T("下载和上传始终显示速率。", "Download and upload always show their rate.")
             };
             ToolTipService.SetShowOnDisabled(value, true);
@@ -400,12 +468,19 @@ public sealed partial class SettingsWindow
 
         var shown = new CheckBox { Style = (Style)FindResource("SettingsToggle"), Padding = new Thickness(0), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
         AutomationProperties.SetName(shown, Loc.T("显示 ", "Show ") + name);
-        shown.Checked += (_, _) => edit(s => Reading(s, item).Visible = true); shown.Unchecked += (_, _) => edit(s => Reading(s, item).Visible = false);
+        shown.Checked += (_, _) =>
+        {
+            // Only a frame rate the user turns on asks for permission, not one the table shows as on.
+            bool was = Reading(S, item).Visible;
+            edit(s => Reading(s, item).Visible = true);
+            if (item == CompactMonitorItems.Frames && !was) AskFrameAccess();
+        };
+        shown.Unchecked += (_, _) => { edit(s => Reading(s, item).Visible = false); if (item == CompactMonitorItems.Frames) FrameAccessChanged?.Invoke(); };
         refresh.Add(() => shown.IsChecked = Reading(S, item).Visible);
         Grid.SetColumn(shown, 4); row.Children.Add(shown);
 
         // Dropped in a new place, the strip takes the new order at once.
-        AttachDrag(handle, () => rows, ReadingRowHeight, list =>
+        AttachDrag(handle, name, () => rows, ReadingRowHeight, list =>
         {
             var order = list.Children.OfType<Border>().Where(b => b.Tag is CompactMonitorItems).Select(b => (CompactMonitorItems)b.Tag).ToArray();
             Change(s => s.CompactReadings = [.. order.Select(id => Reading(s, id))]);
@@ -430,7 +505,7 @@ public sealed partial class SettingsWindow
         select.Content = content; select.Height = 30; select.Width = Wide;
         select.HorizontalAlignment = HorizontalAlignment.Right; select.HorizontalContentAlignment = HorizontalAlignment.Stretch; select.VerticalAlignment = VerticalAlignment.Center;
         select.Padding = new Thickness(9, 0, 9, 0); select.Margin = new Thickness(6, 0, 6, 0);
-        select.Background = UI.Brush(_palette.Input); select.BorderBrush = UI.Brush(_palette.Border);
+        select.Background = UI.Brush(_palette.Input); select.BorderBrush = UI.Brush(_palette.InputBorder);
         ToolTipService.SetShowOnDisabled(select, true);
         AutomationProperties.SetName(select, role);
 
@@ -561,6 +636,36 @@ public sealed partial class SettingsWindow
         };
         TogglePopup(select, menu);
         return select;
+    }
+
+    // Whether the collapsed frame rate shows the icon of the program it counts (CompactFrames): the icon (the default), or the screen
+    // glyph. As wide as the other readings' menus.
+    private ComboBox FramesPartsMenu(List<Action> refresh, Action<Action<DeckSettings>> edit)
+    {
+        var options = new (string[] Parts, string Label)[]
+        {
+            ([CompactFrames.Icon], Loc.T("显示程序图标", "Program icon")), ([], Loc.T("不显示图标", "No program icon"))
+        };
+        var choice = new ComboBox { Width = 150, Height = 30, Style = (Style)FindResource("SettingsCombo"), ItemsSource = options.Select(option => option.Label).ToList(),
+            HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 6, 0),
+            ToolTip = Loc.T("在帧率前显示所统计程序的图标；不显示时用显示器图标。程序名称在展开页显示。",
+                "Shows the icon of the program counted before the frame rate; without it, a screen. The program's name shows on the expanded page.") };
+        AutomationProperties.SetName(choice, Loc.T("帧率前的程序图标", "Program icon before the frame rate")); PopupMotion.Attach(choice);
+        bool syncing = false;
+        refresh.Add(() =>
+        {
+            syncing = true;
+            try { var parts = CompactFrames.Of(Reading(S, CompactMonitorItems.Frames)); choice.SelectedIndex = Math.Max(0, Array.FindIndex(options, option => option.Parts.SequenceEqual(parts))); }
+            finally { syncing = false; }
+        });
+        choice.SelectionChanged += (_, _) =>
+        {
+            if (syncing || choice.SelectedIndex < 0) return;
+            var parts = options[choice.SelectedIndex].Parts;
+            if (parts.SequenceEqual(CompactFrames.Of(Reading(S, CompactMonitorItems.Frames)))) return;
+            edit(s => Reading(s, CompactMonitorItems.Frames).Figures = [.. parts]);
+        };
+        return choice;
     }
 
     private void MonitorSizeControls()
