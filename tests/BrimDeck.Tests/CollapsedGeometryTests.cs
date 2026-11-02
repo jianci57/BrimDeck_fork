@@ -76,7 +76,7 @@ internal static class CollapsedGeometryTests
             && CollapsedGeometry.CapsuleTopRange(48, monitor, new DipRect(0, 40, 1920, 1000)) == (0, 992));
 
         var topBar = new DipRect(0, 48, 1920, 1032);
-        var near = CollapsedGeometry.Resolve(new DeckSettings { CapsuleTop = 20 }, CompactStyle.Capsule, monitor, topBar);
+        var near = CollapsedGeometry.Resolve(new DeckSettings { CapsuleTop = 10 }, CompactStyle.Capsule, monitor, topBar);
         var lowered = CollapsedGeometry.Resolve(new DeckSettings { CapsuleTop = 40 }, CompactStyle.Capsule, monitor, work);
         var nearBottom = CollapsedGeometry.Resolve(new DeckSettings { CapsuleTop = 4000 }, CompactStyle.Capsule, monitor, work);
         check("The open panel hangs from the screen edge unless the capsule is lowered beyond the bridge",
@@ -107,16 +107,16 @@ internal static class CollapsedGeometryTests
         check("Hanging panels add nothing above the header", CollapsedGeometry.Panel(capsule, work, 200) == new PanelPlacement(0, 0)
             && CollapsedGeometry.Panel(notch, work, 200) == new PanelPlacement(0, 0) && CollapsedGeometry.Panel(line, work, 200) == new PanelPlacement(0, 0)
             && CollapsedGeometry.Panel(near, topBar, 200) == new PanelPlacement(48, 0) && CollapsedGeometry.Panel(topBarNear, topBar, 200) == new PanelPlacement(48, 0));
-        // The lift (at most 10) is smaller than the bridge (20), so just beyond the bridge the panel still floats below the work area's top.
+        // The lift (at most 10) is no larger than the bridge (10), so just beyond the bridge the panel still floats below the work area's top.
         check("Just beyond the bridge the panel floats, its top below the work area's top",
-            CollapsedGeometry.Panel(CollapsedGeometry.Resolve(new DeckSettings { CapsuleTop = 21 }, CompactStyle.Capsule, monitor, work), work, 200) == new PanelPlacement(15, 6)
-            && CollapsedGeometry.Panel(CollapsedGeometry.Resolve(new DeckSettings { CapsuleTop = 21, CapsuleHeight = 24 }, CompactStyle.Capsule, monitor, work), work, 200) == new PanelPlacement(11, 6)
-            && CollapsedGeometry.Panel(CollapsedGeometry.Resolve(new DeckSettings { CapsuleTop = 21 }, CompactStyle.Capsule, monitor, topBar), topBar, 200) == new PanelPlacement(63, 6));
-        // Settings cannot produce this (the lift is at most 10, below the 20 DIP bridge), so the shape is built by hand.
+            CollapsedGeometry.Panel(CollapsedGeometry.Resolve(new DeckSettings { CapsuleTop = 11 }, CompactStyle.Capsule, monitor, work), work, 200) == new PanelPlacement(5, 6)
+            && CollapsedGeometry.Panel(CollapsedGeometry.Resolve(new DeckSettings { CapsuleTop = 11, CapsuleHeight = 24 }, CompactStyle.Capsule, monitor, work), work, 200) == new PanelPlacement(1, 6)
+            && CollapsedGeometry.Panel(CollapsedGeometry.Resolve(new DeckSettings { CapsuleTop = 11 }, CompactStyle.Capsule, monitor, topBar), topBar, 200) == new PanelPlacement(53, 6));
+        // Settings cannot produce this (the lift is at most 10, no larger than the 10 DIP bridge), so the shape is built by hand.
         var thinLowered = new CollapsedShape(CompactStyle.Capsule, new DipRect(800, 48 + 21, 196, 2), 0.0625, 1, 194, 1, 1, 0);
         check("A lift that would rise above the work area hangs the panel from its top without the extra space",
             CollapsedGeometry.Panel(thinLowered, topBar, 200) == new PanelPlacement(48, 0));
-        var noTopBar = CollapsedGeometry.Resolve(new DeckSettings { CapsuleTop = 20 }, CompactStyle.Capsule, monitor, work);
+        var noTopBar = CollapsedGeometry.Resolve(new DeckSettings { CapsuleTop = 10 }, CompactStyle.Capsule, monitor, work);
         check("Without a top taskbar a capsule near the edge still opens from the screen edge; notch and line are unchanged",
             CollapsedGeometry.PanelTop(noTopBar, work, 200) == 0 && CollapsedGeometry.PanelTop(capsule, work, 200) == 0
             && CollapsedGeometry.PanelTop(CollapsedGeometry.Resolve(defaults, CompactStyle.Notch, monitor, topBar), topBar, 200) == 0

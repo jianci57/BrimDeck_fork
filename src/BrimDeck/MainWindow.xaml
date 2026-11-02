@@ -9,7 +9,8 @@
     <!-- Hover state belongs to the zone, so moving between the panel and the strip above it never counts as leaving.
          The zone starts at the island's left edge: its left margin places the island within the window (see SetExpanded). -->
     <Grid x:Name="HoverZone" HorizontalAlignment="Left" VerticalAlignment="Top" Background="{x:Null}"
-          MouseEnter="Island_MouseEnter" MouseLeave="Island_MouseLeave">
+          MouseEnter="Island_MouseEnter" MouseLeave="Island_MouseLeave"
+          MouseLeftButtonDown="Island_MouseLeftButtonDown" MouseLeftButtonUp="Island_MouseLeftButtonUp">
       <!-- The shadow is drawn from a cached picture: WPF blurs an effect again whenever anything drawn over it changes (the
            scrolling title, the equalizer, a carousel), and the cache keeps the blurred result (dropped while the island changes
            size or its color, MainWindow.Shadow.cs). The effect must stay on the child for the cache to hold it; the shadow fades on

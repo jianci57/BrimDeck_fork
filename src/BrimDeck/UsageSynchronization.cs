@@ -35,6 +35,15 @@ public partial class MainWindow
     internal Task RefreshAutomaticallyAsync(bool queueIfBusy = false)
         => AutomaticSyncEnabled ? RefreshAsync(queueIfBusy) : Task.CompletedTask;
 
+    // A read asked for by hand (the sync-now shortcut, a column's sync button): the arrows spin until it ends, also with the
+    // automatic sync off, so the request shows. A read already under way counts as the one asked for.
+    internal void SyncNow()
+    {
+        Lead._syncAsked = true;
+        foreach (var deck in _app.Decks) deck.RenderSyncButton();
+        _ = RefreshAsync(queueIfBusy: false);
+    }
+
     // From another page the switch shows the usage page out of the model details (ShowPage leaves them). The tab is hidden in the
     // details, so on the usage page it has nothing to do.
     private void AIUsage_Click(object sender, RoutedEventArgs e) { if (!IsUsagePage) SelectPage(BrimDeck.Core.DeckPage.Usage); }
@@ -81,9 +90,9 @@ public partial class MainWindow
         if (_syncCountdown && onScreen) { if (!ringTimer.IsEnabled) ringTimer.Start(); }
         else ringTimer.Stop();
 
-        // A manual read on the details page spins until it ends; an automatic sync turns the arrows once.
+        // A read asked for by hand, or on the details page, spins until it ends; an automatic sync turns the arrows once.
         bool animations = Settings.Animations && SystemParameters.ClientAreaAnimation;
-        string spin = !onScreen || !animations || !Refreshing ? "" : _details ? "details" : _syncCountdown ? "once" : "";
+        string spin = !onScreen || !animations || !Refreshing ? "" : _details || Lead._syncAsked ? "details" : _syncCountdown ? "once" : "";
         if (_syncSpin == spin) return;
         _syncSpin = spin;
         SyncRotation.BeginAnimation(RotateTransform.AngleProperty, spin.Length == 0 ? null : new DoubleAnimation

@@ -135,7 +135,7 @@ internal sealed class MonitorStrip : FrameworkElement
         return width;
     }
 
-    private double ColumnsWidth(int cores) => Math.Min(Math.Round(56 * _scale), cores * Math.Max(1.5, 2 * _scale) + (cores - 1) * Math.Max(.5, _scale));
+    private double ColumnsWidth(int cores) => CompactMonitor.CoreColumns(cores, _scale).Width;
 
     private CompactMonitorItems Shown => _shown;
     // Rounded up to whole device pixels: the row rounds the region it gives down to them, which must not drop a reading.
@@ -293,7 +293,7 @@ internal sealed class MonitorStrip : FrameworkElement
         double height = Math.Round(14 * _scale), top = Math.Round(center - height / 2);
         if (cpu is null || cpu.Cores.Count == 0) { drawing.DrawRoundedRectangle(UI.Brush(UI.Fill), null, new Rect(x, top, width, height), 2, 2); return; }
         int count = cpu.Cores.Count, groups = Math.Max(1, cpu.GroupCount);
-        double gap = Math.Max(.5, _scale), column = Math.Max(1, (width - (count - 1) * gap) / count);
+        var (column, gap, _) = CompactMonitor.CoreColumns(count, _scale);
         for (int i = 0; i < count; i++)
         {
             var core = cpu.Cores[i];

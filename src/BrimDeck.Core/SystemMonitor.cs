@@ -310,3 +310,18 @@ public static class MonitorMetrics
     public static double? CpuPercent(long previous, long current, double seconds)
         => seconds > 0 && current >= previous ? (current - previous) / (seconds * 10_000_000) * 100 : null;
 }
+
+// Each logical processor's busy time by its group and number, as the counter last gave it. The counter now and then leaves a
+// processor out of a reading (an entry it marks invalid); that processor keeps its last figure, so the processors keep their
+// number and order and no core column drops out for a second. A reading with none at all is given back empty.
+public sealed class ProcessorShares
+{
+    private readonly Dictionary<(int Group, int Number), double> _last = [];
+
+    public IReadOnlyDictionary<(int Group, int Number), double> Fill(IReadOnlyDictionary<(int Group, int Number), double> read)
+    {
+        if (read.Count == 0) return read;
+        foreach (var (key, value) in read) _last[key] = value;
+        return _last;
+    }
+}

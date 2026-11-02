@@ -39,8 +39,11 @@ public partial class MainWindow
         // being read, and takes the current readings when the display is back.
         bool shown = _expanded && IsMonitorPage && IsVisible && !IsSuppressed;
         bool page = shown && !DisplayPower.Off;
-        // A row whose chosen readings all wait for their first figures has no width, yet must be read for them (StripAwaits).
-        bool strip = !_expanded && (_compactStrip is not null || StripAwaits()) && IsVisible && !IsSuppressed && !DisplayPower.Off && _alert is null && EffectiveStyle != CompactStyle.Line;
+        // A row whose chosen readings all wait for their first figures has no width, yet must be read for them (StripAwaits). A row
+        // only hidden for now (the panel open, or a notice in its place, which leaves no row built: RenderCompact) keeps its
+        // temperatures read while the sampler runs (App.UpdateMonitorExtras).
+        bool heldStrip = (_compactStrip is not null || StripAwaits() || _alert is not null && Settings.ShowsMonitor(EffectiveStyle)) && IsVisible && !IsSuppressed && !DisplayPower.Off && EffectiveStyle != CompactStyle.Line;
+        bool strip = heldStrip && !_expanded && _alert is null;
         if (!shown)
         {
             // A list that is not on screen cannot be under the pointer, and a closed page keeps no card open.
@@ -51,7 +54,7 @@ public partial class MainWindow
         // The power is read for a page that shows its line (a page too small for it, or with the setting off, reads none of it).
         bool power = page && Settings.MonitorPower && _monitorView?.ShowsPower == true;
         _powerPage = power;
-        _app.PresentMonitor(this, page, strip, power);
+        _app.PresentMonitor(this, page, strip, power, heldStrip);
         // Neither took readings while hidden: they show the current ones, or dashes once the sampler has paused, never the
         // figures they showed last time.
         if (page && !_monitorShowing) _monitorView?.Update(_app.Monitor?.Latest ?? WaitingSnapshot, motion: false);

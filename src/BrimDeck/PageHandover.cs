@@ -111,12 +111,31 @@ internal sealed class PageHandover
     }
 
     // Lets a captured page leave while content arrives. The picture keeps the place the page had (Place, taken before the
-    // switch) and is centred as the page was.
-    public void Send(UIElement? picture, Thickness place, FrameworkElement content, Handover motion)
+    // switch) and is centred as the page was. It stands on a canvas of no size, outside the layout: laid out in the layer, which
+    // takes the next page's width at once, a picture of a wider page was clipped to that width on one side. As it leaves it
+    // shrinks to the next page's size, so the panel narrowing around it does not cut it off either.
+    public void Send(FrameworkElement? picture, Thickness place, FrameworkElement content, Handover motion)
     {
         if (picture is null || motion == Handover.None || !Soft.Enabled) return;
-        Begin([picture], new Thickness(0, place.Top, 0, 0), content, motion);
+        Canvas.SetLeft(picture, -picture.Width / 2);
+        var stage = new Canvas { Width = 0, Height = 0, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Top };
+        stage.Children.Add(picture);
+        Begin([stage], new Thickness(0, place.Top, 0, 0), content, motion);
+        int version = _version;
+        content.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () =>
+        {
+            if (_version != version || content.ActualWidth < 1 || content.ActualHeight < 1) return;
+            double fit = Math.Min(1, Math.Min(content.ActualWidth / picture.Width, content.ActualHeight / picture.Height));
+            if (fit > .995) return;
+            var scale = new ScaleTransform();
+            picture.RenderTransformOrigin = new Point(.5, 0); picture.RenderTransform = scale;
+            scale.BeginAnimation(ScaleTransform.ScaleXProperty, Soft.Fade(1, fit, PageLeave, Soft.Follow));
+            scale.BeginAnimation(ScaleTransform.ScaleYProperty, Soft.Fade(1, fit, PageLeave, Soft.Follow));
+        });
     }
+
+    // How long a page left by the page switch takes to go.
+    private const int PageLeave = 200;
 
     // The rebuilt content waiting for its arrival to start; it is held out of sight until then.
     private FrameworkElement? _holding;
@@ -152,7 +171,7 @@ internal sealed class PageHandover
             if (motion == Handover.Dissolve) { content.BeginAnimation(UIElement.OpacityProperty, Arrival(Faint, 1, Soft.Short)); return; }
             if (_waiting is not { } batch) return;
             _waiting = null;
-            int leave = motion == Handover.Morph ? Soft.Hover : 200;
+            int leave = motion == Handover.Morph ? Soft.Hover : PageLeave;
             var away = Soft.Fade(opacity, 0, leave, Soft.Follow);
             away.Completed += (_, _) => Remove(batch);
             batch.BeginAnimation(UIElement.OpacityProperty, away);

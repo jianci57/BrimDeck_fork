@@ -59,6 +59,11 @@ static class SystemMonitorTests
         check("Monitor rate per second", MonitorMetrics.Rate(1000, 3000, 2) == 1000);
         check("Monitor rate skips a counter reset", MonitorMetrics.Rate(3000, 1000, 1) is null && MonitorMetrics.Rate(1, 2, 0) is null);
         check("Monitor process CPU in percent of one core", MonitorMetrics.CpuPercent(0, 25_000_000, 1) == 250);
+        var shares = new ProcessorShares();
+        shares.Fill(new Dictionary<(int, int), double> { [(0, 0)] = 10, [(0, 1)] = 20, [(0, 2)] = 30 });
+        var gapped = shares.Fill(new Dictionary<(int, int), double> { [(0, 0)] = 40, [(0, 2)] = 50 });
+        check("Monitor processor left out of a reading keeps its last share", gapped.Count == 3 && gapped[(0, 0)] == 40 && gapped[(0, 1)] == 20 && gapped[(0, 2)] == 50);
+        check("Monitor reading without processors stays empty", shares.Fill(new Dictionary<(int, int), double>()).Count == 0);
         var memory = new MemorySample(100, 50, 40, 100);
         check("Monitor memory level normal", memory.Level == MemoryLevel.Normal && memory.UsedFraction == .5);
         check("Monitor memory level elevated by use or commit", (memory with { Used = 85 }).Level == MemoryLevel.Elevated && (memory with { CommitUsed = 82 }).Level == MemoryLevel.Elevated);

@@ -1,7 +1,8 @@
 namespace BrimDeck.Core;
 
-// Resize is one setting for four registrations: its modifiers with each arrow key (see Arrows).
-public enum HotkeyKind { Hide, Expand, Resize }
+// Resize and Move are each one setting for four registrations: their modifiers with each arrow key (see Arrows). Page1 to Page3
+// open the shown pages in the order of the page switch.
+public enum HotkeyKind { Hide, Expand, Resize, Move, ClickThrough, OpenSettings, Page1, Page2, Page3, Refresh }
 
 // Unset: no combination saved. Active: registered. InUse: another program holds the combination. Invalid: the text is not
 // an allowed combination. Duplicate: a combination another hotkey has, which keeps it (see Plan and PlanArrows).
@@ -65,21 +66,39 @@ public static class HotkeyText
     public static bool Same(string? first, string? second)
         => Normalize(first) is { Length: > 0 } a && string.Equals(a, Normalize(second), StringComparison.OrdinalIgnoreCase);
 
-    // What each hotkey should do before registration: Unset, Invalid, Duplicate (the expand hotkey yields to the hide hotkey
-    // when both name the same combination), or null to register its canonical text. isKey checks the main key's name.
-    public static (HotkeyStatus? Status, string Text) Plan(HotkeyKind kind, string? hide, string? expand, Func<string, bool> isKey)
+    // Whether a hotkey is saved as modifiers with the arrow keys (see Arrows).
+    public static bool IsArrows(HotkeyKind kind) => kind is HotkeyKind.Resize or HotkeyKind.Move;
+
+    // The order in which the hotkeys claim their combinations: the single combinations in the order of HotkeyKind, then the arrow
+    // shortcuts. A hotkey that shares a combination with an earlier one that is valid yields to it (Duplicate).
+    public static IReadOnlyList<HotkeyKind> Priority { get; } = [.. Enum.GetValues<HotkeyKind>().OrderBy(IsArrows)];
+
+    // What every hotkey should do before registration: Unset, Invalid, Duplicate, or null to register its canonical text (for an
+    // arrow shortcut, its modifiers with Arrows). saved gives each hotkey's saved text; isKey checks a main key's name.
+    public static Dictionary<HotkeyKind, (HotkeyStatus? Status, string Text)> Plan(Func<HotkeyKind, string?> saved, Func<string, bool> isKey)
     {
-        string own = kind == HotkeyKind.Hide ? hide ?? "" : expand ?? "";
-        if (IsUnset(own)) return (HotkeyStatus.Unset, "");
-        if (!TryParse(own, out var modifiers, out var key) || !isKey(key)) return (HotkeyStatus.Invalid, "");
-        string text = Format(modifiers, key);
-        if (kind == HotkeyKind.Expand && Normalize(hide) is { Length: > 0 } other && string.Equals(other, text, StringComparison.OrdinalIgnoreCase)
-            && TryParse(hide, out _, out var otherKey) && isKey(otherKey))
-            return (HotkeyStatus.Duplicate, text);
-        return (null, text);
+        var plans = new Dictionary<HotkeyKind, (HotkeyStatus? Status, string Text)>();
+        var claimed = new List<string>();
+        foreach (var kind in Priority)
+        {
+            var plan = PlanOne(kind, saved(kind), isKey);
+            if (plan.Status is null && claimed.Any(other => Overlap(plan.Text, other))) plan = (HotkeyStatus.Duplicate, plan.Text);
+            else if (plan.Status is null) claimed.Add(plan.Text);
+            plans[kind] = plan;
+        }
+        return plans;
     }
 
-    // The resize shortcut is saved as its modifiers and "Arrows" ("Ctrl+Alt+Arrows"): the four arrow keys with those modifiers,
+    private static (HotkeyStatus? Status, string Text) PlanOne(HotkeyKind kind, string? text, Func<string, bool> isKey)
+    {
+        if (IsUnset(text)) return (HotkeyStatus.Unset, "");
+        if (IsArrows(kind)) return TryParseArrows(text, out var arrowModifiers) ? (null, Format(arrowModifiers, Arrows)) : (HotkeyStatus.Invalid, "");
+        // "Arrows" names no key: only an arrow shortcut stands for the arrow keys.
+        if (!TryParse(text, out var modifiers, out var key) || !isKey(key) || string.Equals(key, Arrows, StringComparison.OrdinalIgnoreCase)) return (HotkeyStatus.Invalid, "");
+        return (null, Format(modifiers, key));
+    }
+
+    // An arrow shortcut is saved as its modifiers and "Arrows" ("Ctrl+Alt+Arrows"): the four arrow keys with those modifiers,
     // in the order Left, Right, Up, Down. Which modifiers are allowed is ArrowModifiersAllowed's.
     public const string Arrows = "Arrows";
     public static readonly IReadOnlyList<string> ArrowKeys = ["Left", "Right", "Up", "Down"];
@@ -92,8 +111,8 @@ public static class HotkeyText
     public static bool TryParseArrows(string? text, out HotkeyModifiers modifiers)
         => TryParse(text, out modifiers, out var key) && string.Equals(key, Arrows, StringComparison.OrdinalIgnoreCase) && ArrowModifiersAllowed(modifiers);
 
-    // The settings show the resize shortcut as "Alt + [box] + arrow keys": Alt and the arrows are fixed, and the box records
-    // only the other modifiers. ArrowExtras is what the box shows ("Ctrl", "Ctrl+Shift"), or "" when the text is not a resize
+    // The settings show an arrow shortcut as "Alt + [box] + arrow keys": Alt and the arrows are fixed, and the box records
+    // only the other modifiers. ArrowExtras is what the box shows ("Ctrl", "Ctrl+Shift"), or "" when the text is not an arrow
     // shortcut. FromArrowExtras is the text to save for the recorded modifiers (Alt among them changes nothing), or "" when no
     // other modifier was recorded.
     public static string ArrowExtras(string? text)
@@ -109,28 +128,15 @@ public static class HotkeyText
     public static string FormatModifiers(HotkeyModifiers modifiers)
         => string.Join("+", Order.Where(o => modifiers.HasFlag(o.Flag)).Select(o => o.Name));
 
-    // The combinations a saved text stands for: the four arrow keys for a resize shortcut, otherwise the text itself.
+    // The combinations a saved text stands for: the four arrow keys for an arrow shortcut, otherwise the text itself.
     public static string[] Combinations(string? text)
         => TryParseArrows(text, out var modifiers) ? [.. ArrowKeys.Select(key => Format(modifiers, key))] : Normalize(text) is { Length: > 0 } one ? [one] : [];
 
-    // Whether two saved texts share a combination (a resize shortcut and Ctrl+Alt+Left do).
+    // Whether two saved texts share a combination (an arrow shortcut and Ctrl+Alt+Left do).
     public static bool Overlap(string? first, string? second)
     {
         var others = Combinations(second);
         return Combinations(first).Any(a => others.Contains(a, StringComparer.OrdinalIgnoreCase));
-    }
-
-    // What the resize shortcut should do before registration, as Plan does for the others: it yields to the other shortcuts
-    // (others, such as the hide and expand shortcuts) when one of its four combinations is theirs. Its text is the canonical
-    // modifiers with Arrows.
-    public static (HotkeyStatus? Status, string Text) PlanArrows(string? resize, Func<string, bool> isKey, params ReadOnlySpan<string?> others)
-    {
-        if (IsUnset(resize)) return (HotkeyStatus.Unset, "");
-        if (!TryParseArrows(resize, out var modifiers)) return (HotkeyStatus.Invalid, "");
-        string text = Format(modifiers, Arrows);
-        foreach (var other in others)
-            if (TryParse(other, out _, out var otherKey) && isKey(otherKey) && Overlap(text, other)) return (HotkeyStatus.Duplicate, text);
-        return (null, text);
     }
 
     private static HotkeyModifiers Modifier(string part) => part.ToLowerInvariant() switch

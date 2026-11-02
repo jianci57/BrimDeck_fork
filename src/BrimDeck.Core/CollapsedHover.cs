@@ -16,7 +16,7 @@ public readonly record struct DipRect(double X, double Y, double Width, double H
 public static class CollapsedHover
 {
     // The largest gap between the top of the work area and a capsule that is still bridged. Not a setting.
-    public const double BridgeMaxGap = 20;
+    public const double BridgeMaxGap = 10;
     public const double LinePadX = 8, LinePadBelow = 2;
 
     public static bool HasBridge(CompactStyle style, DipRect surface, double workTop) => surface.Y - BridgeTop(style, workTop) <= BridgeMaxGap || style != CompactStyle.Capsule;

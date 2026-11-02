@@ -764,15 +764,31 @@ public sealed class UsageService(IDesktopSources desktop, DataLocations? locatio
         snapshot.UsageNote = Loc.T("Cursor Token 明细来自账户用量接口，包含其他设备上的用量。", "Cursor token details come from the account usage API and include usage on other devices.");
         if (string.IsNullOrWhiteSpace(token))
         { snapshot.StatusLabel = Loc.T("未连接", "Not connected"); snapshot.Status = Loc.T("请打开 Cursor 并确认已登录", "Open Cursor and make sure you are signed in."); return; }
+        // The Grok Bot weekly allowance tells a plan merged with Grok from an older Cursor plan. On a merged plan it is the
+        // same allowance as the Cursor quota; on an older plan it is a separate figure, added below as one more row. A
+        // failure here must not drop the Cursor quota.
+        bool unified = false;
+        Quota? grokBot = null;
+        try
+        {
+            using var request = Bearer(HttpMethod.Post, GrokBotUsage.StatusUri, token);
+            request.Content = JsonBody(new { });
+            using var doc = await SendAsync(_http, request, ct);
+            unified = doc.RootElement.Get("isUnified").ValueKind == JsonValueKind.True;
+            grokBot = QuotaParser.SandUsage(doc.RootElement);
+            if (unified) snapshot.Plan = doc.RootElement.Get("cursorPlanName").Text().Trim();
+        }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException or InvalidDataException or TaskCanceledException && !ct.IsCancellationRequested) { }
         try
         {
             using var request = Bearer(HttpMethod.Post, "https://api2.cursor.sh/aiserver.v1.DashboardService/GetCurrentPeriodUsage", token);
             request.Content = JsonBody(new { });
             using var doc = await SendAsync(_http, request, ct);
-            snapshot.Quotas = QuotaParser.Cursor(doc.RootElement);
-            snapshot.Plan = PlanParser.Cursor(doc.RootElement);
+            snapshot.Quotas = QuotaParser.Cursor(doc.RootElement, unified);
+            if (!unified) snapshot.Plan = PlanParser.Cursor(doc.RootElement);
         }
         catch (HttpRequestException) { /* Older client sessions may use the dashboard endpoint. */ }
+        if (unified && snapshot.Quotas.Count == 0 && grokBot is not null) snapshot.Quotas = [grokBot with { Label = "每周额度", Minutes = 10080 }];
         if (snapshot.Quotas.Count == 0 || snapshot.Plan.Length == 0)
         {
             try
@@ -782,7 +798,8 @@ public sealed class UsageService(IDesktopSources desktop, DataLocations? locatio
                 using var request = new HttpRequestMessage(HttpMethod.Get, "https://cursor.com/api/usage-summary");
                 request.Headers.TryAddWithoutValidation("Cookie", "WorkosCursorSessionToken=" + Uri.EscapeDataString(subject + "::" + token));
                 using var doc = await SendAsync(_http, request, ct);
-                if (snapshot.Quotas.Count == 0) snapshot.Quotas = QuotaParser.Cursor(doc.RootElement);
+                // This summary keeps the monthly billing cycle even on a merged plan, so its quotas apply only to older plans.
+                if (snapshot.Quotas.Count == 0 && !unified) snapshot.Quotas = QuotaParser.Cursor(doc.RootElement);
                 snapshot.Plan = PlanParser.Cursor(doc.RootElement);
             }
             catch (Exception ex) when (snapshot.Quotas.Count > 0 && !ct.IsCancellationRequested &&
@@ -790,17 +807,8 @@ public sealed class UsageService(IDesktopSources desktop, DataLocations? locatio
         }
         if (snapshot.Plan.Length > 0) snapshot.PlanSource = Loc.T("Cursor 账户", "Cursor account");
         if (snapshot.Quotas.Count == 0) throw new InvalidDataException();
-        // The Grok Bot desktop app shares this Cursor account, and its weekly allowance is a separate figure from the
-        // billing-period quota above. Add it as one more row; a failure here must not drop the Cursor quota.
-        try
-        {
-            using var request = Bearer(HttpMethod.Post, "https://api2.cursor.sh/aiserver.v1.DashboardService/GetSandUsageStatus", token);
-            request.Content = JsonBody(new { });
-            using var doc = await SendAsync(_http, request, ct);
-            if (QuotaParser.SandUsage(doc.RootElement) is { } grokBot) snapshot.Quotas.Add(grokBot);
-        }
-        catch (Exception ex) when (ex is HttpRequestException or JsonException or InvalidDataException or TaskCanceledException && !ct.IsCancellationRequested) { }
-        Connected(snapshot, Loc.T("Cursor 当前账期", "Cursor current billing period"), now);
+        if (!unified && grokBot is not null) snapshot.Quotas.Add(grokBot);
+        Connected(snapshot, unified ? Loc.T("Cursor 账户 · 每周额度", "Cursor account · weekly allowance") : Loc.T("Cursor 当前账期", "Cursor current billing period"), now);
         await ReadCursorEvents(snapshot, token, now, start, ct);
     }
 

@@ -328,12 +328,22 @@ public static class QuotaParser
                 Add(name + " 每周", root.Get(key).Get("utilization").Number(), root.Get(key).Get("resets_at").Date(), 10080);
         return result;
     }
-    public static List<Quota> Cursor(JsonElement root)
+    // A plan merged with Grok (unified) draws every model from one included allowance that resets weekly, so the Cursor
+    // and other-model shares no longer apply: totalPercentUsed is its one figure, and billingCycleStart/End is the week.
+    // Older plans keep their billing-period quotas.
+    public static List<Quota> Cursor(JsonElement root, bool unified = false)
     {
         var plan = root.Get("planUsage");
         if (plan.ValueKind != JsonValueKind.Object) plan = root.Get("individualUsage").Get("plan");
         var reset = root.Get("billingCycleEnd").Date();
         var result = new List<Quota>();
+        if (unified)
+        {
+            if (plan.Get("totalPercentUsed").Number() is not { } used) return result;
+            int? minutes = root.Get("billingCycleStart").Date() is { } begin && reset is { } end && end > begin ? (int)Math.Round((end - begin).TotalMinutes) : null;
+            result.Add(new(minutes == 10080 ? "每周额度" : "账期额度", Math.Clamp(used, 0, 100), reset, minutes));
+            return result;
+        }
         foreach (var (key, label) in new[] { ("autoPercentUsed", "Cursor 模型"), ("apiPercentUsed", "其他模型") })
             if (plan.Get(key).Number() is { } percent) result.Add(new(label, Math.Clamp(percent, 0, 100), reset));
         if (result.Count == 0 && plan.Get("totalPercentUsed").Number() is { } total) result.Add(new("账期额度", Math.Clamp(total, 0, 100), reset));
@@ -341,6 +351,7 @@ public static class QuotaParser
     }
     // GetSandUsageStatus reports one weekly figure for the Grok Bot / Cursor account: how much of the included
     // allowance is used (0-100) and when it resets. usagePercent shares the same scale as the Cursor quotas above.
+    // isUnified marks a plan merged with Grok, where this figure is the same allowance as the Cursor quota.
     public static Quota? SandUsage(JsonElement root)
     {
         if (root.Get("usagePercent").Number() is not { } percent) return null;

@@ -98,7 +98,9 @@ public partial class MainWindow
     {
         if (_grips is null) return;
         if (_moveArmed) { ShowMoveGrips(); return; }
-        var form = PanelResizable ? ResizeGripLayer.Form.Panel : CompactResizable || Resizing && _resizeCompact ? ResizeGripLayer.Form.Compact : ResizeGripLayer.Form.None;
+        // Under mouse pass-through the grips are not offered; the resize shortcut still works.
+        var form = PanelResizable && !PanelIgnoresPointer ? ResizeGripLayer.Form.Panel
+            : CompactResizable && !ClickThrough || Resizing && _resizeCompact ? ResizeGripLayer.Form.Compact : ResizeGripLayer.Form.None;
         if (Resizing && !_resizeCompact) form = ResizeGripLayer.Form.Panel;
         _grips.Show(form, IslandBox(), _header.Row * _scale, PanelRadius, EffectiveStyle == CompactStyle.Line);
         if (form == ResizeGripLayer.Form.None && _hoverEdge != ResizeEdges.None && !Dragging) SetHoverEdge(ResizeEdges.None);

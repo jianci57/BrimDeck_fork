@@ -4,11 +4,11 @@ internal static class CollapsedHoverTests
 {
     internal static void Run(Action<string, bool> check)
     {
-        check("A capsule up to 20 DIPs from the edge keeps the strip",
-            CollapsedHover.HasBridge(CompactStyle.Capsule, new DipRect(0, 20, 196, 32), 0)
-            && CollapsedHover.Zone(CompactStyle.Capsule, new DipRect(10, 20, 196, 32), 0) == new DipRect(10, 0, 196, 52));
+        check("A capsule up to 10 DIPs from the edge keeps the strip",
+            CollapsedHover.HasBridge(CompactStyle.Capsule, new DipRect(0, 10, 196, 32), 0)
+            && CollapsedHover.Zone(CompactStyle.Capsule, new DipRect(10, 10, 196, 32), 0) == new DipRect(10, 0, 196, 42));
         check("A capsule lower than that senses only itself",
-            !CollapsedHover.HasBridge(CompactStyle.Capsule, new DipRect(0, 20.5, 196, 32), 0)
+            !CollapsedHover.HasBridge(CompactStyle.Capsule, new DipRect(0, 10.5, 196, 32), 0)
             && CollapsedHover.Zone(CompactStyle.Capsule, new DipRect(10, 60, 300, 48), 0) == new DipRect(10, 60, 300, 48));
         check("Notch and indicator are always bridged",
             CollapsedHover.HasBridge(CompactStyle.Notch, new DipRect(0, 80, 238, 32), 0) && CollapsedHover.HasBridge(CompactStyle.Line, new DipRect(0, 80, 56, 4), 0)
@@ -30,9 +30,9 @@ internal static class CollapsedHoverTests
         check("Below a top taskbar the capsule bridges to the work area, not over the taskbar",
             Default(CompactStyle.Capsule, topTaskbar) == new DipRect(862, 48, 196, 37) && Default(CompactStyle.Notch, topTaskbar).Y == 0);
         check("The capsule's threshold is measured from the work area's top",
-            CollapsedHover.HasBridge(CompactStyle.Capsule, new DipRect(0, 68, 196, 32), 48)
-            && CollapsedHover.Zone(CompactStyle.Capsule, new DipRect(10, 68, 196, 32), 48) == new DipRect(10, 48, 196, 52)
-            && !CollapsedHover.HasBridge(CompactStyle.Capsule, new DipRect(0, 68.5, 196, 32), 48)
+            CollapsedHover.HasBridge(CompactStyle.Capsule, new DipRect(0, 58, 196, 32), 48)
+            && CollapsedHover.Zone(CompactStyle.Capsule, new DipRect(10, 58, 196, 32), 48) == new DipRect(10, 48, 196, 42)
+            && !CollapsedHover.HasBridge(CompactStyle.Capsule, new DipRect(0, 58.5, 196, 32), 48)
             && CollapsedHover.Zone(CompactStyle.Capsule, new DipRect(10, 90, 196, 32), 48) == new DipRect(10, 90, 196, 32)
             && !CollapsedHover.HasBridge(CompactStyle.Capsule, new DipRect(0, 25, 196, 32), 0));
         check("A capsule anywhere down to the bottom of the work area senses only itself",
