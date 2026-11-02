@@ -58,13 +58,13 @@ public sealed partial class SettingsWindow
         var rows = new StackPanel();
         _partOptions.Clear();
         foreach (var part in S.CompactOrder(style))
-            rows.Children.Add(part switch { CompactPart.Equalizer => EqualizerRow(style, rows), CompactPart.Clock => ClockRow(style, rows), CompactPart.Rings => RingsRow(style, rows), _ => PartRow(style, part, rows) });
+            rows.Children.Add(part switch { CompactPart.Clock => ClockRow(style, rows), CompactPart.Rings => RingsRow(style, rows), _ => PartRow(style, part, rows) });
         UpdateDividers(rows);
         Group(rows);
     }
 
     private const double PartRowHeight = 44, PartHandleWidth = 40;
-    // The parts whose options are open (the equalizer, the clock), kept while the page is rebuilt or the collapsed style changes.
+    // The parts whose options are open (the clock, the quota rings), kept while the page is rebuilt or the collapsed style changes.
     private readonly HashSet<CompactPart> _openParts = [];
     private readonly List<(Border Row, Border Options, Button Arrow)> _partOptions = [];
     // One draggable row of the collapsed content: the handle, the name and the switch.
@@ -74,6 +74,7 @@ public sealed partial class SettingsWindow
         var (title, shown, help) = part switch
         {
             CompactPart.Rings => (Loc.T("配额环", "Quota rings"), S.ShowsSummary(style), null),
+            CompactPart.Equalizer => (Loc.T("律动条", "Equalizer"), S.ShowsEqualizer(style), null),
             CompactPart.Music => (Loc.T("正在播放的音乐", "Music now playing"), S.ShowsMusic(style),
                 Loc.T("拖动只改变歌名或歌词的位置。封面始终在最左侧。", "Dragging moves only the title or lyric. The cover stays at the left.")),
             _ => (Loc.T("系统监控", "System monitor"), S.ShowsMonitor(style), null)
@@ -84,6 +85,7 @@ public sealed partial class SettingsWindow
             {
                 case CompactPart.Rings: if (notch) s.NotchSummary = on; else s.CapsuleSummary = on; break;
                 case CompactPart.Music: if (notch) s.NotchMusic = on; else s.CapsuleMusic = on; break;
+                case CompactPart.Equalizer: if (notch) s.NotchEqualizer = on; else s.CapsuleEqualizer = on; break;
                 default: if (notch) s.NotchMonitor = on; else s.CapsuleMonitor = on; break;
             }
         });
@@ -161,29 +163,8 @@ public sealed partial class SettingsWindow
         return OptionsPartRow(style, CompactPart.Rings, rows, Loc.T("配额环", "Quota rings"), Loc.T("配额环设置", "Quota ring settings"), S.ShowsSummary(style),
             on => Change(s => { if (notch) s.NotchSummary = on; else s.CapsuleSummary = on; }), options);
     }
-    private Border EqualizerRow(CompactStyle style, StackPanel rows)
-    {
-        bool notch = style == CompactStyle.Notch;
-        string when = Loc.T("显示时机", "Shown"), length = Loc.T("长度", "Length"), color = Loc.T("颜色", "Color");
-        var options = new StackPanel();
-        options.Children.Add(Lighter(MusicChoice(when, S.EqualizerAlways, [(false, Loc.T("播放音乐时", "While music plays")), (true, Loc.T("始终显示", "Always"))],
-            v => Change(s => s.EqualizerAlways = v), help: Loc.T("始终显示时，没有音乐播放也会显示，读取系统的全部声音。", "When always shown, it also shows while no music plays, reading all system sound.")), when));
-        options.Children.Add(Lighter(SliderRow(length, S.EqualizerBars, CompactMusicLayout.MinimumBars, CompactMusicLayout.MaximumBars, 1, Loc.T("根", "bars"),
-            v => Change(s => s.EqualizerBars = (int)v)), length));
-        string way = Loc.T("方式", "Mode");
-        options.Children.Add(Lighter(EqualizerModeChoice(way, S.EqualizerMode, v => Change(s => s.EqualizerMode = v)), way));
-        options.Children.Add(Lighter(Row(color, ColorSwatches("EqualizerColor" + style, Loc.T("律动条颜色 ", "Equalizer color "), S.EqualizerColor, S.EqualizerCustomColor,
-            UI.Brush(PanelTheme.Hex("equalizer")), (chosen, custom) => Change(s => { s.EqualizerColor = chosen; s.EqualizerCustomColor = custom; }))), color));
-        return OptionsPartRow(style, CompactPart.Equalizer, rows, Loc.T("律动条", "Equalizer"), Loc.T("律动条设置", "Equalizer settings"), S.ShowsEqualizer(style),
-            on => Change(s => { if (notch) s.NotchEqualizer = on; else s.CapsuleEqualizer = on; }), options);
-    }
-    // How an equalizer shows the sound; the collapsed and the expanded equalizer each have their own.
-    private FrameworkElement EqualizerModeChoice(string title, EqualizerMode selected, Action<EqualizerMode> change, bool enabled = true) => MusicChoice(title, selected,
-        [(EqualizerMode.Flow, Loc.T("流动", "Flow")), (EqualizerMode.Spectrum, Loc.T("频谱", "Spectrum"))], change, enabled,
-        help: Loc.T("流动：声音的起伏从左流到右。频谱：每根条显示一段音高，左低右高。",
-            "Flow: the rise and fall of the sound runs from left to right. Spectrum: each bar shows a range of pitch, low on the left."));
     // The clock's swatches but the gradient: the theme's color (theme), the presets, a custom color and the cover's. Used for the
-    // collapsed equalizer and for the music page's equalizer and current lyric; save gets the chosen color and the custom one.
+    // equalizer and for the music page's current lyric; save gets the chosen color and the custom one.
     private StackPanel ColorSwatches(string group, string label, ClockColor selected, string custom, Brush theme, Action<ClockColor, string> save)
     {
         var swatches = new StackPanel { Orientation = Orientation.Horizontal };
@@ -225,9 +206,26 @@ public sealed partial class SettingsWindow
         if (Texts(row).FirstOrDefault(text => text.Text == title) is { } label) label.FontWeight = FontWeights.Normal;
         return row;
     }
-    // Settings every player shares: colors, cover and text.
+    // Settings every player shares: the equalizer, colors, cover and text.
     private void MusicStyle()
     {
+        // The equalizer's way and color serve the collapsed and the expanded equalizer alike; each keeps its own length, and the
+        // collapsed one's switch stays with the collapsed content (PartRow).
+        SectionTitle(Loc.T("通用", "General"));
+        var pageBars = SliderRow(Loc.T("展开时律动条长度", "Expanded equalizer length"), S.MusicEqualizerBars, CompactMusicLayout.MinimumBars, CompactMusicLayout.MaximumBars, 1, Loc.T("根", "bars"),
+            v => Change(s => s.MusicEqualizerBars = (int)v));
+        pageBars.IsEnabled = S.MusicPage;
+        Group(MusicChoice(Loc.T("律动方式", "Equalizer mode"), S.EqualizerMode, [(EqualizerMode.Flow, Loc.T("流动", "Flow")), (EqualizerMode.Spectrum, Loc.T("频谱", "Spectrum"))],
+                v => Change(s => s.EqualizerMode = v), help: Loc.T("流动：声音的起伏从左流到右。频谱：每根条显示一段音高，左低右高。",
+                    "Flow: the rise and fall of the sound runs from left to right. Spectrum: each bar shows a range of pitch, low on the left.")),
+            Row(Loc.T("律动条颜色", "Equalizer color"), ColorSwatches("EqualizerColor", Loc.T("律动条颜色 ", "Equalizer color "), S.EqualizerColor, S.EqualizerCustomColor,
+                UI.Brush(PanelTheme.Hex("equalizer")), (chosen, custom) => Change(s => { s.EqualizerColor = chosen; s.EqualizerCustomColor = custom; }))),
+            SliderRow(Loc.T("收起时律动条长度", "Collapsed equalizer length"), S.EqualizerBars, CompactMusicLayout.MinimumBars, CompactMusicLayout.MaximumBars, 1, Loc.T("根", "bars"),
+                v => Change(s => s.EqualizerBars = (int)v)),
+            pageBars,
+            MusicChoice(Loc.T("收起时律动条显示时机", "Collapsed equalizer shown"), S.EqualizerAlways, [(false, Loc.T("播放音乐时", "While music plays")), (true, Loc.T("始终显示", "Always"))],
+                v => Change(s => s.EqualizerAlways = v), help: Loc.T("在收起形态中打开律动条后生效。始终显示时，没有音乐播放也会显示，读取系统的全部声音。",
+                    "Applies once the equalizer is switched on in the collapsed content. When always shown, it also shows while no music plays, reading all system sound.")));
         SectionTitle(Loc.T("收起时", "When collapsed"));
         // The instrumental choice belongs to the lyric, so it shows only while the middle text is the lyric.
         var text = new List<FrameworkElement> { MusicChoice(Loc.T("中间文字", "Middle text"), S.MusicText, new[] { (CompactMusicText.None, Loc.T("无", "None")), (CompactMusicText.Title, Loc.T("歌名", "Title")), (CompactMusicText.Lyrics, Loc.T("歌词", "Lyrics")) },
@@ -244,19 +242,12 @@ public sealed partial class SettingsWindow
             Toggle(Loc.T("切歌时短暂显示歌名", "Briefly show the title on a track change"), S.MusicTrackNotice, v => Change(s => s.MusicTrackNotice = v)),
             Toggle(Loc.T("显示封面", "Show cover"), S.MusicCompactCover, v => Change(s => s.MusicCompactCover = v))]);
         SectionTitle(Loc.T("展开时", "When expanded"));
-        var bars = SliderRow(Loc.T("律动条长度", "Equalizer length"), S.MusicEqualizerBars, CompactMusicLayout.MinimumBars, CompactMusicLayout.MaximumBars, 1, Loc.T("根", "bars"),
-            v => Change(s => s.MusicEqualizerBars = (int)v));
-        bars.IsEnabled = S.MusicPage;
-        var equalizerColor = Row(Loc.T("律动条颜色", "Equalizer color"), ColorSwatches("MusicPageEqualizerColor", Loc.T("音乐页律动条颜色 ", "Music page equalizer color "),
-            S.MusicPageEqualizerColor, S.MusicPageEqualizerCustomColor, UI.Brush(PanelTheme.Hex("equalizer")),
-            (chosen, custom) => Change(s => { s.MusicPageEqualizerColor = chosen; s.MusicPageEqualizerCustomColor = custom; })));
         var lyricColor = Row(Loc.T("当前歌词颜色", "Current lyric color"), ColorSwatches("MusicLyricColor", Loc.T("当前歌词颜色 ", "Current lyric color "),
             S.MusicLyricColor, S.MusicLyricCustomColor, UI.Brush(PanelTheme.Hex("textPrimary")),
             (chosen, custom) => Change(s => { s.MusicLyricColor = chosen; s.MusicLyricCustomColor = custom; })));
-        equalizerColor.IsEnabled = lyricColor.IsEnabled = S.MusicPage;
+        lyricColor.IsEnabled = S.MusicPage;
         Group(Toggle(Loc.T("显示封面", "Show cover"), S.MusicPageCover, v => Change(s => s.MusicPageCover = v), S.MusicPage),
-            Toggle(Loc.T("显示歌词", "Show lyrics"), S.LyricsEnabled, v => Change(s => s.LyricsEnabled = v), S.MusicPage), bars,
-            EqualizerModeChoice(Loc.T("律动方式", "Equalizer mode"), S.MusicEqualizerMode, v => Change(s => s.MusicEqualizerMode = v), S.MusicPage), equalizerColor, lyricColor);
+            Toggle(Loc.T("显示歌词", "Show lyrics"), S.LyricsEnabled, v => Change(s => s.LyricsEnabled = v), S.MusicPage), lyricColor);
     }
     // Operations only one player supports, grouped under that player's name.
     private void Players()

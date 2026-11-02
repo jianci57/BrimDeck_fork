@@ -281,7 +281,7 @@ public sealed class DeckSettings
     private List<CompactPart> _notchOrder = [.. CompactParts.Default], _capsuleOrder = [.. CompactParts.Default];
     private List<DeckPage> _pageOrder = [.. DeckPages.Order];
     private int _equalizerBars = CompactMusicLayout.DefaultBars, _musicEqualizerBars = 5;
-    private EqualizerMode _equalizerMode = EqualizerMode.Flow, _musicEqualizerMode = EqualizerMode.Flow;
+    private EqualizerMode _equalizerMode = EqualizerMode.Flow;
     private PausedMusicHide _musicPausedHide;
     // Version of the BrimDeck that last saved settings.json; see SettingsMigrations. Empty in files saved before 0.1.0.
     public string AppVersion { get; set; } = "";
@@ -362,8 +362,8 @@ public sealed class DeckSettings
     public bool EqualizerAlways { get; set; }
     // How many bars the collapsed equalizer has, which sets its length (CompactMusicLayout.BarsWidth).
     public int EqualizerBars { get => _equalizerBars; set => _equalizerBars = CompactMusicLayout.SafeBars(value); }
-    // The collapsed equalizer's color, chosen among the clock's swatches: White is the theme's equalizer color, Cover the playing
-    // song's, Custom EqualizerCustomColor. Gradient is not offered and reads as White.
+    // The color of the collapsed equalizer and the music page's, chosen among the clock's swatches: White is the theme's equalizer
+    // color, Cover the playing song's, Custom EqualizerCustomColor. Gradient is not offered and reads as White.
     public ClockColor EqualizerColor { get; set; } = ClockColor.Cover;
     public string EqualizerCustomColor { get; set; } = ClockColors.DefaultCustom;
     // The notch and the capsule each switch the clock on; its style, color, hour format and seconds are shared.
@@ -388,13 +388,9 @@ public sealed class DeckSettings
     public bool LyricsEnabled { get; set; } = true;
     // How many bars the music page's equalizer has, beside the title; its bars keep their spacing, so more bars make it longer.
     public int MusicEqualizerBars { get => _musicEqualizerBars; set => _musicEqualizerBars = CompactMusicLayout.SafeBars(value); }
-    // How the collapsed equalizer and the music page's equalizer show the sound, each its own choice, as their lengths are.
+    // How the collapsed equalizer and the music page's equalizer show the sound; one choice for both, while each has its own length.
     public EqualizerMode EqualizerMode { get => _equalizerMode; set => _equalizerMode = Enum.IsDefined(value) ? value : EqualizerMode.Flow; }
-    public EqualizerMode MusicEqualizerMode { get => _musicEqualizerMode; set => _musicEqualizerMode = Enum.IsDefined(value) ? value : EqualizerMode.Flow; }
-    // The music page's equalizer and current lyric each take their own color, chosen as the collapsed equalizer's is
-    // (EqualizerColor): White is the theme's equalizer color for the bars and its primary text color for the lyric.
-    public ClockColor MusicPageEqualizerColor { get; set; } = ClockColor.Cover;
-    public string MusicPageEqualizerCustomColor { get; set; } = ClockColors.DefaultCustom;
+    // The music page's current lyric, its color chosen as the equalizer's is (EqualizerColor): White is the theme's primary text color.
     public ClockColor MusicLyricColor { get; set; } = ClockColor.Cover;
     public string MusicLyricCustomColor { get; set; } = ClockColors.DefaultCustom;
     // Offers "网易云音乐 · 完整控制" in the source menu, or alone in its place when nothing plays.

@@ -2,8 +2,8 @@ using System.Text.Json;
 using BrimDeck.Core;
 using static EqualizerAudio;
 
-// The equalizer's two ways of showing the sound (EqualizerMode): the collapsed and the expanded equalizer each keep their own, and
-// the way can change while the sound plays (the panel opens or closes onto the other one).
+// The equalizer's two ways of showing the sound (EqualizerMode): one choice serves the collapsed and the expanded equalizer, and
+// the way can change while the sound plays.
 internal static class EqualizerModeTests
 {
     public static void Run(string root, Action<string, bool> check)
@@ -11,17 +11,22 @@ internal static class EqualizerModeTests
         // Settings: Flow by default, saved as a number; a file without it, or with a number that is not a way, is Flow.
         var store = new SettingsStore(Path.Combine(root, "equalizer-mode"), "0.1.0");
         var saved = store.Load();
-        bool fresh = saved.EqualizerMode == EqualizerMode.Flow && saved.MusicEqualizerMode == EqualizerMode.Flow;
-        saved.MusicEqualizerMode = EqualizerMode.Spectrum; store.Save(saved);
+        bool fresh = saved.EqualizerMode == EqualizerMode.Flow;
+        saved.EqualizerMode = EqualizerMode.Spectrum; store.Save(saved);
         var reread = new SettingsStore(store.DirectoryPath, "0.1.0").Load();
         bool number;
-        using (var doc = JsonDocument.Parse(File.ReadAllText(store.FilePath))) number = doc.RootElement.GetProperty("MusicEqualizerMode").GetInt32() == 1;
-        check("Equalizer mode: both are Flow at first; the expanded one is saved as a number and read back without changing the collapsed one",
-            fresh && number && reread.MusicEqualizerMode == EqualizerMode.Spectrum && reread.EqualizerMode == EqualizerMode.Flow);
+        using (var doc = JsonDocument.Parse(File.ReadAllText(store.FilePath))) number = doc.RootElement.GetProperty("EqualizerMode").GetInt32() == 1;
+        check("Equalizer mode: Flow at first; saved as a number and read back",
+            fresh && number && reread.EqualizerMode == EqualizerMode.Spectrum);
+        // Earlier builds kept a separate way and color for the music page; the collapsed equalizer's are kept for both.
+        File.WriteAllText(store.FilePath, """{"AppVersion":"1.2.4","EqualizerMode":0,"MusicEqualizerMode":1,"EqualizerColor":2,"MusicPageEqualizerColor":3}""");
+        var merged = new SettingsStore(store.DirectoryPath, "1.2.4").Load();
+        check("Equalizer mode: the music page's former way and color are ignored; the collapsed equalizer's serve both",
+            merged.EqualizerMode == EqualizerMode.Flow && merged.EqualizerColor == ClockColor.Cyan);
         File.WriteAllText(store.FilePath, """{"AppVersion":"0.1.0","EqualizerMode":7}""");
         var unknown = new SettingsStore(store.DirectoryPath, "0.1.0").Load();
         check("Equalizer mode: a number that is not a way, or no number at all, reads as Flow",
-            unknown.EqualizerMode == EqualizerMode.Flow && unknown.MusicEqualizerMode == EqualizerMode.Flow);
+            unknown.EqualizerMode == EqualizerMode.Flow);
 
         // The way changes while music plays. Before the new way has made an analysis it shows the bars as they stood; after it the
         // bars carry on from them, without going to rest or jumping.

@@ -110,7 +110,7 @@ public partial class MainWindow
                     }
                     break;
                 case CompactPart.Equalizer when equalizer:
-                    _compactEqualizer = new MusicEqualizer { Bars = Settings.EqualizerBars, Width = layout.EqualizerSize, Height = layout.EqualizerHeight, BarWidth = layout.EqualizerBar, Color = CompactEqualizerColor };
+                    _compactEqualizer = new MusicEqualizer { Bars = Settings.EqualizerBars, Width = layout.EqualizerSize, Height = layout.EqualizerHeight, BarWidth = layout.EqualizerBar, Color = EqualizerColor };
                     Add(_compactEqualizer, layout.EqualizerHeight); break;
                 case CompactPart.Clock when clock is not null:
                     clock.Width = clock.ReservedWidth; Add(clock, clock.Height); _compactClock = clock; break;
