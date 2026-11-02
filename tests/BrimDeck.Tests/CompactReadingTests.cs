@@ -94,6 +94,17 @@ internal static class CompactReadingTests
 
     private static void Layout(Action<string, bool> check)
     {
+        // The core columns take the width they measure: at every scale and count, the columns and gaps add up to it.
+        foreach (double scale in new[] { .5, 1, 1.25, 1.5, 2 })
+            foreach (int cores in new[] { 4, 8, 16, 20, 24, 32, 48, 64, 128 })
+            {
+                var (column, gap, room) = CompactMonitor.CoreColumns(cores, scale);
+                check($"Compact readings: {cores} core columns at {scale} fill their width", Math.Abs(cores * column + (cores - 1) * gap - room) < 1e-9 && column >= 1 && gap >= .5);
+            }
+        check("Compact readings: 32 core columns fit the usual room", CompactMonitor.CoreColumns(32, 1) is { Gap: .5, Width: 56 } wide && wide.Column > 1);
+        check("Compact readings: few core columns keep their full size", CompactMonitor.CoreColumns(8, 1) == (2, 1, 23));
+        check("Compact readings: too many core columns widen the reading", CompactMonitor.CoreColumns(64, 1) == (1, .5, 95.5));
+
         CompactMonitorItems[] order = [Upload, Gpu, Cpu, Columns, Download, Memory];
         var width = CompactMonitor.Widths(CompactMonitor.Rings, 12, _ => 30, 14, 20, 50);
         var arranged = CompactMonitor.Arrange(order, All & ~Download, width, 10, _ => 1);

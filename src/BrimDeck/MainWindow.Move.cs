@@ -92,7 +92,7 @@ public partial class MainWindow
     }
 
     // The panel opened, hid, turned into another form or became a preview: move mode gives way.
-    private bool MoveOvertaken => _expanded || _preview || IsSuppressed || !IsVisible || _poweringOff || EffectiveStyle != _moveStyle || _alert is not null && _moveOverlay is null;
+    private bool MoveOvertaken => _expanded || _preview || ClickThrough || IsSuppressed || !IsVisible || _poweringOff || EffectiveStyle != _moveStyle || _alert is not null && _moveOverlay is null;
     private void CheckMoveOvertaken() { if (_moveArmed && MoveOvertaken) CancelMove(); }
 
     // The outline the highlight follows: the island's own at rest.
@@ -228,6 +228,38 @@ public partial class MainWindow
         // (FadeInOnNewEdge); otherwise it shows at once under the fading overlay.
         if (!_edgeArriving && !_edgeClearing) SetImmediate(HoverZone, OpacityProperty, 1d);
         overlay.FadeOut();
+    }
+
+    // The move shortcut (KeyboardMove): one step of the collapsed surface, saved like a drop. The open panel and a surface being
+    // dragged or resized are left alone.
+    internal void MoveFromKeyboard(int arrow)
+    {
+        if (_expanded || _preview || !IsVisible || IsSuppressed || _poweringOff || Resizing || _moveOverlay is not null) return;
+        var style = EffectiveStyle;
+        var (along, down) = KeyboardMove.Delta(arrow, style, _frame.Edge);
+        double height = style switch { CompactStyle.Capsule => Settings.CapsuleHeight, CompactStyle.Line => Settings.LineThickness, _ => Settings.NotchHeight };
+        var ranges = CurrentCollapsedRanges(style, Collapsed.Surface.Width / _scale, height);
+        var moved = Settings.Copy();
+        bool changed = false;
+        // A direction the key does not move in keeps its saved value, which may lie past this monitor's limits on purpose.
+        double Step(double current, double delta, double min, double max)
+        {
+            if (delta == 0) return current;
+            double next = KeyboardMove.Next(current, delta, min, max);
+            if (next != Math.Clamp(current, min, Math.Max(min, max))) changed = true;
+            return next;
+        }
+        switch (style)
+        {
+            case CompactStyle.Capsule:
+                moved.CapsuleOffsetX = Step(Settings.CapsuleOffsetX, along, ranges.OffsetMin, ranges.OffsetMax);
+                moved.CapsuleTop = Step(Settings.CapsuleTop, down, ranges.TopMin, ranges.TopMax);
+                break;
+            case CompactStyle.Line: moved.LineOffsetX = Step(Settings.LineOffsetX, along, ranges.OffsetMin, ranges.OffsetMax); break;
+            default: moved.NotchOffsetX = Step(Settings.NotchOffsetX, along, ranges.OffsetMin, ranges.OffsetMax); break;
+        }
+        // At a limit nothing moves and nothing is saved, so a key held there costs nothing.
+        if (changed) _app.UpdateSettings(moved);
     }
 
     // A double click on an end of the collapsed surface: move mode, or the auto width turned on or off (the line returns to its

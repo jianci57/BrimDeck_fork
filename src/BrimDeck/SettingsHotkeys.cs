@@ -8,11 +8,10 @@ using BrimDeck.Core;
 
 namespace BrimDeck;
 
-// The global shortcuts: hide/show (on the Collapsed view page), expand and resize (on the Expanded view page). Each is recorded
-// by clicking its box and pressing the combination; leaving the box cancels, and only the cross inside the box clears it. The
-// resize row reads "Alt + [box] + arrow keys": Alt and the arrows are fixed, so its box records only the other modifiers. While
-// a box records, the app's registered shortcuts are suspended so pressing the current combination records it instead of
-// acting on the panel.
+// The global shortcuts, on a page of their own (HotkeysPage). Each is recorded by clicking its box and pressing the combination; leaving
+// the box cancels, and only the cross inside the box clears it. An arrow shortcut's row (resize, move) reads "Alt + [box] + arrow
+// keys": Alt and the arrows are fixed, so its box records only the other modifiers. While a box records, the app's registered
+// shortcuts are suspended so pressing the current combination records it instead of acting on the panel.
 public sealed partial class SettingsWindow
 {
     // Stops the box that is recording, if any; only one records at a time.
@@ -20,52 +19,66 @@ public sealed partial class SettingsWindow
     // Rows on screen that update when the app reports a new registration result.
     private readonly HashSet<Action> _hotkeyRows = [];
     private const double HotkeyBoxWidth = 180;
-    // The resize box holds only modifiers, with Alt and the arrow keys written beside it; it is as wide as its prompt needs.
+    // The arrow boxes hold only modifiers, with Alt and the arrow keys written beside them; they are as wide as their prompt needs.
     private const double ArrowBoxWidth = 200;
     // The record button draws nothing itself; the box around it does.
     private static readonly ControlTemplate HotkeyBoxTemplate = (ControlTemplate)System.Windows.Markup.XamlReader.Parse(
         "<ControlTemplate TargetType='Button' xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'>" +
         "<Border Background='Transparent'><ContentPresenter VerticalAlignment='Center'/></Border></ControlTemplate>");
+    internal const int HotkeysPage = 11;
 
-    private void HideHotkeySection()
+    private void HotkeysSettings()
     {
-        SectionTitle(Loc.T("快捷操作", "Shortcuts"));
-        Group(HotkeyRow(HotkeyKind.Hide), GripDoubleClickRow());
+        SectionTitle(Loc.T("展开与显示", "Expand and show"));
+        Group([.. new[] { HotkeyKind.Hide, HotkeyKind.Expand, HotkeyKind.Page1, HotkeyKind.Page2, HotkeyKind.Page3 }.Select(HotkeyRow)]);
+        SectionTitle(Loc.T("位置与大小", "Position and size"));
+        Group([.. new[] { HotkeyKind.Move, HotkeyKind.Resize }.Select(HotkeyRow)]);
+        SectionTitle(Loc.T("其他", "Other"));
+        Group([.. new[] { HotkeyKind.ClickThrough, HotkeyKind.OpenSettings, HotkeyKind.Refresh }.Select(HotkeyRow)]);
     }
 
-    private static string HotkeyName(HotkeyKind kind) => kind switch
+    private static string HotkeyTitle(HotkeyKind kind) => kind switch
     {
-        HotkeyKind.Hide => Loc.T("“隐藏/显示快捷键”", "the hide/show shortcut"), HotkeyKind.Expand => Loc.T("“展开快捷键”", "the expand shortcut"),
-        _ => Loc.T("“调整大小快捷键”", "the resize shortcut")
+        HotkeyKind.Hide => Loc.T("隐藏/显示刘海、胶囊或指示条", "Hide/show notch, capsule or bar"),
+        HotkeyKind.Expand => Loc.T("展开/收起面板", "Expand/collapse panel"),
+        HotkeyKind.Resize => Loc.T("调整面板大小", "Resize panel"),
+        HotkeyKind.Move => Loc.T("移动刘海、胶囊或指示条", "Move notch, capsule or bar"),
+        HotkeyKind.ClickThrough => Loc.T("开启/关闭鼠标穿透", "Mouse pass-through on/off"),
+        HotkeyKind.OpenSettings => Loc.T("打开/关闭设置", "Open/close settings"),
+        HotkeyKind.Refresh => Loc.T("立即同步用量", "Sync usage now"),
+        _ => Loc.T($"展开/收起第 {PagePlace(kind) + 1} 个页面", $"Expand/collapse page {PagePlace(kind) + 1}")
     };
-    private static string SavedHotkey(DeckSettings settings, HotkeyKind kind) => (kind switch
+
+    // The hide, expand and page shortcuts need none: their names say it.
+    private static string? HotkeyHelp(HotkeyKind kind) => kind switch
     {
-        HotkeyKind.Hide => settings.HideHotkey, HotkeyKind.Expand => settings.ExpandHotkey, _ => settings.ResizeHotkey
-    }) ?? "";
-    private static void SetHotkey(DeckSettings settings, HotkeyKind kind, string value)
-    {
-        switch (kind) { case HotkeyKind.Hide: settings.HideHotkey = value; break; case HotkeyKind.Expand: settings.ExpandHotkey = value; break; default: settings.ResizeHotkey = value; break; }
-    }
+        HotkeyKind.Resize => Loc.T("展开时调整当前页面的宽度和高度，收起时调整刘海、胶囊或指示条的长度。",
+            "When expanded, changes the current page's width and height; when collapsed, the length of the notch, capsule or indicator bar."),
+        HotkeyKind.Move => Loc.T("刘海和指示条沿屏幕边缘移动，胶囊可以上下左右移动。", "The notch and the bar move along their screen edge, the capsule in any direction."),
+        HotkeyKind.ClickThrough => Loc.T("开启或关闭鼠标穿透模式。", "Turns mouse pass-through on or off."),
+        HotkeyKind.OpenSettings => Loc.T("打开设置窗口，再按一次关闭。", "Opens the settings window; press again to close it."),
+        HotkeyKind.Refresh => Loc.T("立即读取一次 AI 用量与模型消耗。", "Reads AI usage and model consumption once, now."),
+        _ => null
+    };
+
+    private static int PagePlace(HotkeyKind kind) => kind - HotkeyKind.Page1;
+
+    // How a clash message names another shortcut.
+    private static string HotkeyName(HotkeyKind kind) => "“" + HotkeyTitle(kind) + "”";
 
     private FrameworkElement HotkeyRow(HotkeyKind kind)
     {
-        string title = kind switch { HotkeyKind.Hide => Loc.T("隐藏/显示快捷键", "Hide/show shortcut"), HotkeyKind.Expand => Loc.T("展开快捷键", "Expand shortcut"), _ => Loc.T("调整大小快捷键", "Resize shortcut") };
-        string help = kind switch
-        {
-            HotkeyKind.Hide => Loc.T("按下快捷键即可隐藏刘海、胶囊或指示条，再按一次恢复显示。", "Press the shortcut to hide the notch, capsule or indicator bar; press it again to show it."),
-            HotkeyKind.Expand => Loc.T("按下快捷键即可展开面板，再按一次收起。", "Press the shortcut to expand the panel; press it again to collapse it."),
-            _ => Loc.T("按住 Alt 和框里的修饰键，再按方向键调整大小：←/→ 改宽度，↑/↓ 改展开面板的高度，按住可连续调整。方向键对应调整的方向；Alt 加另一个修饰键是为了不占用系统自带的方向键操作（选择文字、排列窗口、浏览器后退等）。",
-                "Hold Alt and the modifiers in the box, then press an arrow key to resize: ← and → change the width, ↑ and ↓ the expanded panel's height; hold to keep going. The arrows point the way the size changes; Alt with one more modifier leaves the system's own arrow shortcuts (selecting text, arranging windows, going back in a browser) alone.")
-        };
-        // The resize box records only the modifiers that go with Alt; Alt and the arrow keys are written beside it.
-        bool arrows = kind == HotkeyKind.Resize;
+        string title = HotkeyTitle(kind);
+        Func<string>? help = HotkeyHelp(kind) is { } helpText ? () => helpText : null;
+        // An arrow box records only the modifiers that go with Alt; Alt and the arrow keys are written beside it.
+        bool arrows = HotkeyText.IsArrows(kind);
         string waiting = arrows ? Loc.T("请按 Ctrl、Shift 或 Win…", "Press Ctrl, Shift or Win…") : Loc.T("请按下组合键…", "Press a combination…");
-        string Saved() => SavedHotkey(S, kind);
-        // The other shortcuts, with the names a clash message gives them. The resize shortcut yields to the others (App.Hotkeys), so
-        // only its own row speaks of a clash with them.
+        string Saved() => S.Hotkey(kind);
+        // The other shortcuts, with the names a clash message gives them. The arrow shortcuts yield to the single combinations
+        // (HotkeyText.Priority), so only an arrow row speaks of a clash with those.
         IEnumerable<(string Text, string Name)> Others() => Enum.GetValues<HotkeyKind>()
-            .Where(other => other != kind && (kind == HotkeyKind.Resize || other != HotkeyKind.Resize))
-            .Select(other => (SavedHotkey(S, other), HotkeyName(other)));
+            .Where(other => other != kind && (arrows || !HotkeyText.IsArrows(other)))
+            .Select(other => (S.Hotkey(other), HotkeyName(other)));
 
         // The box keeps one size and place in every state: the text on the left, trimmed before the clear button, which
         // always holds its slot on the right and is only dimmed while nothing is set. The record button spans the whole
@@ -78,7 +91,7 @@ public sealed partial class SettingsWindow
             FocusVisualStyle = (Style)FindResource("SettingsFocus")
         };
         Grid.SetColumnSpan(box, 2);
-        AutomationProperties.SetName(box, arrows ? Loc.T("调整大小快捷键的其他修饰键", "Other modifiers of the resize shortcut") : title);
+        AutomationProperties.SetName(box, arrows ? Loc.T(title + "的其他修饰键", "Other modifiers of " + title) : title);
         var cross = new Path { Data = System.Windows.Media.Geometry.Parse("M 1,1 L 9,9 M 9,1 L 1,9"), StrokeThickness = 1.3, Width = 10, Height = 10 };
         cross.SetBinding(Shape.StrokeProperty, new Binding(nameof(Control.Foreground)) { RelativeSource = new RelativeSource(RelativeSourceMode.FindAncestor, typeof(Button), 1) });
         var clear = new Button { Style = (Style)FindResource("SettingsGlyphButton"), Content = cross, Width = 24, Height = 24, Margin = new Thickness(0, 0, 3, 0), VerticalAlignment = VerticalAlignment.Center };
@@ -104,7 +117,7 @@ public sealed partial class SettingsWindow
         AutomationProperties.SetLiveSetting(note, AutomationLiveSetting.Assertive);
 
         bool recording = false, swallowKeyUp = false;
-        // The resize box: every modifier other than Alt held since recording started, saved when the last of them is let go.
+        // An arrow box: every modifier other than Alt held since recording started, saved when the last of them is let go.
         var held = HotkeyModifiers.None;
         void Note(string message) { note.Text = message; note.ToolTip = message.Length > 0 ? message : null; note.Visibility = message.Length > 0 ? Visibility.Visible : Visibility.Hidden; }
         void Show()
@@ -119,7 +132,7 @@ public sealed partial class SettingsWindow
             chrome.BorderBrush = UI.Brush(recording ? _palette.Accent : _palette.InputBorder);
             clear.IsEnabled = saved.Length > 0; clear.Opacity = clear.IsEnabled ? 1 : .35;
             if (!recording) Note(HotkeyProblem(kind, saved, Others()));
-            AutomationProperties.SetHelpText(box, (saved.Length == 0 ? Loc.T("未设置。", "Not set. ") : HotkeyDisplay(saved) + Loc.T("。", ". ")) + help);
+            AutomationProperties.SetHelpText(box, (saved.Length == 0 ? Loc.T("未设置。", "Not set. ") : HotkeyDisplay(saved) + Loc.T("。", ". ")) + help?.Invoke());
         }
         Action stop = null!;
         void Start()
@@ -149,10 +162,10 @@ public sealed partial class SettingsWindow
                 text.Text = waiting; text.Foreground = UI.Brush(TextSecondary); held = HotkeyModifiers.None;
                 return false;
             }
-            Change(s => SetHotkey(s, kind, gesture));
+            Change(s => s.SetHotkey(kind, gesture));
             return true;
         }
-        // The resize box while recording: the modifiers other than Alt that are down now.
+        // An arrow box while recording: the modifiers other than Alt that are down now.
         void ShowHeld()
         {
             var extras = HotkeyGesture.FromWpf(CurrentModifiers()) & ~HotkeyModifiers.Alt;
@@ -225,9 +238,9 @@ public sealed partial class SettingsWindow
         };
         // Leaving the box, the page or the window ends recording, so suspensions and resumptions stay paired.
         box.LostKeyboardFocus += (_, _) => { swallowKeyUp = false; stop(); };
-        clear.Click += (_, _) => { stop(); Change(s => SetHotkey(s, kind, "")); Note(""); Show(); };
+        clear.Click += (_, _) => { stop(); Change(s => s.SetHotkey(kind, "")); Note(""); Show(); };
 
-        // The resize box stands between its fixed parts, written in the secondary text at the box's size.
+        // An arrow box stands between its fixed parts, written in the secondary text at the box's size.
         FrameworkElement control = chrome;
         if (arrows)
         {
@@ -240,7 +253,7 @@ public sealed partial class SettingsWindow
         // Like Row, but the message takes the middle column, so a narrow window shrinks the message instead of pushing into the label.
         var row = new Grid { MinHeight = 44 };
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); row.ColumnDefinitions.Add(new ColumnDefinition()); row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        var label = SettingLabel(title, () => help); label.Margin = new Thickness(0, 0, 12, 0); row.Children.Add(label);
+        var label = SettingLabel(title, help); label.Margin = new Thickness(0, 0, 12, 0); row.Children.Add(label);
         Grid.SetColumn(note, 1); row.Children.Add(note);
         Grid.SetColumn(control, 2); row.Children.Add(control);
         Action refresh = () => { if (!recording) Show(); };
@@ -288,7 +301,7 @@ public sealed partial class SettingsWindow
         return string.Join("+", parts);
     }
 
-    // A saved shortcut as the user reads it: digits as "1" rather than "D1", punctuation as its character, the resize shortcut's
+    // A saved shortcut as the user reads it: digits as "1" rather than "D1", punctuation as its character, an arrow shortcut's
     // arrows as one name.
     private static string HotkeyDisplay(string saved)
     {
@@ -324,7 +337,7 @@ public sealed partial class SettingsWindow
         else if (!watch && _hotkeysChanged is not null) { _app.HotkeysChanged -= _hotkeysChanged; _hotkeysChanged = null; }
     }
 
-    // Two saved shortcuts are the same when they share a combination, whatever the spelling; the resize shortcut stands for its
+    // Two saved shortcuts are the same when they share a combination, whatever the spelling; an arrow shortcut stands for its
     // four arrow keys (HotkeyText.Combinations).
     private static bool SameHotkey(string first, string second) => HotkeyText.Overlap(first, second);
 

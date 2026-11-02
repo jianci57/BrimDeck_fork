@@ -51,6 +51,14 @@ static class CursorUsageTests
         var switched = await Refresh();
         check("Signing in to another Cursor account drops the kept days and reads the new account's",
             switched.UsageComplete && switched.Entries.Count == 1 && switched.Entries[0].Key == "cursor:b-1025-0" && handler.Calls.Count == 30);
+        check("An older Cursor plan keeps its two billing-period quotas and adds the Grok Bot weekly allowance",
+            switched.Quotas.Select(q => q.Label).SequenceEqual(["Cursor 模型", "其他模型", "Grok Bot"]) && switched.Plan == "ultra");
+
+        handler.Unified = true;
+        var merged = await Refresh();
+        check("A plan merged with Grok shows one weekly allowance, its plan name and no separate Grok Bot row",
+            merged.Quotas.Count == 1 && merged.Quotas[0] is { Label: "每周额度", UsedPercent: 12.5, Minutes: 10080 } &&
+            merged.Quotas[0].ResetAt == DateTimeOffset.FromUnixTimeMilliseconds(1794193934270) && merged.Plan == "Premium");
     }
 
     private static string Token(string subject) =>
@@ -74,13 +82,19 @@ static class CursorUsageTests
         public Dictionary<string, Dictionary<DateTime, List<string>>> Days { get; } = [];
         public List<(DateTime Day, int Page)> Calls { get; } = [];
         public int? FailAfter { get; set; }
+        public bool Unified { get; set; }
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             var path = request.RequestUri?.AbsolutePath ?? "";
             if (path.EndsWith("/GetCurrentPeriodUsage", StringComparison.Ordinal))
-                return Reply("""{"planUsage":{"autoPercentUsed":10,"apiPercentUsed":20},"billingCycleEnd":"1793735420000","membershipType":"ultra"}""");
-            if (path.EndsWith("/GetSandUsageStatus", StringComparison.Ordinal)) return Reply("{}");
+                return Reply(Unified
+                    ? """{"billingCycleStart":"1793589134270","billingCycleEnd":"1794193934270","planUsage":{"autoPercentUsed":12.5,"apiPercentUsed":0,"totalPercentUsed":12.5}}"""
+                    : """{"planUsage":{"autoPercentUsed":10,"apiPercentUsed":20},"billingCycleEnd":"1793735420000","membershipType":"ultra"}""");
+            if (path.EndsWith("/GetSandUsageStatus", StringComparison.Ordinal))
+                return Reply(Unified
+                    ? """{"nextResetTimestampUtc":"2026-11-09T03:12:14.270Z","usagePercent":12.5,"cursorPlanName":"Premium","isUnified":true}"""
+                    : """{"nextResetTimestampUtc":"2026-10-30T03:12:14.270Z","usagePercent":3}""");
             if (!path.EndsWith("/GetFilteredUsageEvents", StringComparison.Ordinal)) throw new InvalidOperationException("Unexpected Cursor destination " + path);
             using var body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(cancellationToken));
             long start = long.Parse(body.RootElement.GetProperty("startDate").GetString()!), end = long.Parse(body.RootElement.GetProperty("endDate").GetString()!);

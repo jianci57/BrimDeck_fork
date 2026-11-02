@@ -88,7 +88,7 @@ public sealed partial class SettingsWindow
                 var width = SizeRow(Loc.T("宽度", "Width"), S.CapsuleWidth, CollapsedLimits.CapsuleWidthMin, CollapsedLimits.CapsuleWidthMax, 1, v => ChangeCollapsed(s => { s.CapsuleWidth = v; s.CapsuleAutoWidth = false; }));
                 var height = SizeRow(Loc.T("高度", "Height"), S.CapsuleHeight, CollapsedLimits.CapsuleHeightMin, CollapsedLimits.CapsuleHeightMax, 1, v => ChangeCollapsed(s => s.CapsuleHeight = v));
                 var top = SizeRow(Loc.T("垂直偏移", "Vertical offset"), S.CapsuleTop, CollapsedLimits.CapsuleTopMin, Math.Max(CollapsedLimits.CapsuleTopMin, S.CapsuleTop), 1, v => ChangeCollapsed(s => s.CapsuleTop = v),
-                    help: Loc.T("胶囊距屏幕顶部的距离。不超过 20 DIP 时，展开后的面板将会吸附在屏幕顶端。", "Distance between the capsule and the top of the screen. At 20 DIP or less, the expanded panel snaps to the top of the screen."));
+                    help: Loc.T("胶囊距屏幕顶部的距离。不超过 10 DIP 时，展开后的面板将会吸附在屏幕顶端。", "Distance between the capsule and the top of the screen. At 10 DIP or less, the expanded panel snaps to the top of the screen."));
                 var offset = SizeRow(Loc.T("水平偏移", "Horizontal offset"), S.CapsuleOffsetX, 0, 0, 1, v => ChangeCollapsed(s => s.CapsuleOffsetX = v), centered: true);
                 _refreshCollapsedRanges = () =>
                 {

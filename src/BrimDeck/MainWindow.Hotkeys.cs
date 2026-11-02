@@ -6,7 +6,8 @@ namespace BrimDeck;
 
 // How a panel follows the global hotkeys (see App.Hotkeys.cs).
 // Opened by the expand hotkey, the panel stays open until the pointer has been inside it once; after that the usual leave
-// rules close it. While the panels are hidden, the expand hotkey still opens this panel; once it closes, it hides again.
+// rules close it (under mouse pass-through, a panel that ignores the pointer stays open until a hotkey or Esc closes it). While
+// the panels are hidden, the expand hotkey still opens this panel; once it closes, it hides again.
 public partial class MainWindow
 {
     // Shown for the expand hotkey while the panels are hidden.
@@ -20,9 +21,18 @@ public partial class MainWindow
     internal bool IsOpenForHotkey => _expanded && !_preview;
     internal bool IsHotkeyPinned => _hotkeyPinned;
 
-    internal void OpenFromHotkey()
+    // page: the page to open on (a page hotkey), in place of the page chosen for opening (ApplyDefaultMusicPage).
+    internal void OpenFromHotkey(DeckPage? page = null)
     {
         if (_expanded) return;
+        _hotkeyPage = page;
+        try { Open(); } finally { _hotkeyPage = null; }
+    }
+
+    private DeckPage? _hotkeyPage;
+
+    private void Open()
+    {
         // A collapsed preview of the settings ends as hovering would end it; a preview of the open panel is left alone.
         if (_preview) { if (_previewExpanded) return; _app.EndPreviewFromDeck(); }
         // The full-screen rule hides the panel; the hotkey does not override it.

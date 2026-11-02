@@ -4,7 +4,7 @@ using BrimDeck.Core;
 
 namespace BrimDeck.Native;
 
-// Electron desktop apps (Claude, Grok Bot) store secrets with Chromium's os_crypt: the AES key sits in the profile's
+// Electron desktop apps (Claude, Grok Bot, Cursor) store secrets with Chromium's os_crypt: the AES key sits in the profile's
 // Local State, wrapped with DPAPI for the current user, and each value is "v10", a 12-byte nonce, the AES-256-GCM
 // ciphertext and a 16-byte tag. Callers clear both the key and the decrypted bytes when done.
 internal static class ChromiumSecrets

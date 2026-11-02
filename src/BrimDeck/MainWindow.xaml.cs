@@ -57,7 +57,7 @@ public partial class MainWindow : Window
     private double _themeDpi;
     private VirtualDesktopPresence? _virtualDesktops;
     private EscapeDismissal? _escapeDismissal;
-    private bool _expanded, _refreshing, _preview, _refreshRequested, _pointerInside;
+    private bool _expanded, _refreshing, _syncAsked, _preview, _refreshRequested, _pointerInside;
     // A preview from the settings window either holds the panel open or keeps it collapsed while a collapsed size is adjusted.
     private bool _previewExpanded;
     private Rect? _popupReturnArea;
@@ -104,9 +104,7 @@ public partial class MainWindow : Window
         {
             _hover!.Stop();
             if (IsSuppressed || !_pointerInside) return;
-            // Opened by hovering: the panel may centre on the pointer (see SetExpanded).
-            if (Settings.ExpandAtPointer && PresentationSource.FromVisual(Stage) is not null) _openCentre = Stage.PointFromScreen(WindowsHost.Cursor()).X + _windowOffset;
-            SetExpanded(true);
+            OpenAtPointer();
         });
         _leave = new(Dispatcher, () => CheckPointerExit(WindowsHost.Cursor()));
         _pointerTrack = new(Dispatcher, TrackPointer) { Interval = TimeSpan.FromMilliseconds(TrackNear) };
@@ -840,6 +838,7 @@ public partial class MainWindow : Window
         UpdateMusicTimer();
         UpdateMonitorDemand();
         UpdateGrips();
+        ApplyClickThrough();
     }
     private static T Timed<T>(T animation, int duration, Track track) where T : AnimationTimeline
     {
@@ -859,6 +858,24 @@ public partial class MainWindow : Window
         target.BeginAnimation(property, null);
         ((DependencyObject)target).SetValue(property, value);
     }
+    // Opened by hovering or by a click: the panel may centre on the pointer (see SetExpanded).
+    private void OpenAtPointer()
+    {
+        if (Settings.ExpandAtPointer && PresentationSource.FromVisual(Stage) is not null) _openCentre = Stage.PointFromScreen(WindowsHost.Cursor()).X + _windowOffset;
+        SetExpanded(true);
+    }
+    // With ClickToExpand on, a click on the collapsed surface opens the panel; the press must start on it, so a drag that ends
+    // there does not. The resize grips take their own clicks, and pass-through lets none reach the window.
+    private bool _islandPressed;
+    private void Island_MouseLeftButtonDown(object sender, MouseButtonEventArgs e) => _islandPressed = !_expanded;
+    private void Island_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        bool pressed = _islandPressed; _islandPressed = false;
+        if (!pressed || _expanded || _preview || _moveArmed || IsSuppressed || !Settings.ClickToExpand) return;
+        e.Handled = true;
+        _hover.Stop(); _leave.Stop();
+        OpenAtPointer();
+    }
     // While compact, TrackPointer alone decides; an extra enter or leave message would restart the open delay.
     private void Island_MouseEnter(object sender, MouseEventArgs e)
     { if (_expanded) PointerChanged(true); }
@@ -871,6 +888,8 @@ public partial class MainWindow : Window
         var cursor = WindowsHost.Cursor();
         // Move mode: the panel does not open (MainWindow.Move.cs).
         if (_moveArmed) { TrackMove(cursor); return; }
+        // Mouse pass-through: hovering does nothing (MainWindow.ClickThrough.cs).
+        if (IgnorePointer()) return;
         var area = CompactHoverScreenRect();
         if (area.IsEmpty) return;
         // The surface's ends resize it (MainWindow.Resize.cs); pointing there does not open the panel.
@@ -930,7 +949,8 @@ public partial class MainWindow : Window
         {
             _popupReturnArea = null;
             _leave.Stop(); if (_expanded || IsSuppressed) return;
-            _hover.Stop(); _hover.Interval = TimeSpan.FromMilliseconds(Math.Max(1, Settings.OpenDelay)); _hover.Start();
+            _hover.Stop(); if (Settings.ClickToExpand) return;
+            _hover.Interval = TimeSpan.FromMilliseconds(Math.Max(1, Settings.OpenDelay)); _hover.Start();
         }
         else
         {
@@ -986,9 +1006,9 @@ public partial class MainWindow : Window
         catch (Exception ex) { LastRefreshError = ex.GetType().Name + "\n" + ex.StackTrace; }
         finally
         {
-            _refreshing = false; foreach (var deck in _app.Decks) deck.FirstReadEnded();
+            _refreshing = false; _syncAsked = false; foreach (var deck in _app.Decks) deck.FirstReadEnded();
             RestartSyncCycle(); _app.RequestTrim();
-            foreach (var deck in _app.Decks) deck.RenderUsage();
+            foreach (var deck in _app.Decks) { deck.RenderUsage(); deck.RenderSyncButton(); }
             if (_refreshRequested)
             {
                 _refreshRequested = false; _ = RefreshAsync();

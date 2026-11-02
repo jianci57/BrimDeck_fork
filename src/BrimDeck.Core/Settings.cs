@@ -340,10 +340,44 @@ public sealed class DeckSettings
     public double LineThickness { get; set; } = CollapsedLimits.LineThicknessDefault;
     public double LineTop { get; set; } = CollapsedLimits.LineTopDefault;
     public double LineOffsetX { get; set; } = CollapsedLimits.OffsetDefault;
+    // The global shortcuts (HotkeyKind), all unset by default; Hotkey and SetHotkey reach them by kind.
     public string HideHotkey { get; set; } = "";
     public string ExpandHotkey { get; set; } = "";
-    // The resize shortcut: modifiers with the arrow keys ("Ctrl+Alt+Arrows", HotkeyText.Arrows); unset by default.
+    // The resize and move shortcuts: modifiers with the arrow keys ("Ctrl+Alt+Arrows", HotkeyText.Arrows).
     public string ResizeHotkey { get; set; } = "";
+    public string MoveHotkey { get; set; } = "";
+    public string ClickThroughHotkey { get; set; } = "";
+    public string SettingsHotkey { get; set; } = "";
+    public string Page1Hotkey { get; set; } = "";
+    public string Page2Hotkey { get; set; } = "";
+    public string Page3Hotkey { get; set; } = "";
+    public string RefreshHotkey { get; set; } = "";
+    public string Hotkey(HotkeyKind kind) => (kind switch
+    {
+        HotkeyKind.Hide => HideHotkey, HotkeyKind.Expand => ExpandHotkey, HotkeyKind.Resize => ResizeHotkey, HotkeyKind.Move => MoveHotkey,
+        HotkeyKind.ClickThrough => ClickThroughHotkey, HotkeyKind.OpenSettings => SettingsHotkey, HotkeyKind.Page1 => Page1Hotkey,
+        HotkeyKind.Page2 => Page2Hotkey, HotkeyKind.Page3 => Page3Hotkey, HotkeyKind.Refresh => RefreshHotkey, _ => ""
+    }) ?? "";
+    public void SetHotkey(HotkeyKind kind, string value)
+    {
+        switch (kind)
+        {
+            case HotkeyKind.Hide: HideHotkey = value; break;
+            case HotkeyKind.Expand: ExpandHotkey = value; break;
+            case HotkeyKind.Resize: ResizeHotkey = value; break;
+            case HotkeyKind.Move: MoveHotkey = value; break;
+            case HotkeyKind.ClickThrough: ClickThroughHotkey = value; break;
+            case HotkeyKind.OpenSettings: SettingsHotkey = value; break;
+            case HotkeyKind.Page1: Page1Hotkey = value; break;
+            case HotkeyKind.Page2: Page2Hotkey = value; break;
+            case HotkeyKind.Page3: Page3Hotkey = value; break;
+            case HotkeyKind.Refresh: RefreshHotkey = value; break;
+        }
+    }
+    // Mouse pass-through: hovering does not open the panel and every click goes to the window beneath; only the shortcuts open
+    // it. ClickThroughPanel lets the open panel take clicks as usual.
+    public bool ClickThrough { get; set; }
+    public bool ClickThroughPanel { get; set; }
     public bool MusicPage { get; set; } = true;
     public double MusicWidth { get; set; } = 440;
     public double MusicHeight { get; set; } = 200;
@@ -425,6 +459,8 @@ public sealed class DeckSettings
     // grow together, as Windows' display scaling would for BrimDeck alone. Sizes stay saved before the scale.
     public int PanelScale { get; set; } = PanelScales.Default;
     public int OpenDelay { get; set; } = 0;
+    // The collapsed panel opens on a click instead of on hover; OpenDelay then does not apply.
+    public bool ClickToExpand { get; set; }
     public int CloseDelay { get; set; } = 0;
     public int AnimationDuration { get; set; } = 360;
     public bool Animations { get; set; } = true;
@@ -695,9 +731,7 @@ public sealed class DeckSettings
         LineThickness = CollapsedGeometry.RoundLineThickness(LineThickness);
         LineTop = Fit(LineTop, CollapsedLimits.LineTopMin, CollapsedLimits.LineTopMax, CollapsedLimits.LineTopDefault);
         LineOffsetX = Offset(LineOffsetX);
-        HideHotkey ??= "";
-        ExpandHotkey ??= "";
-        ResizeHotkey ??= "";
+        foreach (var kind in Enum.GetValues<HotkeyKind>()) SetHotkey(kind, Hotkey(kind));
         if (QuickSize is { } quick && !Enum.IsDefined(quick)) QuickSize = null;
         if (!Enum.IsDefined(Maximized)) Maximized = WindowBehavior.Line;
         if (!Enum.IsDefined(Borderless)) Borderless = WindowBehavior.Hide;

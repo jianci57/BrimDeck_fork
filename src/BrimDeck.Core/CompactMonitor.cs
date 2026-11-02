@@ -246,6 +246,21 @@ public static class CompactMonitor
         return Math.Max(0, x - gap * last);
     }
 
+    // The core columns at the strip's scale: each column's width, the gap between them and the width they take, which the strip
+    // both measures and draws, so no column falls outside the room it was given. Few cores take 2 apart by 1 each; more share 56,
+    // the gap narrowing to half a unit before a column gets narrower than 1; more than fit even then keep columns of 1 and widen
+    // the reading, so every core shows.
+    public static (double Column, double Gap, double Width) CoreColumns(int cores, double scale)
+    {
+        cores = Math.Max(1, cores);
+        double gap = Math.Max(.5, scale), column = Math.Max(1.5, 2 * scale), room = Math.Round(56 * scale);
+        if (cores * column + (cores - 1) * gap <= room) return (column, gap, cores * column + (cores - 1) * gap);
+        if ((room - (cores - 1) * gap) / cores is var shared and >= 1) return (shared, gap, room);
+        gap = .5;
+        if ((room - (cores - 1) * gap) / cores is var narrow and >= 1) return (narrow, gap, room);
+        return (1, gap, cores + (cores - 1) * gap);
+    }
+
     // The width of the items side by side with this gap between them.
     public static double Width(CompactMonitorItems items, Func<CompactMonitorItems, double> width, double gap)
     {

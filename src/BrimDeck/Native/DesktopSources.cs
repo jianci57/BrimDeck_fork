@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using BrimDeck.Core;
 
@@ -11,21 +12,42 @@ public sealed class DesktopSources : IDesktopSources
     public ClaudeDesktopState ReadClaudeDesktop(DataLocations locations) => ClaudeDesktopReader.Read(locations);
     public GrokBotSignIn ReadGrokBotDesktop(DataLocations locations) => GrokBotDesktopReader.Read(locations);
 
+    // Newer Cursor clients store the access token as "cursor-safe-storage:v1:" and the base64 of a value encrypted with
+    // Cursor's own os_crypt key (Local State in %APPDATA%\Cursor); older clients store the token itself.
+    private const string CursorSafeStorage = "cursor-safe-storage:v1:";
+
     public string? ReadCursorToken(string database)
     {
         if (!File.Exists(database)) return null;
+        string? value;
         IntPtr db = IntPtr.Zero, statement = IntPtr.Zero;
         try
         {
             if (sqlite3_open_v2(database, out db, 1, IntPtr.Zero) != 0) return null; // SQLITE_OPEN_READONLY
             sqlite3_busy_timeout(db, 1000);
             if (sqlite3_prepare_v2(db, "SELECT value FROM ItemTable WHERE key='cursorAuth/accessToken' LIMIT 1", -1, out statement, IntPtr.Zero) != 0) return null;
-            return sqlite3_step(statement) == 100 ? Marshal.PtrToStringUTF8(sqlite3_column_text(statement, 0)) : null;
+            value = sqlite3_step(statement) == 100 ? Marshal.PtrToStringUTF8(sqlite3_column_text(statement, 0)) : null;
         }
         finally
         {
             if (statement != IntPtr.Zero) sqlite3_finalize(statement);
             if (db != IntPtr.Zero) sqlite3_close(db);
+        }
+        if (value is null || !value.StartsWith(CursorSafeStorage, StringComparison.Ordinal)) return value;
+        // database is %APPDATA%\Cursor\User\globalStorage\state.vscdb.
+        var folder = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(database)))!;
+        byte[]? key = null, plain = null;
+        try
+        {
+            key = ChromiumSecrets.Key(Path.Combine(folder, "Local State"));
+            plain = ChromiumSecrets.Decrypt(key, value[CursorSafeStorage.Length..]);
+            return System.Text.Encoding.UTF8.GetString(plain).Trim();
+        }
+        catch (CryptographicException ex) { throw new IOException("The Cursor sign-in cannot be decrypted.", ex); }
+        finally
+        {
+            if (key is not null) CryptographicOperations.ZeroMemory(key);
+            if (plain is not null) CryptographicOperations.ZeroMemory(plain);
         }
     }
 

@@ -619,6 +619,9 @@ try
     Check("Claude fractional reset", QuotaParser.Claude(Json("""{"five_hour":{"utilization":25,"resets_at":"2026-09-06T12:33:44.123456Z"}}""")).Single().ResetAt is not null);
     var cursor = QuotaParser.Cursor(Json("""{"individualUsage":{"plan":{"autoPercentUsed":"12.5","apiPercentUsed":20}},"billingCycleEnd":"1789000000000"}"""));
     Check("Cursor fractional percent preserved", cursor.Count == 2 && cursor[0].UsedPercent == 12.5 && cursor[0].ResetAt is not null);
+    var unifiedCursor = Json("""{"billingCycleStart":"1793589134270","billingCycleEnd":"1794193934270","planUsage":{"autoPercentUsed":0.2,"apiPercentUsed":0,"totalPercentUsed":0.2}}""");
+    Check("A merged Cursor plan is one weekly quota of the total share", QuotaParser.Cursor(unifiedCursor, unified: true).Single() is { Label: "每周额度", UsedPercent: 0.2, Minutes: 10080 });
+    Check("A merged Cursor plan without a total share invents no quota", QuotaParser.Cursor(Json("""{"planUsage":{"autoPercentUsed":0.2}}"""), unified: true).Count == 0);
     var grokBot = QuotaParser.SandUsage(Json("""{"usagePercent":0.856,"nextResetTimestampUtc":"2026-10-18T07:21:38.721Z"}"""));
     Check("Grok Bot usage becomes a quota row with its reset", grokBot is { Label: "Grok Bot", UsedPercent: 0.856 } && grokBot.ResetAt is not null);
     Check("Grok Bot usage without a percent is skipped", QuotaParser.SandUsage(Json("""{"nextResetTimestampUtc":"2026-10-18T07:21:38.721Z"}""")) is null);

@@ -29,13 +29,15 @@ internal sealed class GpuProvider
     }
 
     // The counters are in the query only while something shows an adapter: the engine counter has an instance per process and engine,
-    // often thousands, and is the costliest part of a collection. Called on every tick, before the collection.
-    public void Want(bool wanted)
+    // often thousands, and is the costliest part of a collection. Called on every tick, before the collection. Whether the counters
+    // have just joined the query (they need a first collection).
+    public bool Want(bool wanted)
     {
-        if (wanted == _wanted || _pdh is null) return;
+        if (wanted == _wanted || _pdh is null) return false;
         _wanted = wanted;
         if (wanted) { _engines = _pdh.Add(EnginePath); _memory = _pdh.Add(MemoryPath); _shared = _pdh.Add(SharedPath); }
         else { _pdh.Remove(EnginePath); _pdh.Remove(MemoryPath); _pdh.Remove(SharedPath); }
+        return wanted;
     }
     private static double Now() => Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency;
 
