@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using BrimDeck.Core;
 
 var passed = 0;
@@ -23,6 +23,7 @@ try
     EqualizerSpectrumTests.Run(Check);
     EqualizerModeTests.Run(root, Check);
     ColorMathTests.Run(Check);
+    MonitorRecorderTests.Run(Check);
     CompactSpacingTests.Run(Check);
     CompactDragTests.Run(Check);
     RingLetterTests.Run(root, Check);

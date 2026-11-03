@@ -39,6 +39,9 @@ public partial class App : Application
     private readonly HashSet<MainWindow> _presentingMedia = [], _presentingSystemAudio = [];
     // The system monitor page's readings, shared by every panel; created when a panel first shows the page.
     internal SystemSampler? Monitor { get; private set; }
+    // The machine-wide readings written to one CSV file per day (MonitorRecorder); lives the whole run so the curves survive a
+    // restart, and answers the settings page even while nothing is recorded.
+    internal MonitorRecorder Recorder { get; } = new(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BrimDeck", "monitor-data"));
     internal event Action<MonitorSnapshot>? MonitorUpdated;
     private readonly HashSet<MainWindow> _presentingMonitor = [], _stripMonitor = [];
     // The panels whose open monitor page shows the power line (PresentMonitor): the power is read for those, and for a row that chose it.
@@ -330,19 +333,23 @@ public partial class App : Application
         if (power) _presentingPower.Add(deck); else _presentingPower.Remove(deck);
         if (strip) _stripMonitor.Add(deck); else _stripMonitor.Remove(deck);
         if (strip || heldStrip) _heldStrip.Add(deck); else _heldStrip.Remove(deck);
-        bool wanted = _presentingMonitor.Count + _stripMonitor.Count > 0;
+        bool wanted = _presentingMonitor.Count + _stripMonitor.Count > 0 || Settings.MonitorRecording;
         if (Exiting || Monitor is null && !wanted) return;
         // The sampler reads the choice of graphics adapter on its own thread, where each part is read whole.
-        if (Monitor is null)
-        {
-            Monitor = new SystemSampler(Dispatcher, () => (Settings.MonitorGpu, Settings.MonitorGpuName));
-            Monitor.Updated += snapshot => MonitorUpdated?.Invoke(snapshot);
-            // A choice saved under an older key is kept under the adapter's key from now on (GpuChoice.Resolve).
-            Monitor.GpuKeyUpgraded += (old, key) => { if (Settings.MonitorGpu == old) { Settings.MonitorGpu = key; QueueSave(); } };
-        }
+        EnsureMonitor();
         // What is read besides the usage is set before the sampler starts, so its first collection already holds it.
         UpdateMonitorExtras();
         Monitor.SetDemand(wanted, Settings.MonitorInterval, _presentingMonitor.Count > 0);
+    }
+    // Created once for the sampler's lifetime: besides the panels' MonitorUpdated, every sample feeds the recorder, which keeps
+    // its own pace (MonitorRecordInterval) whatever the panels ask for.
+    internal void EnsureMonitor()
+    {
+        if (Monitor is not null) return;
+        Monitor = new SystemSampler(Dispatcher, () => (Settings.MonitorGpu, Settings.MonitorGpuName));
+        Monitor.Updated += snapshot => { MonitorUpdated?.Invoke(snapshot); Recorder.OnSample(Settings, snapshot); };
+        // A choice saved under an older key is kept under the adapter's key from now on (GpuChoice.Resolve).
+        Monitor.GpuKeyUpgraded += (old, key) => { if (Settings.MonitorGpu == old) { Settings.MonitorGpu = key; QueueSave(); } };
     }
     // Temperatures and drives are read for an open page with them on; also for a collapsed row showing them: the processor's and
     // the graphics adapter's temperatures for a ring showing its own, the drives for the drive reading, and their temperatures when
@@ -357,7 +364,7 @@ public partial class App : Application
         bool Heat(CompactMonitorItems item, CompactMonitorItems among) => (among & item) != 0 && Settings.CompactReadings.FirstOrDefault(reading => reading.Item == item) is { } reading
             && (item == CompactMonitorItems.Storage || reading.ShowValue) && CompactFigures.Shows(reading, CompactFigures.Temperature);
         bool stripDrives = (shown & CompactMonitorItems.Storage) != 0;
-        Monitor?.SetExtras(page && Settings.MonitorTemperatures || Heat(CompactMonitorItems.Cpu, held) || Heat(CompactMonitorItems.Gpu, held),
+        Monitor?.SetExtras(page && Settings.MonitorTemperatures || Heat(CompactMonitorItems.Cpu, held) || Heat(CompactMonitorItems.Gpu, held) || Settings.MonitorRecording,
             page && Settings.MonitorStorage || stripDrives,
             page && Settings.MonitorStorage && Settings.MonitorTemperatures || Heat(CompactMonitorItems.Storage, shown),
             // The watts (the counters, NVIDIA's helper) only for a page that shows the power line or a row that chose the reading; the battery
@@ -367,7 +374,11 @@ public partial class App : Application
             // The frame rate for a row that shows it, or an open page with room for its line.
             (shown & CompactMonitorItems.Frames) != 0 || Settings.MonitorFrames && _presentingMonitor.Any(deck => deck.PageShowsFrames),
             // The graphics adapters for the page and the row's GPU reading (the power asks for them itself).
-            page || (shown & CompactMonitorItems.Gpu) != 0);
+            page || (shown & CompactMonitorItems.Gpu) != 0 || Settings.MonitorRecording);
+        // The recording asks for the sampler from the settings alone (a panel whose collapsed row changes asks again as it is built),
+        // so the demand is re-set here for every settings change and every panel arrival.
+        if (Monitor is null && Settings.MonitorRecording && !Exiting) EnsureMonitor();
+        Monitor?.SetDemand(_presentingMonitor.Count + _stripMonitor.Count > 0 || Settings.MonitorRecording, Settings.MonitorInterval, _presentingMonitor.Count > 0);
     }
     // The page reads the machine's power only where there may be something to read: not once the sampler knows there is neither a power
     // source nor a battery (a desktop with nothing), so such a page does not keep asking.

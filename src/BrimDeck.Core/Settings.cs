@@ -517,6 +517,15 @@ public sealed class DeckSettings
     // refresh rate (FrameRates). Off by default; read only while the page is open, and only where the user may read Windows' frame
     // events (the Performance Log Users group, or BrimDeck elevated).
     public bool MonitorFrames { get; set; }
+    // The monitor's machine-wide readings are written to one CSV file per day (MonitorRecorder); off, nothing is recorded and the
+    // recorder idles. Recording runs in the background: the sampler keeps reading while a deck is open or this is on.
+    public bool MonitorRecording { get; set; }
+    // Seconds between recorded readings; independent of the panel's own update interval (MonitorInterval).
+    public int MonitorRecordInterval { get; set; } = 5;
+    // Recorded files older than this many days are deleted once a day. The curves (MonitorRecordChart) only show the recent ring.
+    public int MonitorRecordKeepDays { get; set; } = 30;
+    // The expanded page draws the recent recorded readings as curves under the power line.
+    public bool MonitorRecordChart { get; set; } = true;
     // The notch and the capsule each switch the system readings on; what they show is shared.
     public bool NotchMonitor { get; set; }
     public bool CapsuleMonitor { get; set; }
@@ -681,6 +690,8 @@ public sealed class DeckSettings
         CompactWarningColor = AppPresets.NormalizeColor(CompactWarningColor) is { Length: > 0 } warning ? warning : null;
         CompactCriticalColor = AppPresets.NormalizeColor(CompactCriticalColor) is { Length: > 0 } critical ? critical : null;
         MonitorInterval = Math.Clamp(MonitorInterval, 1, 2);
+        MonitorRecordInterval = Math.Clamp(MonitorRecordInterval, 1, 60);
+        MonitorRecordKeepDays = Math.Clamp(MonitorRecordKeepDays, 1, 365);
         if (!Enum.IsDefined(MonitorSort)) MonitorSort = ProcessSort.Cpu;
         if (!Enum.IsDefined(MonitorMain)) MonitorMain = MonitorMain.Cpu;
         MonitorGpu = string.IsNullOrWhiteSpace(MonitorGpu) ? null : MonitorGpu.Trim();

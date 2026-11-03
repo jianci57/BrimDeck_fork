@@ -736,3 +736,95 @@ internal sealed class StorageBlock : FrameworkElement
         if (used > .5) drawing.DrawRoundedRectangle(UI.Brush(_colors.Storage), null, new Rect(r.X, r.Y, Math.Max(r.Height, used), r.Height), radius, radius);
     }
 }
+
+// The recorded trend (MonitorRecorder): the machine-wide CPU, memory, graphics and download lines over the recorder's ring,
+// downsampled to the sampler's history width, each scaled to its own highest reading. Set hands the ring; null or a too-short
+// ring hides the block, and a line with no readings at all draws nothing.
+internal sealed class HistoryBlock : FrameworkElement
+{
+    private readonly MonitorColors _colors;
+    private readonly double _body, _caption;
+    private IReadOnlyList<MonitorRecordPoint> _points = [];
+    private double[][] _lines = [];
+    private readonly double[] _tops = new double[4];
+    private readonly DrawingCache<(double[], double, double)> _curves = new();
+
+    public HistoryBlock(MonitorColors colors, double body, double caption)
+    {
+        _colors = colors; _body = body; _caption = caption;
+        Height = Math.Ceiling(body * 1.2 + caption * 2.1);
+        ToolTip = Loc.T("数据记录：整机的 CPU、内存、显卡与下载读数，按记录间隔采样。", "Recorded readings: the machine-wide CPU, memory, graphics and download rate, sampled at the recording pace.");
+    }
+
+    // The recorder's ring, oldest first; null clears the block.
+    public void Set(IReadOnlyList<MonitorRecordPoint>? points)
+    {
+        _points = points ?? [];
+        if (_points.Count > 1) Sample();
+        Visibility = _points.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
+        InvalidateVisual();
+    }
+
+    // Downsamples the ring into one average per bucket, one column per line; an empty bucket stays at zero and a line whose
+    // buckets are all empty keeps its top at zero, which skips it.
+    private void Sample()
+    {
+        Func<MonitorRecordPoint, double?>[] picks = [p => p.Cpu, p => p.Memory, p => p.Gpu, p => p.DownBps];
+        int width = Native.SystemSampler.HistoryLength;
+        for (int line = 0; line < picks.Length; line++)
+        {
+            var sums = new double[width]; var counts = new int[width];
+            for (int i = 0; i < _points.Count; i++)
+            {
+                if (picks[line](_points[i]) is not { } read) continue;
+                int bucket = Math.Min(width - 1, (int)((long)i * width / _points.Count));
+                sums[bucket] += read; counts[bucket]++;
+            }
+            var values = new double[width]; double top = 0;
+            for (int i = 0; i < width; i++)
+                if (counts[i] > 0) { values[i] = sums[i] / counts[i]; top = Math.Max(top, values[i]); }
+            _lines[line] = values; _tops[line] = top;
+        }
+    }
+
+    protected override Size MeasureOverride(Size availableSize) => new(0, Height);
+
+    protected override void OnRender(DrawingContext drawing)
+    {
+        double w = ActualWidth, ppd = MonitorDraw.PixelsPerDip(this);
+        drawing.DrawRectangle(Brushes.Transparent, null, new Rect(0, 0, w, ActualHeight));
+        if (Visibility != Visibility.Visible || _lines.Length < 4 || w < 60) return;
+        double baseline = Math.Round(_caption * 1.2);
+        MonitorDraw.Baseline(drawing, MonitorDraw.Text(Loc.T("最近一小时", "The last hour"), _caption, UI.Tertiary, ppd), 0, baseline);
+        // The legend, from the right: a tick in each line's color, then its name.
+        (string, string)[] legend = [(Loc.T("CPU", "CPU"), _colors.Performance), (Loc.T("内存", "Memory"), _colors.Memory), (Loc.T("显卡", "GPU"), _colors.Gpu), (Loc.T("下载", "Download"), _colors.Download)];
+        double x = w;
+        for (int i = legend.Length - 1; i >= 0; i--)
+        {
+            var text = MonitorDraw.Text(legend[i].Item1, _caption, UI.Tertiary, ppd);
+            x -= text.WidthIncludingTrailingWhitespace;
+            MonitorDraw.Baseline(drawing, text, x, baseline);
+            x -= 5;
+            drawing.DrawRoundedRectangle(UI.Brush(legend[i].Item2), null, new Rect(x - 9, baseline - _caption * .45, 9, 9), 2, 2);
+            x -= 20;
+        }
+        double areaTop = Math.Ceiling(_caption * 2.1), areaHeight = ActualHeight - areaTop;
+        if (areaHeight < 10) return;
+        var area = new Rect(0, areaTop, w, areaHeight);
+        Curve(drawing, area, 0, _colors.Performance);
+        Curve(drawing, area, 1, _colors.Memory);
+        Curve(drawing, area, 2, _colors.Gpu);
+        Curve(drawing, area, 3, _colors.Download);
+    }
+
+    // One line over the area, drawn through the drawing cache like every other curve; the key carries the values array, so a
+    // new ring redraws.
+    private void Curve(DrawingContext drawing, Rect area, int line, string color)
+    {
+        double top = _tops[line];
+        if (!(top > 0)) return;
+        var values = _lines[line];
+        MonitorDraw.Place(drawing, area.TopLeft, _curves.Get((values, area.Width, area.Height), context =>
+            MonitorDraw.Sparkline(context, new Rect(0, 0, area.Width, area.Height), values, top, color, .16)));
+    }
+}

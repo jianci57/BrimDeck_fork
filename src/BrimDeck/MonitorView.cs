@@ -57,6 +57,7 @@ internal sealed class MonitorView : Grid
     private readonly StorageBlock? _storage;
     private readonly PowerBlock? _power;
     private readonly FramesBlock? _frames;
+    private readonly HistoryBlock _history;
     private readonly bool _temperatures;
     private readonly Grid _readings = new();
     // How far the readings stop above the page's foot, so their last line ends level with the list's last row (AlignFoot).
@@ -73,6 +74,7 @@ internal sealed class MonitorView : Grid
     // temperatures: the gauges carry the processor's and the graphics adapter's temperatures after their figures, and the drives'
     // entries theirs (the layout's StorageLines and StorageColumns are the places kept for the volumes under memory and network); smallTemperature: the gauge shown small may have a temperature, so its line is widened for one.
     // frames: the line under memory and network shows the frame rate of the program in front, when the layout has room for it (FrameLine).
+    // history: the line under the power block draws the recorder's ring (MonitorRecorder); SetHistory hands the panel its ring or null.
     public MonitorView(MonitorLayout layout, MonitorColors colors, MonitorMain main, ProcessSort sort, MonitorProcessView processView,
         Action<MonitorMain> mainChanged, Action<ProcessSort> sortChanged, Action<bool> hold, Action<GpuSample> gpuChanged, bool temperatures = false, bool smallTemperature = false,
         PowerOptions? power = null, bool frames = false)
@@ -84,6 +86,7 @@ internal sealed class MonitorView : Grid
         var readings = _readings;
         readings.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         readings.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star), MinHeight = 16 });
+        readings.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         readings.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         readings.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         readings.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -165,6 +168,10 @@ internal sealed class MonitorView : Grid
             SetRow(_power, 6); readings.Children.Add(_power);
         }
 
+        // The recorded trend under the power block (or under whatever is last), at the drives' distance.
+        _history = new HistoryBlock(colors, layout.Body, layout.Caption) { Margin = new Thickness(0, lineGap, 0, 0) };
+        SetRow(_history, 7); readings.Children.Add(_history);
+
         if (layout.List == ListPlacement.None) Children.Add(readings);
         else
         {
@@ -236,6 +243,9 @@ internal sealed class MonitorView : Grid
         Motion.Start(this, frame => { bool moving = _foot.Step(frame, _motion); PlaceFoot(frame); return moving; });
     }
     private void PlaceFoot(double now) => _readings.Margin = new Thickness(0, 0, 0, Math.Round(_foot.At(now)));
+
+    // The recorder's ring (MonitorRecorder), handed over by the panel on every sample; null or a too-short ring hides the block.
+    public void SetHistory(IReadOnlyList<MonitorRecordPoint>? points) => _history.Set(points);
 
     public void Update(MonitorSnapshot snapshot, bool motion)
     {
