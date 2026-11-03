@@ -23,6 +23,8 @@ internal sealed class FramesBlock : FrameworkElement
     private readonly string _color;
     private readonly double _body, _caption;
     private FrameSample? _frames;
+    // Whether the low percentiles show follows the settings page's two toggles (MonitorFps1Low/MonitorFps01Low).
+    private bool _show1, _show01;
     private readonly DrawingCache<(IReadOnlyList<double>, double, double, double)> _curve = new();
 
     public FramesBlock(string color, double body, double caption, double row)
@@ -32,8 +34,9 @@ internal sealed class FramesBlock : FrameworkElement
         Describe();
     }
 
-    public void Set(MonitorSnapshot snapshot)
+    public void Set(MonitorSnapshot snapshot, bool low1, bool low01)
     {
+        _show1 = low1; _show01 = low01;
         var frames = snapshot.Frames.OrDefault;
         if (ReferenceEquals(frames, _frames)) return;
         // The curve moves with every reading; the tooltip's words only when the figure, the program or the display change.
@@ -83,6 +86,20 @@ internal sealed class FramesBlock : FrameworkElement
         var unit = MonitorDraw.Text("FPS", _caption, UI.Tertiary, ppd);
         MonitorDraw.Baseline(drawing, unit, x + 3, baseline); x += 3 + unit.WidthIncludingTrailingWhitespace;
         if (_frames is not { } frames) return;
+        // The low percentiles after the unit ("1% 45 · 0.1% 38"), caption size like the unit, only where the settings page's
+        // toggles ask for them and the frame gaps say a number.
+        if (_show1 && frames.Low1 is { } low1)
+        {
+            var one = MonitorDraw.Text($"1% {Math.Round(low1)}", _caption, UI.Tertiary, ppd);
+            MonitorDraw.Baseline(drawing, one, x + 3, baseline);
+            x += 3 + one.WidthIncludingTrailingWhitespace;
+        }
+        if (_show01 && frames.Low01 is { } low01)
+        {
+            var point = MonitorDraw.Text($"0.1% {Math.Round(low01)}", _caption, UI.Tertiary, ppd);
+            MonitorDraw.Baseline(drawing, point, x + 3, baseline);
+            x += 3 + point.WidthIncludingTrailingWhitespace;
+        }
         // The refresh rate at the right end, then the name after the figure, cut to the room between them.
         double right = w;
         if (frames.Refresh is { } hertz)

@@ -517,6 +517,10 @@ public sealed class DeckSettings
     // refresh rate (FrameRates). Off by default; read only while the page is open, and only where the user may read Windows' frame
     // events (the Performance Log Users group, or BrimDeck elevated).
     public bool MonitorFrames { get; set; }
+    // The frame-rate line also shows the worst 1% (and 0.1%) of the recent frames' average rate beside the figure (1% low, 0.1%
+    // low). Only with the frame rate on.
+    public bool MonitorFps1Low { get; set; }
+    public bool MonitorFps01Low { get; set; }
     // The notch and the capsule each switch the system readings on; what they show is shared.
     public bool NotchMonitor { get; set; }
     public bool CapsuleMonitor { get; set; }
