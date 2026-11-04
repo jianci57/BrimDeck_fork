@@ -446,18 +446,18 @@ internal sealed class MonitorStrip : FrameworkElement
         MonitorDraw.Baseline(drawing, figure, at, baseline);
         var unit = MonitorDraw.Text(FramesUnit, _small, UI.Tertiary, ppd);
         MonitorDraw.Baseline(drawing, unit, at + Math.Ceiling(figure.WidthIncludingTrailingWhitespace) + Math.Round(2 * _scale), baseline);
-        // The low percentiles after the unit, in the figure's own type and color, only where the settings page's toggles ask
-        // for them and the frame gaps say a number ("60 FPS 1% 45 0.1% 38").
-        if (frames is not { } sample) return;
+        // The low percentiles after the unit, in the figure's own type and color, wherever the settings page's toggles ask for
+        // them: the room the row keeps for them is always filled, with the figures when the frame gaps say them and a dash
+        // while there is no reading, as the frame rate itself shows ("60 FPS 1% 45 0.1% 38").
         double low = at + Math.Ceiling(figure.WidthIncludingTrailingWhitespace) + Math.Round(2 * _scale) + Math.Ceiling(unit.WidthIncludingTrailingWhitespace) + Math.Round(3 * _scale);
-        if (_fps1Low && sample.Low1 is { } one)
+        if (_fps1Low)
         {
-            var rate = MonitorDraw.Text("1% " + FramesFigure(one), _font, UI.Primary, ppd);
+            var rate = MonitorDraw.Text("1% " + FramesFigure(frames?.Low1), _font, UI.Primary, ppd);
             MonitorDraw.Baseline(drawing, rate, low, baseline);
             low += Math.Ceiling(rate.WidthIncludingTrailingWhitespace) + Math.Round(3 * _scale);
         }
-        if (_fps01Low && sample.Low01 is { } point)
-            MonitorDraw.Baseline(drawing, MonitorDraw.Text("0.1% " + FramesFigure(point), _font, UI.Primary, ppd), low, baseline);
+        if (_fps01Low)
+            MonitorDraw.Baseline(drawing, MonitorDraw.Text("0.1% " + FramesFigure(frames?.Low01), _font, UI.Primary, ppd), low, baseline);
     }
     private static FrameSample? FrameOf(MonitorSnapshot? s) => s?.Frames.OrDefault;
     private static readonly string[] FrameFigures = [.. Enumerable.Range(0, 1000).Select(count => count.ToString(System.Globalization.CultureInfo.InvariantCulture))];

@@ -241,32 +241,36 @@ internal sealed class FrameRates : IDisposable
             }
             chosen = Gaps(counts, Belongs);
         }
+        // A program that drew nothing in the interval has no gaps to judge, and its worst share is nothing too: the low
+        // figures say 0 beside the 0 of the figure, rather than leaving the room the row keeps for them empty.
+        double? low1 = frames == 0 ? 0 : chosen is not null ? FrameSample.Low(chosen.ToArray(), 0.01) : null;
+        double? low01 = frames == 0 ? 0 : chosen is not null ? FrameSample.Low(chosen.ToArray(), 0.001) : null;
         return new FrameSample(rate, name)
         {
             Path = path,
             Refresh = display?.Refresh,
             History = _history.ToArray(),
-            Low1 = chosen is null ? null : FrameSample.Low(chosen.ToArray(), 0.01),
-            Low01 = chosen is null ? null : FrameSample.Low(chosen.ToArray(), 0.001),
+            Low1 = low1,
+            Low01 = low01,
         };
     }
 
     // The frame gaps of the busiest chain among the processes the reading belongs to, as the figure itself counts them
-    // (Sample's Family); the other chains' gaps go, so a switch of the program in front cannot pollute them.
+    // (Sample's Family). The gaps of other programs go, so a switch of the program in front cannot pollute them; the gaps of
+    // this program's other chains stay, since which chain is busiest alternates (a browser's main and GPU processes) and a
+    // chain whose history was dropped each reading could never gather the gaps its worst share is read from.
     private Queue<double>? Gaps(Dictionary<(int Pid, long Chain), long> counts, Func<int, bool> belongs)
     {
-        long most = 0;
-        (int Pid, long Chain)? chain = null;
-        foreach (var ((pid, key), count) in counts)
-            if (belongs(pid) && count > most) { most = count; chain = (pid, key); }
-        if (chain is not { } picked) return null;
-        _intervals.TryGetValue(picked, out var chosen);
-        if (_intervals.Count > 1)
+        if (_intervals.Count > 0)
         {
-            _intervals.Clear();
-            if (chosen is not null) _intervals[picked] = chosen;
+            var foreign = _intervals.Keys.Where(pair => !belongs(pair.Pid)).ToArray();
+            foreach (var pair in foreign) _intervals.Remove(pair);
         }
-        return chosen;
+        // The busiest chain that has gaps to show: the busiest one outright may be one that started presenting this very
+        // interval, and its history would come only next reading.
+        foreach (var ((pid, key), _) in counts.Where(pair => belongs(pair.Key.Pid)).OrderByDescending(pair => pair.Value))
+            if (_intervals.TryGetValue((pid, key), out var chosen) && chosen.Count > 0) return chosen;
+        return null;
     }
 
     // The desktop's own frames, with the desktop or taskbar in front (explorer, explorerPid): a live wallpaper's program if one draws
@@ -284,15 +288,18 @@ internal sealed class FrameRates : IDisposable
         _history.Enqueue(rate);
         var (name, path) = wallpaper != 0 ? Describe(wallpaper) : (Loc.T("桌面", "Desktop"), null);
         // The desktop's own frame gaps, when its process presents any (a live wallpaper's program, or explorer's shell
-        // animations): the low percentiles are the same figures a program's row shows.
+        // animations): the low percentiles are the same figures a program's row shows. A desktop that draws nothing says 0,
+        // as its figure does, rather than leaving the room kept for the figures empty.
         var gaps = _counts.Count == 0 ? null : Gaps(_counts, pid => pid == drawing);
+        double? low1 = rate == 0 ? 0 : gaps is not null ? FrameSample.Low(gaps.ToArray(), 0.01) : null;
+        double? low01 = rate == 0 ? 0 : gaps is not null ? FrameSample.Low(gaps.ToArray(), 0.001) : null;
         return new FrameSample(rate, name)
         {
             Path = path,
             Refresh = display?.Refresh,
             History = _history.ToArray(),
-            Low1 = gaps is null ? null : FrameSample.Low(gaps.ToArray(), 0.01),
-            Low01 = gaps is null ? null : FrameSample.Low(gaps.ToArray(), 0.001),
+            Low1 = low1,
+            Low01 = low01,
         };
     }
 
