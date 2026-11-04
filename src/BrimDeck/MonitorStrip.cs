@@ -116,13 +116,14 @@ internal sealed class MonitorStrip : FrameworkElement
     // Monitors run up to 500 Hz and more, so three digits; the unit follows in the smaller type.
     private const string WidestFrames = "999", FramesUnit = "FPS";
     private double FramesSlot => _framesIcon ? Math.Round(14 * _scale) : Glyph;
-    // The low percentiles' room when the settings page's toggles ask for them: each figure in the unit's type, at the widest
-    // frames a reading can show ("1% 999", "0.1% 999"), so the row's layout holds while a reading comes and goes.
+    // The low percentiles' room when the settings page's toggles ask for them: drawn in the row's own type, so each one is
+    // reserved at the widest frames a reading can show ("1% 999", "0.1% 999") and the row's layout holds while a reading
+    // comes and goes.
     private double LowRoom()
     {
         double room = 0;
-        if (_fps1Low) room += Math.Round(3 * _scale) + SmallWidth("1% " + WidestFrames);
-        if (_fps01Low) room += Math.Round(3 * _scale) + SmallWidth("0.1% " + WidestFrames);
+        if (_fps1Low) room += Math.Round(3 * _scale) + FigureWidth("1% " + WidestFrames);
+        if (_fps01Low) room += Math.Round(3 * _scale) + FigureWidth("0.1% " + WidestFrames);
         return room;
     }
     // The figures after a ring or a drive letter: the share alone, the temperature alone, or both stacked in the smaller type or
@@ -445,18 +446,18 @@ internal sealed class MonitorStrip : FrameworkElement
         MonitorDraw.Baseline(drawing, figure, at, baseline);
         var unit = MonitorDraw.Text(FramesUnit, _small, UI.Tertiary, ppd);
         MonitorDraw.Baseline(drawing, unit, at + Math.Ceiling(figure.WidthIncludingTrailingWhitespace) + Math.Round(2 * _scale), baseline);
-        // The low percentiles after the unit, in the unit's type and color, only where the settings page's toggles ask for
-        // them and the frame gaps say a number ("60 FPS 1% 45 0.1% 38").
+        // The low percentiles after the unit, in the figure's own type and color, only where the settings page's toggles ask
+        // for them and the frame gaps say a number ("60 FPS 1% 45 0.1% 38").
         if (frames is not { } sample) return;
         double low = at + Math.Ceiling(figure.WidthIncludingTrailingWhitespace) + Math.Round(2 * _scale) + Math.Ceiling(unit.WidthIncludingTrailingWhitespace) + Math.Round(3 * _scale);
         if (_fps1Low && sample.Low1 is { } one)
         {
-            var rate = MonitorDraw.Text("1% " + FramesFigure(one), _small, UI.Tertiary, ppd);
+            var rate = MonitorDraw.Text("1% " + FramesFigure(one), _font, UI.Primary, ppd);
             MonitorDraw.Baseline(drawing, rate, low, baseline);
             low += Math.Ceiling(rate.WidthIncludingTrailingWhitespace) + Math.Round(3 * _scale);
         }
         if (_fps01Low && sample.Low01 is { } point)
-            MonitorDraw.Baseline(drawing, MonitorDraw.Text("0.1% " + FramesFigure(point), _small, UI.Tertiary, ppd), low, baseline);
+            MonitorDraw.Baseline(drawing, MonitorDraw.Text("0.1% " + FramesFigure(point), _font, UI.Primary, ppd), low, baseline);
     }
     private static FrameSample? FrameOf(MonitorSnapshot? s) => s?.Frames.OrDefault;
     private static readonly string[] FrameFigures = [.. Enumerable.Range(0, 1000).Select(count => count.ToString(System.Globalization.CultureInfo.InvariantCulture))];

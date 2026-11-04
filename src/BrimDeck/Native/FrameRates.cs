@@ -227,23 +227,19 @@ internal sealed class FrameRates : IDisposable
         _history.Enqueue(rate);
         var (name, path) = Describe(shown);
         // The low percentiles come from the busiest chain's frame gaps; the other chains' gaps go, so a switch of the program in
-        // front cannot pollute them.
+        // front cannot pollute them. A browser's and a WebView2 program's frames come from a child process (its GPU process),
+        // so the chain belongs to the program rather than to the process that presents it.
         Queue<double>? chosen = null;
         if (frames > 0)
         {
-            long most = 0;
-            (int Pid, long Chain)? chain = null;
-            foreach (var ((pid, key), count) in counts)
-                if (pid == shown && count > most) { most = count; chain = (pid, key); }
-            if (chain is { } picked)
+            bool Belongs(int pid)
             {
-                _intervals.TryGetValue(picked, out chosen);
-                if (_intervals.Count > 1)
-                {
-                    _intervals.Clear();
-                    if (chosen is not null) _intervals[picked] = chosen;
-                }
+                if (pid == shown) return true;
+                var processes = Known(shown);
+                if (!processes.TryGetValue(shown, out var self) || !processes.TryGetValue(pid, out var child)) return false;
+                return (Same(child.File, self.File) || Same(child.File, "msedgewebview2.exe")) && Descends(pid, shown, processes);
             }
+            chosen = Gaps(counts, Belongs);
         }
         return new FrameSample(rate, name)
         {
@@ -255,6 +251,24 @@ internal sealed class FrameRates : IDisposable
         };
     }
 
+    // The frame gaps of the busiest chain among the processes the reading belongs to, as the figure itself counts them
+    // (Sample's Family); the other chains' gaps go, so a switch of the program in front cannot pollute them.
+    private Queue<double>? Gaps(Dictionary<(int Pid, long Chain), long> counts, Func<int, bool> belongs)
+    {
+        long most = 0;
+        (int Pid, long Chain)? chain = null;
+        foreach (var ((pid, key), count) in counts)
+            if (belongs(pid) && count > most) { most = count; chain = (pid, key); }
+        if (chain is not { } picked) return null;
+        _intervals.TryGetValue(picked, out var chosen);
+        if (_intervals.Count > 1)
+        {
+            _intervals.Clear();
+            if (chosen is not null) _intervals[picked] = chosen;
+        }
+        return chosen;
+    }
+
     // The desktop's own frames, with the desktop or taskbar in front (explorer, explorerPid): a live wallpaper's program if one draws
     // the desktop, named and with its icon, else the desktop itself. On the display under the window in front, for the refresh rate.
     private Reading<FrameSample> DesktopRate(IntPtr front, int explorerPid, Dictionary<int, long> busiest, double seconds, double now)
@@ -264,11 +278,22 @@ internal sealed class FrameRates : IDisposable
         int wallpaper = _wallpaper;
         int key = wallpaper != 0 ? wallpaper : Desktop;
         if (_shown != key) { _shown = key; _history.Clear(); }
-        double rate = busiest.GetValueOrDefault(wallpaper != 0 ? wallpaper : explorerPid) / seconds;
+        int drawing = wallpaper != 0 ? wallpaper : explorerPid;
+        double rate = busiest.GetValueOrDefault(drawing) / seconds;
         if (_history.Count == HistoryLength) _history.Dequeue();
         _history.Enqueue(rate);
         var (name, path) = wallpaper != 0 ? Describe(wallpaper) : (Loc.T("桌面", "Desktop"), null);
-        return new FrameSample(rate, name) { Path = path, Refresh = display?.Refresh, History = _history.ToArray() };
+        // The desktop's own frame gaps, when its process presents any (a live wallpaper's program, or explorer's shell
+        // animations): the low percentiles are the same figures a program's row shows.
+        var gaps = _counts.Count == 0 ? null : Gaps(_counts, pid => pid == drawing);
+        return new FrameSample(rate, name)
+        {
+            Path = path,
+            Refresh = display?.Refresh,
+            History = _history.ToArray(),
+            Low1 = gaps is null ? null : FrameSample.Low(gaps.ToArray(), 0.01),
+            Low01 = gaps is null ? null : FrameSample.Low(gaps.ToArray(), 0.001),
+        };
     }
 
     // The windows looked for each reading (a live wallpaper's program, a program's largest window) are kept until the window in front
