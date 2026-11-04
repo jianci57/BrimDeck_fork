@@ -11,8 +11,8 @@
         <SolidColorBrush x:Key="PanelSecondary" Color="#9EEBEBF5"/>
         <SolidColorBrush x:Key="PanelTertiary" Color="#8CEBEBF5"/>
         <SolidColorBrush x:Key="PanelAccent" Color="#0A84FF"/>
-        <SolidColorBrush x:Key="PanelTrack" Color="#1FFFFFFF"/>
-        <SolidColorBrush x:Key="PanelRingTrack" Color="#29FFFFFF"/>
+        <SolidColorBrush x:Key="PanelTrack" Color="#32FFFFFF"/>
+        <SolidColorBrush x:Key="PanelRingTrack" Color="#32FFFFFF"/>
         <SolidColorBrush x:Key="PanelFill" Color="#12FFFFFF"/>
         <SolidColorBrush x:Key="PanelFillSelected" Color="#24FFFFFF"/>
         <SolidColorBrush x:Key="PanelHover" Color="#18FFFFFF"/>
