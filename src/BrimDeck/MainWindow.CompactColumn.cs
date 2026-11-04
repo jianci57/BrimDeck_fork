@@ -56,7 +56,8 @@ public partial class MainWindow
             _stripUnavailable = _stripAdmission.Hidden;
             void Line(CompactReading reading, MonitorStrip.DriveParts drives = MonitorStrip.DriveParts.All)
             {
-                var strip = new MonitorStrip([reading], colors, scale, true, _stripPresence, dpi, _stripUnavailable, _stripAdmission, drives);
+                var strip = new MonitorStrip([reading], colors, scale, true, _stripPresence, dpi, _stripUnavailable, _stripAdmission, drives,
+                    fps1Low: Settings.MonitorFps1Low, fps01Low: Settings.MonitorFps01Low);
                 if (strip.PreferredWidth > 0) strips.Add(strip);
             }
             foreach (var reading in Settings.CompactReadings)

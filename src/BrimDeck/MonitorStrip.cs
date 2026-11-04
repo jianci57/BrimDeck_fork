@@ -23,6 +23,9 @@ internal sealed class MonitorStrip : FrameworkElement
     // The parts of the drive reading a strip draws: the glyph and the letters as in the row, or the letters alone.
     internal enum DriveParts { All, Letters }
     private readonly DriveParts _driveParts;
+    // Whether the low percentiles show next to a frame reading, taken from the settings when the row was built (a flip of
+    // either toggle builds it again).
+    private readonly bool _fps1Low, _fps01Low;
     private readonly StripPresence _presence;
     private readonly CompactMonitorItems _shown, _values;
     private readonly IReadOnlyList<CompactMonitorItems> _order;
@@ -55,9 +58,11 @@ internal sealed class MonitorStrip : FrameworkElement
     // parts: what the drive reading draws. The collapsed column (MainWindow.CompactColumn.cs) gives each drive a line without the
     // glyph, its letter shown even when it is the only one.
     public MonitorStrip(IReadOnlyList<CompactReading> readings, StripColors colors, double scale, bool centered, StripPresence presence, double dpi,
-        CompactMonitorItems unavailable = CompactMonitorItems.None, StripAdmission? admission = null, DriveParts parts = DriveParts.All)
+        CompactMonitorItems unavailable = CompactMonitorItems.None, StripAdmission? admission = null, DriveParts parts = DriveParts.All,
+        bool fps1Low = false, bool fps01Low = false)
     {
         _driveParts = parts;
+        _fps1Low = fps1Low; _fps01Low = fps01Low;
         _easing = new PromptTimer(Dispatcher, EaseStep);
         _presence = presence; _dpi = dpi; _colors = colors; _centered = centered; _powerStyle = PowerStyle.For(colors.Palette);
         _order = [.. readings.Select(reading => reading.Item)];
@@ -104,13 +109,22 @@ internal sealed class MonitorStrip : FrameworkElement
         _width = CompactMonitor.Widths(_values, _dial, _ringFigure, _dial, ColumnsWidth(Environment.ProcessorCount),
             Math.Round(9 * _scale) + Math.Round(3 * _scale) + Math.Ceiling(Math.Max(text("99.9M"), text("99.9G"))), DrivesWidth(),
             Math.Round(9 * _scale) + Math.Round(3 * _scale) + FigureWidth("999W"), BatteryWidth + Math.Round(3 * _scale) + FigureWidth(WidestPercent),
-            FramesSlot + Math.Round(3 * _scale) + FigureWidth(WidestFrames) + Math.Round(2 * _scale) + SmallWidth(FramesUnit));
+            FramesSlot + Math.Round(3 * _scale) + FigureWidth(WidestFrames) + Math.Round(2 * _scale) + SmallWidth(FramesUnit) + LowRoom());
     }
 
     private const string WidestDegrees = "125°", WidestPercent = "100%";
     // Monitors run up to 500 Hz and more, so three digits; the unit follows in the smaller type.
     private const string WidestFrames = "999", FramesUnit = "FPS";
     private double FramesSlot => _framesIcon ? Math.Round(14 * _scale) : Glyph;
+    // The low percentiles' room when the settings page's toggles ask for them: each figure in the unit's type, at the widest
+    // frames a reading can show ("1% 999", "0.1% 999"), so the row's layout holds while a reading comes and goes.
+    private double LowRoom()
+    {
+        double room = 0;
+        if (_fps1Low) room += Math.Round(3 * _scale) + SmallWidth("1% " + WidestFrames);
+        if (_fps01Low) room += Math.Round(3 * _scale) + SmallWidth("0.1% " + WidestFrames);
+        return room;
+    }
     // The figures after a ring or a drive letter: the share alone, the temperature alone, or both stacked in the smaller type or
     // side by side in the row's type, at the widest each can show.
     private double Column(CompactMonitorItems item, bool usage, bool heat)
@@ -415,7 +429,7 @@ internal sealed class MonitorStrip : FrameworkElement
     }
 
     // The frame rate: the program's icon (when chosen and it has one) or a screen glyph in the reading's color, then the whole frames
-    // a second and "FPS" in the smaller type, "60 FPS"; a dash while there is no reading.
+    // a second and "FPS" in the smaller type, "60 FPS", and the low percentiles the settings ask for, "60 FPS 1% 45"; a dash while there is no reading.
     private void Frames(DrawingContext drawing, double x, double center, FrameSample? frames, string color, double ppd)
     {
         double slot = FramesSlot, baseline = Math.Round(center + _font * .36);
@@ -429,7 +443,20 @@ internal sealed class MonitorStrip : FrameworkElement
         double at = x + slot + Math.Round(3 * _scale);
         var figure = MonitorDraw.Text(FramesFigure(frames?.PerSecond), _font, UI.Primary, ppd);
         MonitorDraw.Baseline(drawing, figure, at, baseline);
-        MonitorDraw.Baseline(drawing, MonitorDraw.Text(FramesUnit, _small, UI.Tertiary, ppd), at + Math.Ceiling(figure.WidthIncludingTrailingWhitespace) + Math.Round(2 * _scale), baseline);
+        var unit = MonitorDraw.Text(FramesUnit, _small, UI.Tertiary, ppd);
+        MonitorDraw.Baseline(drawing, unit, at + Math.Ceiling(figure.WidthIncludingTrailingWhitespace) + Math.Round(2 * _scale), baseline);
+        // The low percentiles after the unit, in the unit's type and color, only where the settings page's toggles ask for
+        // them and the frame gaps say a number ("60 FPS 1% 45 0.1% 38").
+        if (frames is not { } sample) return;
+        double low = at + Math.Ceiling(figure.WidthIncludingTrailingWhitespace) + Math.Round(2 * _scale) + Math.Ceiling(unit.WidthIncludingTrailingWhitespace) + Math.Round(3 * _scale);
+        if (_fps1Low && sample.Low1 is { } one)
+        {
+            var rate = MonitorDraw.Text("1% " + FramesFigure(one), _small, UI.Tertiary, ppd);
+            MonitorDraw.Baseline(drawing, rate, low, baseline);
+            low += Math.Ceiling(rate.WidthIncludingTrailingWhitespace) + Math.Round(3 * _scale);
+        }
+        if (_fps01Low && sample.Low01 is { } point)
+            MonitorDraw.Baseline(drawing, MonitorDraw.Text("0.1% " + FramesFigure(point), _small, UI.Tertiary, ppd), low, baseline);
     }
     private static FrameSample? FrameOf(MonitorSnapshot? s) => s?.Frames.OrDefault;
     private static readonly string[] FrameFigures = [.. Enumerable.Range(0, 1000).Select(count => count.ToString(System.Globalization.CultureInfo.InvariantCulture))];
