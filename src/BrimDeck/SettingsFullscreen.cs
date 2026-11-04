@@ -38,7 +38,11 @@ public sealed partial class SettingsWindow
 
     private void RefreshExceptions()
     {
-        if (_exceptionsHost is not null) _exceptionsHost.Child = ExceptionsContent();
+        // The list is rebuilt whole, so the slot starts over: the reserved height belongs to the list that held it, and
+        // after an app is removed the new list is shorter. It is re-measured once the rebuilt row is laid out.
+        if (_exceptionsHost is null) return;
+        _exceptionsReservedHeight = 0;
+        _exceptionsHost.Child = ExceptionsContent();
     }
 
     // Leaves the reserved height when the row is fully above or below the page's scroll viewport.
@@ -76,9 +80,11 @@ public sealed partial class SettingsWindow
             list.Children.Add(new Border { Height = 1, Background = UI.Brush(_palette.RowDivider) });
             list.Children.Add(ExceptionRow(exception));
         }
-        // The list's slot: its minimum height is the reserved height, so removing an app or closing the row leaves empty
-        // space instead of pulling the rest of the page up.
-        var space = new Border { Child = list, MinHeight = _exceptionsReservedHeight };
+        // The list's slot. While the row is open its minimum height is the height the list last took, so removing an app
+        // leaves the rest of the page where it was instead of pulling it up. A closed row reserves nothing: the height
+        // was kept for the open list's sake, and holding it while the list is hidden left a blank block under the row
+        // that grew with every app added (the height only ever rose, and every rebuild of this page re-applied it).
+        var space = new Border { Child = list, MinHeight = 0 };
         var label = TextLine(title, 13, TextPrimary, FontWeights.SemiBold); label.VerticalAlignment = VerticalAlignment.Center;
         var info = HelpIcon(title, () => Loc.T("为单个应用分别指定三种情境下面板的行为；选“跟随全局”的情境沿用上面的三项设置。",
             "Chooses what the panel does in each of the three contexts for one app; a context left on Follow follows the three settings above."), 14);
@@ -90,14 +96,21 @@ public sealed partial class SettingsWindow
         void CaptureHeight()
         {
             if (list.Visibility != Visibility.Visible) return;
+            // The measurement is posted after the row is laid out, and the page may have rebuilt the list since (removing
+            // an app). This closure's slot then belongs to a list that is no longer shown: measuring it would write that
+            // list's height into the shared reservation and bring back the blank block for the new, shorter list.
+            if (_exceptionsHost is not { } host || !host.IsAncestorOf(space)) return;
+            // Measure the list on its own: with the reserved height still on the slot, ActualHeight would report that
+            // height back and the reservation could never shrink after apps were removed.
+            space.MinHeight = 0;
             space.UpdateLayout();
-            if (space.ActualHeight > _exceptionsReservedHeight) _exceptionsReservedHeight = space.ActualHeight;
+            if (space.ActualHeight > 0) _exceptionsReservedHeight = space.ActualHeight;
             space.MinHeight = _exceptionsReservedHeight;
         }
         void Show(bool open)
         {
             list.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
-            space.MinHeight = _exceptionsReservedHeight;
+            space.MinHeight = open ? _exceptionsReservedHeight : 0;
             if (arrow is not null) PointArrow(arrow, open);
             if (open) Dispatcher.BeginInvoke(CaptureHeight, System.Windows.Threading.DispatcherPriority.Loaded);
         }
@@ -131,8 +144,7 @@ public sealed partial class SettingsWindow
         // The buttons handle their own clicks; a click anywhere else on the row opens or closes it, as the clock row does.
         header.MouseLeftButtonDown += (_, e) => { if (arrow is not null) Flip(); e.Handled = true; };
         Show(_exceptionsOpen && n > 0);
-        var row = new StackPanel(); row.Children.Add(header); row.Children.Add(space); return row;
-    }
+        var row = new StackPanel(); row.Children.Add(header); row.Children.Add(space); return row;    }
 
     // One app under the row: its icon, the name its executable gives, the file name, and under them one behaviour pick
     // per context, each offering the global rules' three behaviours and a fourth choice that follows them.
