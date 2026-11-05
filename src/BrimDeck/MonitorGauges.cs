@@ -26,6 +26,11 @@ internal sealed class FramesBlock : FrameworkElement
     // Whether the low percentiles show follows the settings page's two toggles (MonitorFps1Low/MonitorFps01Low).
     private bool _show1, _show01;
     private readonly DrawingCache<(IReadOnlyList<double>, double, double, double)> _curve = new();
+    // The widest frames a reading can show: the room every figure after the frame rate stands in, so none of them moves.
+    private const string WidestFrames = "999";
+    // The low figure as the collapsed row's FramesFigure draws it: clamped to the three digits its room reserves.
+    private static string Low(double? rate) => rate is { } value && double.IsFinite(value)
+        ? Math.Clamp(Math.Round(value, MidpointRounding.AwayFromZero), 0, 999).ToString(System.Globalization.CultureInfo.InvariantCulture) : "—";
 
     public FramesBlock(string color, double body, double caption, double row)
     {
@@ -82,23 +87,27 @@ internal sealed class FramesBlock : FrameworkElement
         else MonitorDraw.Arrow(drawing, new Point((badge - glyph) / 2, h / 2 - glyph / 2), glyph, Math.Max(1, glyph * .09), MonitorGlyph.Screen, _frames is null ? UI.Tertiary : _color);
         double x = badge + Math.Round(_body * .5);
         var number = MonitorDraw.Text(Figure, _body + 1, UI.Primary, ppd, strong: true);
-        MonitorDraw.Baseline(drawing, number, x, baseline); x += number.WidthIncludingTrailingWhitespace;
+        MonitorDraw.Baseline(drawing, number, x, baseline);
+        // The unit hugs the figure drawn; everything after it stands where the widest figure ("999") would end, as the
+        // collapsed row reserves its readings: the low percentiles, the name and the curve hold still while the figure's
+        // digits come and go.
         var unit = MonitorDraw.Text("FPS", _caption, UI.Tertiary, ppd);
-        MonitorDraw.Baseline(drawing, unit, x + 3, baseline); x += 3 + unit.WidthIncludingTrailingWhitespace;
+        MonitorDraw.Baseline(drawing, unit, x + number.WidthIncludingTrailingWhitespace + 3, baseline);
+        x += MonitorDraw.Text(WidestFrames, _body + 1, UI.Primary, ppd, strong: true).WidthIncludingTrailingWhitespace + 3 + unit.WidthIncludingTrailingWhitespace;
         if (_frames is not { } frames) return;
-        // The low percentiles after the unit ("1% 45 · 0.1% 38"), caption size like the unit, only where the settings page's
-        // toggles ask for them and the frame gaps say a number.
-        if (_show1 && frames.Low1 is { } low1)
+        // The low percentiles each in the room the widest frames ("1% 999", "0.1% 999") reserve, caption size like the unit,
+        // only where the settings page's toggles ask for them, so none of them moves with the figures.
+        if (_show1)
         {
-            var one = MonitorDraw.Text($"1% {Math.Round(low1)}", _caption, UI.Tertiary, ppd);
+            var one = MonitorDraw.Text("1% " + Low(frames.Low1), _caption, UI.Tertiary, ppd);
             MonitorDraw.Baseline(drawing, one, x + 3, baseline);
-            x += 3 + one.WidthIncludingTrailingWhitespace;
+            x += 3 + MonitorDraw.Text("1% " + WidestFrames, _caption, UI.Tertiary, ppd).WidthIncludingTrailingWhitespace;
         }
-        if (_show01 && frames.Low01 is { } low01)
+        if (_show01)
         {
-            var point = MonitorDraw.Text($"0.1% {Math.Round(low01)}", _caption, UI.Tertiary, ppd);
+            var point = MonitorDraw.Text("0.1% " + Low(frames.Low01), _caption, UI.Tertiary, ppd);
             MonitorDraw.Baseline(drawing, point, x + 3, baseline);
-            x += 3 + point.WidthIncludingTrailingWhitespace;
+            x += 3 + MonitorDraw.Text("0.1% " + WidestFrames, _caption, UI.Tertiary, ppd).WidthIncludingTrailingWhitespace;
         }
         // The refresh rate at the right end, then the name after the figure, cut to the room between them.
         double right = w;

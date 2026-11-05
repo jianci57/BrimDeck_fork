@@ -447,14 +447,15 @@ internal sealed class MonitorStrip : FrameworkElement
         var unit = MonitorDraw.Text(FramesUnit, _small, UI.Tertiary, ppd);
         MonitorDraw.Baseline(drawing, unit, at + Math.Ceiling(figure.WidthIncludingTrailingWhitespace) + Math.Round(2 * _scale), baseline);
         // The low percentiles after the unit, in the figure's own type and color, wherever the settings page's toggles ask for
-        // them: the room the row keeps for them is always filled, with the figures when the frame gaps say them and a dash
-        // while there is no reading, as the frame rate itself shows ("60 FPS 1% 45 0.1% 38").
-        double low = at + Math.Ceiling(figure.WidthIncludingTrailingWhitespace) + Math.Round(2 * _scale) + Math.Ceiling(unit.WidthIncludingTrailingWhitespace) + Math.Round(3 * _scale);
+        // them: each stands in the room the widest figure reserves ("1% 999", "0.1% 999") — always filled, with the figures
+        // when the frame gaps say them and a dash while there is no reading, and never moved by the figure's digits
+        // ("60 FPS 1% 45 0.1% 38").
+        double low = at + FigureWidth(WidestFrames) + Math.Round(2 * _scale) + Math.Ceiling(unit.WidthIncludingTrailingWhitespace) + Math.Round(3 * _scale);
         if (_fps1Low)
         {
             var rate = MonitorDraw.Text("1% " + FramesFigure(frames?.Low1), _font, UI.Primary, ppd);
             MonitorDraw.Baseline(drawing, rate, low, baseline);
-            low += Math.Ceiling(rate.WidthIncludingTrailingWhitespace) + Math.Round(3 * _scale);
+            low += FigureWidth("1% " + WidestFrames) + Math.Round(3 * _scale);
         }
         if (_fps01Low)
             MonitorDraw.Baseline(drawing, MonitorDraw.Text("0.1% " + FramesFigure(frames?.Low01), _font, UI.Primary, ppd), low, baseline);
