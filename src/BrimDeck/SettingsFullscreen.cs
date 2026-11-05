@@ -263,10 +263,12 @@ public sealed partial class SettingsWindow
         RefreshExceptions();
     }
 
-    // The executable's icon at 16 DIP; an app whose path is unknown keeps the space, so the names stay in line.
+    // The executable's icon at 16 DIP; an app whose path is unknown keeps the space, so the names stay in line. The icon is
+    // fetched in the background (a shell icon lookup can block on the shell's own apartment and freeze the UI thread; hang
+    // dump 2026-11-04): the row draws without the icon, and the next refresh of the page shows it.
     private static FrameworkElement AppIcon(string path)
     {
-        ProcessIcons.Prepare(path);
+        if (ProcessIcons.For(path) is null) _ = System.Threading.Tasks.Task.Run(() => ProcessIcons.Prepare(path));
         return new Image { Source = ProcessIcons.For(path), Width = 16, Height = 16, Margin = new Thickness(0, 0, 10, 0), VerticalAlignment = VerticalAlignment.Center };
     }
 
