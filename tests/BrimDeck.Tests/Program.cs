@@ -24,6 +24,7 @@ try
     EqualizerModeTests.Run(root, Check);
     ColorMathTests.Run(Check);
     FrameSampleTests.Run(Check);
+    DebugOverridesTests.Run(Check);
     CompactSpacingTests.Run(Check);
     CompactDragTests.Run(Check);
     RingLetterTests.Run(root, Check);

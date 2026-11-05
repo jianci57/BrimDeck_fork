@@ -166,9 +166,11 @@ public partial class MainWindow
         return canvas;
     }
 
-    // Every strip of the collapsed readings takes the new reading: the row's one, or the column's (one per reading).
+    // Every strip of the collapsed readings takes the new reading: the row's one, or the column's (one per reading). The debug
+    // page's overrides stand in for the real readings here alone (DebugOverrides); the open pages keep their own path.
     private void UpdateCompactStrips(MonitorSnapshot? snapshot, bool motion)
     {
+        snapshot = DebugOverrides.Apply(snapshot, Settings);
         _compactStrip?.Update(snapshot, motion, (int)Settings.CompactSmoothing);
         foreach (var strip in _columnStrips) if (!ReferenceEquals(strip, _compactStrip)) strip.Update(snapshot, motion, (int)Settings.CompactSmoothing);
     }
