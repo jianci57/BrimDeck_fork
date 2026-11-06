@@ -2,7 +2,7 @@ using System.Runtime.InteropServices;
 
 namespace BrimDeck.Native;
 
-// The GPU's running time per process, from the performance counters Task Manager's GPU page reads ("\GPU Engine(*)\RunningTime"):
+// The GPU's running time per process, from the performance counters Task Manager's GPU page reads ("\GPU Engine(*)\Running Time"):
 // a wildcard PDH query collected on the sampler's thread, the cumulative engine time of every instance kept between two
 // collections, so each reading takes the delta per process over the interval. Only the 3D engines count: the time a frame's draw
 // calls execute. Nothing here throws out: a machine whose driver gives no counters reads nothing (a null GPU time), and the rest
@@ -27,7 +27,7 @@ internal sealed class GpuTimes : IDisposable
             if (_query == IntPtr.Zero)
             {
                 if (PdhOpenQueryW(null, 0, out _query) != 0) throw new GpuUnavailable("open");
-                if (PdhAddEnglishCounterW(_query, @"\GPU Engine(*)\RunningTime", 0, out _counter) != 0) throw new GpuUnavailable("add");
+                if (PdhAddEnglishCounterW(_query, @"\GPU Engine(*)\Running Time", 0, out _counter) != 0) throw new GpuUnavailable("add");
             }
             if (PdhCollectQueryData(_query) != 0) throw new GpuUnavailable("collect");
             long now = Environment.TickCount64;
@@ -52,8 +52,8 @@ internal sealed class GpuTimes : IDisposable
 
     // The raw values of the wildcard counter, one per instance: "pid_1234_luid_0x00000000_0x0000C3B7_phys_0_eng_0_engtype_3D".
     // Only the 3D engines: video decode and copy engines are not the time a frame's draw calls take. The buffer is a plain array
-    // of PDH_FMT_COUNTERVALUE_ITEM_W (the name's pointer at 0, the counter's status at 8, its long long value at 16), grown when
-    // PDH asks for more room.
+    // of PDH_FMT_COUNTERVALUE_ITEM_W — 48 bytes a piece on x64 (the name's pointer at 0, the counter's status at 8, its long long
+    // value at 16; the rest reserved) — grown when PDH asks for more room; with 800+ instances a 64 KB buffer never holds.
     private Dictionary<string, long> Raw()
     {
         int size = 65_536;
@@ -68,7 +68,7 @@ internal sealed class GpuTimes : IDisposable
                 var times = new Dictionary<string, long>((int)count);
                 for (uint i = 0; i < count; i++)
                 {
-                    IntPtr item = buffer + (IntPtr)(i * 24);
+                    IntPtr item = buffer + (IntPtr)(i * 48);
                     var text = Marshal.ReadIntPtr(item);
                     if (text == IntPtr.Zero) continue;
                     string instance = Marshal.PtrToStringUni(text) ?? "";
