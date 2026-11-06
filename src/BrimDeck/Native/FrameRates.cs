@@ -65,11 +65,8 @@ internal sealed class FrameRates : IDisposable
     // Sample's own, emptied at each reading.
     private readonly Dictionary<(int Pid, long Chain), long> _counts = [];
     private readonly Dictionary<int, long> _busiest = [];
-    // The gaps between a chain's frames, milliseconds, per process and chain, for the low percentiles (FrameSample.Low): at the
-    // default pace 4096 gaps reach back over a minute. _lastPresent turns the next frame's arrival into a gap; gaps past a
-    // second are suspend gaps, not frames, and go.
-    private const int IntervalCapacity = 4096;
-    private readonly Dictionary<(int Pid, long Chain), Queue<double>> _intervals = [];
+    // _lastPresent turns the next frame's arrival into a gap; gaps past a second are suspend gaps, not frames, and go. The
+    // gaps themselves are kept per reading only (the interval's own frames are what both the figure and the percentiles judge).
     private readonly Dictionary<(int Pid, long Chain), long> _lastPresent = [];
     private double _cutoff = double.NaN;
     private readonly EventRecordCallback _callback;
@@ -148,6 +145,9 @@ internal sealed class FrameRates : IDisposable
         double cutoff = now - Lag;
         long through = (long)(cutoff * Stopwatch.Frequency);
         var counts = _counts; counts.Clear();
+        // The gaps between the interval's own frames, per chain: the low percentiles are read over exactly the frames the
+        // figure counts (this interval's presents), not over a longer window, so both numbers tell of the same frames.
+        var intervals = new Dictionary<(int Pid, long Chain), List<double>>();
         int later = 0;
         foreach (var e in events)
             if (e.Time > through) later++;
@@ -160,9 +160,8 @@ internal sealed class FrameRates : IDisposable
                     var gap = (e.Time - last) * 1000.0 / Stopwatch.Frequency;
                     if (gap > 0 && gap < 1000)
                     {
-                        if (!_intervals.TryGetValue((e.Pid, e.Chain), out var gaps)) _intervals[(e.Pid, e.Chain)] = gaps = [];
-                        gaps.Enqueue(gap);
-                        while (gaps.Count > IntervalCapacity) gaps.Dequeue();
+                        if (!intervals.TryGetValue((e.Pid, e.Chain), out var gaps)) intervals[(e.Pid, e.Chain)] = gaps = [];
+                        gaps.Add(gap);
                     }
                 }
                 _lastPresent[(e.Pid, e.Chain)] = e.Time;
@@ -174,7 +173,7 @@ internal sealed class FrameRates : IDisposable
             events.Clear();
             _drained = events.Capacity <= KeptCapacity ? events : [];
         }
-        if (reset) { _cutoff = double.NaN; _history.Clear(); _shown = _lastDrawing = 0; _processes = null; _processesAt = _wallpaperAt = _mainAt = double.NegativeInfinity; _intervals.Clear(); _lastPresent.Clear(); }
+        if (reset) { _cutoff = double.NaN; _history.Clear(); _shown = _lastDrawing = 0; _processes = null; _processesAt = _wallpaperAt = _mainAt = double.NegativeInfinity; _lastPresent.Clear(); }
         var front = GetForegroundWindow();
         int frontPid = Owner(front);
         double seconds = cutoff - _cutoff;
@@ -187,7 +186,7 @@ internal sealed class FrameRates : IDisposable
         // The GPU scheduler's busy time per process, integrated live from the QueuePacket events this session already receives;
         // the program's and the desktop's readings both divide it by the frames their process drew.
         var gpuBusy = GpuBusySnapshot();
-        if (IsDesktop(front)) return DesktopRate(front, frontPid, busiest, seconds, now, gpuBusy);
+        if (IsDesktop(front)) return DesktopRate(front, frontPid, busiest, seconds, now, gpuBusy, intervals);
         Dictionary<int, (int Parent, string File)> Known(int pid)
         {
             bool stale = _processes is null || _processesFront != frontPid || now - _processesAt >= ProcessesSeconds
@@ -232,7 +231,7 @@ internal sealed class FrameRates : IDisposable
         // The low percentiles come from the busiest chain's frame gaps; the other chains' gaps go, so a switch of the program in
         // front cannot pollute them. A browser's and a WebView2 program's frames come from a child process (its GPU process),
         // so the chain belongs to the program rather than to the process that presents it.
-        Queue<double>? chosen = null;
+        List<double>? chosen = null;
         double? gpuMs = null;
         if (frames > 0)
         {
@@ -243,7 +242,7 @@ internal sealed class FrameRates : IDisposable
                 if (!processes.TryGetValue(shown, out var self) || !processes.TryGetValue(pid, out var child)) return false;
                 return (Same(child.File, self.File) || Same(child.File, "msedgewebview2.exe")) && Descends(pid, shown, processes);
             }
-            chosen = Gaps(counts, Belongs);
+            chosen = BusiestGaps(counts, intervals, Belongs);
             // The GPU's running time over this interval (collected at the reading's start), over the frames the family drew in
             // it: the average time the GPU spent drawing one of the program's frames. A process the counters say nothing about
             // leaves the figure unknown (a dash), so an idle engine never reads as a 0 ms frame.
@@ -259,8 +258,8 @@ internal sealed class FrameRates : IDisposable
         // A program that drew nothing in the interval has no gaps to judge, and its worst share is nothing too: the low
         // figures say 0 beside the 0 of the figure, rather than leaving the room the row keeps for them empty. The GPU time
         // says nothing when nothing was drawn (there was no frame to draw), so it keeps its dash.
-        double? low1 = frames == 0 ? 0 : chosen is not null ? FrameSample.Low(chosen.ToArray(), 0.01) : null;
-        double? low01 = frames == 0 ? 0 : chosen is not null ? FrameSample.Low(chosen.ToArray(), 0.001) : null;
+        double? low1 = frames == 0 ? 0 : chosen is not null ? FrameSample.Low(chosen, 0.01) : null;
+        double? low01 = frames == 0 ? 0 : chosen is not null ? FrameSample.Low(chosen, 0.001) : null;
         return new FrameSample(rate, name)
         {
             Path = path,
@@ -273,26 +272,17 @@ internal sealed class FrameRates : IDisposable
     }
 
     // The frame gaps of the busiest chain among the processes the reading belongs to, as the figure itself counts them
-    // (Sample's Family). The gaps of other programs go, so a switch of the program in front cannot pollute them; the gaps of
-    // this program's other chains stay, since which chain is busiest alternates (a browser's main and GPU processes) and a
-    // chain whose history was dropped each reading could never gather the gaps its worst share is read from.
-    private Queue<double>? Gaps(Dictionary<(int Pid, long Chain), long> counts, Func<int, bool> belongs)
+    // (Sample's Family), taken from the interval's own gaps: the percentiles and the figure judge the same frames.
+    private static List<double>? BusiestGaps(Dictionary<(int Pid, long Chain), long> counts, Dictionary<(int Pid, long Chain), List<double>> intervals, Func<int, bool> belongs)
     {
-        if (_intervals.Count > 0)
-        {
-            var foreign = _intervals.Keys.Where(pair => !belongs(pair.Pid)).ToArray();
-            foreach (var pair in foreign) _intervals.Remove(pair);
-        }
-        // The busiest chain that has gaps to show: the busiest one outright may be one that started presenting this very
-        // interval, and its history would come only next reading.
         foreach (var ((pid, key), _) in counts.Where(pair => belongs(pair.Key.Pid)).OrderByDescending(pair => pair.Value))
-            if (_intervals.TryGetValue((pid, key), out var chosen) && chosen.Count > 0) return chosen;
+            if (intervals.TryGetValue((pid, key), out var chosen) && chosen.Count > 0) return chosen;
         return null;
     }
 
     // The desktop's own frames, with the desktop or taskbar in front (explorer, explorerPid): a live wallpaper's program if one draws
     // the desktop, named and with its icon, else the desktop itself. On the display under the window in front, for the refresh rate.
-    private Reading<FrameSample> DesktopRate(IntPtr front, int explorerPid, Dictionary<int, long> busiest, double seconds, double now, Dictionary<int, double> gpuBusy)
+    private Reading<FrameSample> DesktopRate(IntPtr front, int explorerPid, Dictionary<int, long> busiest, double seconds, double now, Dictionary<int, double> gpuBusy, Dictionary<(int Pid, long Chain), List<double>> intervals)
     {
         var display = Display(front);
         if (_wallpaperFront != front || now - _wallpaperAt >= LookAgainSeconds) { _wallpaper = Wallpaper(explorerPid); _wallpaperFront = front; _wallpaperAt = now; }
@@ -304,12 +294,15 @@ internal sealed class FrameRates : IDisposable
         if (_history.Count == HistoryLength) _history.Dequeue();
         _history.Enqueue(rate);
         var (name, path) = wallpaper != 0 ? Describe(wallpaper) : (Loc.T("桌面", "Desktop"), null);
-        // The desktop's own frame gaps, when its process presents any (a live wallpaper's program, or explorer's shell
-        // animations): the low percentiles are the same figures a program's row shows. A desktop that draws nothing says 0,
-        // as its figure does, rather than leaving the room kept for the figures empty.
-        var gaps = _counts.Count == 0 ? null : Gaps(_counts, pid => pid == drawing);
-        double? low1 = rate == 0 ? 0 : gaps is not null ? FrameSample.Low(gaps.ToArray(), 0.01) : null;
-        double? low01 = rate == 0 ? 0 : gaps is not null ? FrameSample.Low(gaps.ToArray(), 0.001) : null;
+        // The desktop's own frame gaps from the interval, when its process presents any (a live wallpaper's program, or
+        // explorer's shell animations): the low percentiles are the same figures a program's row shows, judged over the same
+        // interval's frames. A desktop that draws nothing says 0, as its figure does, rather than leaving the room kept for the
+        // figures empty.
+        List<double>? gaps = null;
+        foreach (var ((pid, chain), _) in _counts.Where(pair => pair.Key.Pid == drawing).OrderByDescending(pair => pair.Value))
+            if (intervals.TryGetValue((pid, chain), out var list) && list.Count > 0) { gaps = list; break; }
+        double? low1 = rate == 0 ? 0 : gaps is not null ? FrameSample.Low(gaps, 0.01) : null;
+        double? low01 = rate == 0 ? 0 : gaps is not null ? FrameSample.Low(gaps, 0.001) : null;
         // The desktop's GPU time over the frames its process drew, as a program's row shows it; nothing drawn, nothing said.
         long drawingFrames = busiest.GetValueOrDefault(drawing);
         double? gpuMs = drawingFrames > 0 && gpuBusy.TryGetValue(drawing, out var ms) ? Math.Min(ms / drawingFrames, 999.9) : null;
@@ -500,7 +493,7 @@ internal sealed class FrameRates : IDisposable
         _flusher?.Dispose(); _flusher = null;
         if (_loggerName != IntPtr.Zero) { Marshal.FreeHGlobal(_loggerName); _loggerName = IntPtr.Zero; }
         _events = []; _drained = [];
-        _intervals.Clear(); _lastPresent.Clear();
+        _lastPresent.Clear();
     }
 
     // Stops the sessions of BrimDecks no longer running (and the one this process may have left), found among all the machine's
