@@ -462,7 +462,11 @@ internal sealed class FrameRates : IDisposable
             if (error != 0) throw new TraceRefused("StartTrace", error);
         }
         finally { Marshal.FreeHGlobal(properties); }
-        Enable(DxgKrnl, 0x8008001, 0x8008001, 0xAB, 0xB2, 0xB4, 0xF4);
+        // The keyword match: an event is delivered when its keyword has a bit in common with the "any" mask (the DxgKrnl
+        // Present event carries 0x800000 among its bits, the scheduler's QueuePacket carries only the 0x1 bit) and ALL bits of
+        // the "all" mask. QueuePacket's keyword (0x4000000000000001) lacks 0x800000, so a non-zero "all" here dropped every
+        // scheduler event before our callback ever saw it; the event-ID filter below keeps the delivery to these IDs alone.
+        Enable(DxgKrnl, 0x8008001, 0, 0xAB, 0xB2, 0xB4, 0xF4);
         Enable(Dxgi, 0x8000000000000002, 0x8000000000000002, 0x2A);
         Enable(D3D9, 0x8000000000000002, 0x8000000000000002, 0x01);
         // EVENT_TRACE_LOGFILEW, 448 bytes on x64: LoggerName at 8, ProcessTraceMode at 28 (real time, event records, and raw
