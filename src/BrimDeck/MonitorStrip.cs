@@ -25,7 +25,7 @@ internal sealed class MonitorStrip : FrameworkElement
     private readonly DriveParts _driveParts;
     // Whether the low percentiles show next to a frame reading, taken from the settings when the row was built (a flip of
     // either toggle builds it again).
-    private readonly bool _fps1Low, _fps01Low, _fpsFrameTime;
+    private readonly bool _fps1Low, _fps01Low, _fpsFrameTime, _fpsGpuTime;
     private readonly StripPresence _presence;
     private readonly CompactMonitorItems _shown, _values;
     private readonly IReadOnlyList<CompactMonitorItems> _order;
@@ -59,10 +59,10 @@ internal sealed class MonitorStrip : FrameworkElement
     // glyph, its letter shown even when it is the only one.
     public MonitorStrip(IReadOnlyList<CompactReading> readings, StripColors colors, double scale, bool centered, StripPresence presence, double dpi,
         CompactMonitorItems unavailable = CompactMonitorItems.None, StripAdmission? admission = null, DriveParts parts = DriveParts.All,
-        bool fps1Low = false, bool fps01Low = false, bool fpsFrameTime = false)
+        bool fps1Low = false, bool fps01Low = false, bool fpsFrameTime = false, bool fpsGpuTime = false)
     {
         _driveParts = parts;
-        _fps1Low = fps1Low; _fps01Low = fps01Low; _fpsFrameTime = fpsFrameTime;
+        _fps1Low = fps1Low; _fps01Low = fps01Low; _fpsFrameTime = fpsFrameTime; _fpsGpuTime = fpsGpuTime;
         _easing = new PromptTimer(Dispatcher, EaseStep);
         _presence = presence; _dpi = dpi; _colors = colors; _centered = centered; _powerStyle = PowerStyle.For(colors.Palette);
         _order = [.. readings.Select(reading => reading.Item)];
@@ -109,7 +109,7 @@ internal sealed class MonitorStrip : FrameworkElement
         _width = CompactMonitor.Widths(_values, _dial, _ringFigure, _dial, ColumnsWidth(Environment.ProcessorCount),
             Math.Round(9 * _scale) + Math.Round(3 * _scale) + Math.Ceiling(Math.Max(text("99.9M"), text("99.9G"))), DrivesWidth(),
             Math.Round(9 * _scale) + Math.Round(3 * _scale) + FigureWidth("999W"), BatteryWidth + Math.Round(3 * _scale) + FigureWidth(WidestPercent),
-            FramesSlot + Math.Round(3 * _scale) + FigureWidth(WidestFrames) + Math.Round(2 * _scale) + SmallWidth(FramesUnit) + FrameTimeRoom() + LowRoom());
+            FramesSlot + Math.Round(3 * _scale) + FigureWidth(WidestFrames) + Math.Round(2 * _scale) + SmallWidth(FramesUnit) + FrameTimeRoom() + GpuRoom() + LowRoom());
     }
 
     private const string WidestDegrees = "125°", WidestPercent = "100%";
@@ -134,6 +134,10 @@ internal sealed class MonitorStrip : FrameworkElement
     // The frame time's room when the settings page's toggle asks for it: at the widest "999.9ms", so the row's layout holds
     // whatever the rate turns it into.
     private double FrameTimeRoom() => _fpsFrameTime ? Math.Round(3 * _scale) + FigureWidth(WidestFrameTime) : 0;
+    // The GPU frame time's room: the same figure at the widest ("999.9ms"), a dash while Windows' counters say nothing.
+    private double GpuRoom() => _fpsGpuTime ? Math.Round(3 * _scale) + FigureWidth(WidestFrameTime) : 0;
+    private static string GpuMs(double? gpuMs) => gpuMs is { } value && double.IsFinite(value)
+        ? Math.Clamp(value, 0, 999.9).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + "ms" : "—";
     // The figures after a ring or a drive letter: the share alone, the temperature alone, or both stacked in the smaller type or
     // side by side in the row's type, at the widest each can show.
     private double Column(CompactMonitorItems item, bool usage, bool heat)
@@ -465,6 +469,12 @@ internal sealed class MonitorStrip : FrameworkElement
         {
             var time = MonitorDraw.Text(FrameTime(frames?.PerSecond), _font, UI.Primary, ppd);
             MonitorDraw.Baseline(drawing, time, low, baseline);
+            low += FigureWidth(WidestFrameTime) + Math.Round(3 * _scale);
+        }
+        if (_fpsGpuTime)
+        {
+            var gpu = MonitorDraw.Text(GpuMs(frames?.GpuMs), _font, UI.Primary, ppd);
+            MonitorDraw.Baseline(drawing, gpu, low, baseline);
             low += FigureWidth(WidestFrameTime) + Math.Round(3 * _scale);
         }
         if (_fps1Low)

@@ -25,7 +25,7 @@ internal sealed class FramesBlock : FrameworkElement
     private FrameSample? _frames;
     // Whether the low percentiles and the frame time show follows the settings page's toggles (MonitorFps1Low/MonitorFps01Low/
     // MonitorFpsFrameTime).
-    private bool _show1, _show01, _showTime;
+    private bool _show1, _show01, _showTime, _showGpu;
     private readonly DrawingCache<(IReadOnlyList<double>, double, double, double)> _curve = new();
     // The widest frames a reading can show: the room every figure after the frame rate stands in, so none of them moves.
     private const string WidestFrames = "999";
@@ -34,6 +34,10 @@ internal sealed class FramesBlock : FrameworkElement
     private const string WidestFrameTime = "999.9ms";
     private static string FrameTime(double? rate) => rate is { } value && double.IsFinite(value) && value > 0
         ? Math.Clamp(1000.0 / value, 0, 999.9).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + "ms" : "—";
+    // The GPU frame time as the collapsed row's GpuMs draws it: the milliseconds Windows' counters say the GPU spent drawing
+    // one of the program's frames, a dash where they say nothing.
+    private static string GpuMs(double? gpuMs) => gpuMs is { } value && double.IsFinite(value)
+        ? Math.Clamp(value, 0, 999.9).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + "ms" : "—";
     // The low figure as the collapsed row's FramesFigure draws it: clamped to the three digits its room reserves.
     private static string Low(double? rate) => rate is { } value && double.IsFinite(value)
         ? Math.Clamp(Math.Round(value, MidpointRounding.AwayFromZero), 0, 999).ToString(System.Globalization.CultureInfo.InvariantCulture) : "—";
@@ -45,9 +49,9 @@ internal sealed class FramesBlock : FrameworkElement
         Describe();
     }
 
-    public void Set(MonitorSnapshot snapshot, bool low1, bool low01, bool frameTime)
+    public void Set(MonitorSnapshot snapshot, bool low1, bool low01, bool frameTime, bool gpuTime)
     {
-        _show1 = low1; _show01 = low01; _showTime = frameTime;
+        _show1 = low1; _show01 = low01; _showTime = frameTime; _showGpu = gpuTime;
         var frames = snapshot.Frames.OrDefault;
         if (ReferenceEquals(frames, _frames)) return;
         // The curve moves with every reading; the tooltip's words only when the figure, the program or the display change.
@@ -107,6 +111,13 @@ internal sealed class FramesBlock : FrameworkElement
         {
             var time = MonitorDraw.Text(FrameTime(frames.PerSecond), _caption, UI.Tertiary, ppd);
             MonitorDraw.Baseline(drawing, time, x + 3, baseline);
+            x += 3 + MonitorDraw.Text(WidestFrameTime, _caption, UI.Tertiary, ppd).WidthIncludingTrailingWhitespace;
+        }
+        // The GPU frame time in the same room, where the counters say: a dash while they do not, so it never reads as a fast frame.
+        if (_showGpu)
+        {
+            var gpu = MonitorDraw.Text(GpuMs(frames.GpuMs), _caption, UI.Tertiary, ppd);
+            MonitorDraw.Baseline(drawing, gpu, x + 3, baseline);
             x += 3 + MonitorDraw.Text(WidestFrameTime, _caption, UI.Tertiary, ppd).WidthIncludingTrailingWhitespace;
         }
         // The low percentiles each in the room the widest frames ("1% 999", "0.1% 999") reserve, caption size like the unit,

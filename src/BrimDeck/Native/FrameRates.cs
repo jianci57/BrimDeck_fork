@@ -56,6 +56,8 @@ internal sealed class FrameRates : IDisposable
     private const double Lag = 0.4;
     private static readonly TimeSpan FlushEvery = TimeSpan.FromMilliseconds(100);
     private Timer? _flusher;
+    // The GPU engines' running time per process (GpuTimes), collected once per reading for the frame-time figure.
+    private readonly GpuTimes _gpu = new();
     private const int MostEvents = 200_000;
     private List<(long Time, int Pid, long Chain)> _events = [];
     // The list Sample emptied last time, given back to be filled again rather than grown anew each second; not kept once a
@@ -184,7 +186,10 @@ internal sealed class FrameRates : IDisposable
         // A process's frames: its busiest swap chain, or its kernel records if more.
         var busiest = _busiest; busiest.Clear();
         foreach (var ((pid, _), count) in counts) busiest[pid] = Math.Max(busiest.GetValueOrDefault(pid), count);
-        if (IsDesktop(front)) return DesktopRate(front, frontPid, busiest, seconds, now);
+        // The GPU engines' running time per process, collected once for this reading (GpuTimes); the program's and the desktop's
+        // readings both divide it by the frames their process drew.
+        var gpuBusy = _gpu.Collect();
+        if (IsDesktop(front)) return DesktopRate(front, frontPid, busiest, seconds, now, gpuBusy);
         Dictionary<int, (int Parent, string File)> Known(int pid)
         {
             bool stale = _processes is null || _processesFront != frontPid || now - _processesAt >= ProcessesSeconds
@@ -230,6 +235,7 @@ internal sealed class FrameRates : IDisposable
         // front cannot pollute them. A browser's and a WebView2 program's frames come from a child process (its GPU process),
         // so the chain belongs to the program rather than to the process that presents it.
         Queue<double>? chosen = null;
+        double? gpuMs = null;
         if (frames > 0)
         {
             bool Belongs(int pid)
@@ -240,9 +246,21 @@ internal sealed class FrameRates : IDisposable
                 return (Same(child.File, self.File) || Same(child.File, "msedgewebview2.exe")) && Descends(pid, shown, processes);
             }
             chosen = Gaps(counts, Belongs);
+            // The GPU's running time over this interval (collected at the reading's start), over the frames the family drew in
+            // it: the average time the GPU spent drawing one of the program's frames. A process the counters say nothing about
+            // leaves the figure unknown (a dash), so an idle engine never reads as a 0 ms frame.
+            int familyFrames = 0; double busyMs = 0; bool busyKnown = false;
+            foreach (var ((pid, _), count) in counts)
+                if (Belongs(pid))
+                {
+                    familyFrames += (int)count;
+                    if (gpuBusy.TryGetValue(pid, out var ms)) { busyMs += ms; busyKnown = true; }
+                }
+            if (familyFrames > 0 && busyKnown) gpuMs = Math.Min(busyMs / familyFrames, 999.9);
         }
         // A program that drew nothing in the interval has no gaps to judge, and its worst share is nothing too: the low
-        // figures say 0 beside the 0 of the figure, rather than leaving the room the row keeps for them empty.
+        // figures say 0 beside the 0 of the figure, rather than leaving the room the row keeps for them empty. The GPU time
+        // says nothing when nothing was drawn (there was no frame to draw), so it keeps its dash.
         double? low1 = frames == 0 ? 0 : chosen is not null ? FrameSample.Low(chosen.ToArray(), 0.01) : null;
         double? low01 = frames == 0 ? 0 : chosen is not null ? FrameSample.Low(chosen.ToArray(), 0.001) : null;
         return new FrameSample(rate, name)
@@ -252,6 +270,7 @@ internal sealed class FrameRates : IDisposable
             History = _history.ToArray(),
             Low1 = low1,
             Low01 = low01,
+            GpuMs = gpuMs,
         };
     }
 
@@ -275,7 +294,7 @@ internal sealed class FrameRates : IDisposable
 
     // The desktop's own frames, with the desktop or taskbar in front (explorer, explorerPid): a live wallpaper's program if one draws
     // the desktop, named and with its icon, else the desktop itself. On the display under the window in front, for the refresh rate.
-    private Reading<FrameSample> DesktopRate(IntPtr front, int explorerPid, Dictionary<int, long> busiest, double seconds, double now)
+    private Reading<FrameSample> DesktopRate(IntPtr front, int explorerPid, Dictionary<int, long> busiest, double seconds, double now, Dictionary<int, double> gpuBusy)
     {
         var display = Display(front);
         if (_wallpaperFront != front || now - _wallpaperAt >= LookAgainSeconds) { _wallpaper = Wallpaper(explorerPid); _wallpaperFront = front; _wallpaperAt = now; }
@@ -293,6 +312,9 @@ internal sealed class FrameRates : IDisposable
         var gaps = _counts.Count == 0 ? null : Gaps(_counts, pid => pid == drawing);
         double? low1 = rate == 0 ? 0 : gaps is not null ? FrameSample.Low(gaps.ToArray(), 0.01) : null;
         double? low01 = rate == 0 ? 0 : gaps is not null ? FrameSample.Low(gaps.ToArray(), 0.001) : null;
+        // The desktop's GPU time over the frames its process drew, as a program's row shows it; nothing drawn, nothing said.
+        long drawingFrames = busiest.GetValueOrDefault(drawing);
+        double? gpuMs = drawingFrames > 0 && gpuBusy.TryGetValue(drawing, out var ms) ? Math.Min(ms / drawingFrames, 999.9) : null;
         return new FrameSample(rate, name)
         {
             Path = path,
@@ -300,6 +322,7 @@ internal sealed class FrameRates : IDisposable
             History = _history.ToArray(),
             Low1 = low1,
             Low01 = low01,
+            GpuMs = gpuMs,
         };
     }
 
@@ -596,6 +619,7 @@ internal sealed class FrameRates : IDisposable
     public void Dispose()
     {
         lock (_lock) { _wanted = false; StopTrace(); }
+        _gpu.Dispose();
     }
 
     private sealed class TraceRefused(string call, uint error) : Exception($"{call} failed: {error}");

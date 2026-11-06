@@ -1042,7 +1042,7 @@ public partial class MainWindow
         double dpi = VisualTreeHelper.GetDpi(this).DpiScaleX;
         // The system readings ask for the width of everything chosen, on whole device pixels; the whole ones that fit their region show.
         var strip = Settings.ShowsMonitor(EffectiveStyle) ? new MonitorStrip(Settings.CompactReadings, MonitorThemeColors.Strip(Settings), scale,
-            !(media && showCover) && !equalizer && apps.Count == 0 && text.Length == 0 && clock is null, _stripPresence, dpi, _stripUnavailable = _stripAdmission.Hidden, _stripAdmission, fps1Low: Settings.MonitorFps1Low, fps01Low: Settings.MonitorFps01Low, fpsFrameTime: Settings.MonitorFpsFrameTime) : null;
+            !(media && showCover) && !equalizer && apps.Count == 0 && text.Length == 0 && clock is null, _stripPresence, dpi, _stripUnavailable = _stripAdmission.Hidden, _stripAdmission, fps1Low: Settings.MonitorFps1Low, fps01Low: Settings.MonitorFps01Low, fpsFrameTime: Settings.MonitorFpsFrameTime, fpsGpuTime: Settings.MonitorFpsGpuTime) : null;
         _stripLayout = _stripAdmission.Layout;
         // Readings that do not fit scroll through a window of whole readings, as the rings do (CompactSpacing.Window).
         var layout = CompactMusicLayout.Calculate(contentWidth, scale, media, apps.Count, text.Length > 0, clock?.ReservedWidth ?? 0, strip?.PreferredWidth ?? 0, equalizer, Settings.EqualizerBars, showCover); CurrentCompactLayout = layout;

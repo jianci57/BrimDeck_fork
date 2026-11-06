@@ -62,6 +62,7 @@ internal sealed class MonitorView : Grid
     public bool Fps1Low { get; set; }
     public bool Fps01Low { get; set; }
     public bool FpsFrameTime { get; set; }
+    public bool FpsGpuTime { get; set; }
     private readonly bool _temperatures;
     private readonly Grid _readings = new();
     // How far the readings stop above the page's foot, so their last line ends level with the list's last row (AlignFoot).
@@ -308,7 +309,7 @@ internal sealed class MonitorView : Grid
         _network.Set(snapshot.Network, snapshot.DownHistory, snapshot.UpHistory);
         _storage?.Set(snapshot.Storage, motion);
         _power?.Set(snapshot, motion);
-        _frames?.Set(snapshot, Fps1Low, Fps01Low, FpsFrameTime);
+        _frames?.Set(snapshot, Fps1Low, Fps01Low, FpsFrameTime, FpsGpuTime);
         _list?.Set(snapshot.Processes, _cores, motion);
         _processes = snapshot.Processes.OrDefault;
         // An open card follows its app's readings; it closes when the app has left the list.

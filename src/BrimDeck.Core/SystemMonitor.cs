@@ -263,6 +263,10 @@ public sealed record FrameSample(double PerSecond, string Program)
     // into a rate), null where too few frames were counted.
     public double? Low1 { get; init; }
     public double? Low01 { get; init; }
+    // GpuMs: the average time the GPU spent executing one of the program's frames over the last reading's interval (the GPU
+    // engines' running time over the frames drawn), null while no measurement exists (no counters, no frames this interval). It
+    // is the time drawing took, not the pace frames appear at (that is 1000 over PerSecond).
+    public double? GpuMs { get; init; }
 
     // The average rate of the slowest share of the gaps given (0.01 for the 1% low, 0.001 for the 0.1% low): the gaps sorted
     // slowest first, the share averaged, and 1000 ms over it. At least one frame counts, so a small sample still has a low (the

@@ -521,9 +521,13 @@ public sealed class DeckSettings
     // low). Only with the frame rate on.
     public bool MonitorFps1Low { get; set; }
     public bool MonitorFps01Low { get; set; }
-    // The frame-rate line also shows how long drawing one frame takes (the rate turned into milliseconds, 1000 over it). Only
-    // with the frame rate on.
+    // The frame-rate line also shows the interval between two frames (the rate turned into milliseconds, 1000 over it) — the
+    // pace frames appear at, not the work inside one. Only with the frame rate on.
     public bool MonitorFpsFrameTime { get; set; }
+    // The frame-rate line also shows the average time the GPU spent drawing one of the program's frames (the GPU engines'
+    // running time over the reading, over the frames the program drew), where Windows' counters say. Null while they do not.
+    // Only with the frame rate on.
+    public bool MonitorFpsGpuTime { get; set; }
     // The debug page: with DebugOverride on, the collapsed row's readings take the values of the Debug fields instead of the
     // sampler's (DebugOverrides), so a layout can be studied with steady figures. The values persist, so a session picks up
     // where the last one left off.

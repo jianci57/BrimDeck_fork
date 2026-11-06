@@ -96,10 +96,15 @@ public sealed partial class SettingsWindow
                 Loc.T("在帧率数字旁显示最差的 0.1% 帧的平均帧率。",
                         "Shows the average rate of the worst 0.1% of frames beside the figure.")),
                 () => S.MonitorFrames && !Reading(S, CompactMonitorItems.Frames).Visible),
-            WithFrameAccess(Toggle(Loc.T("显示帧时间", "Show the frame time"), S.MonitorFpsFrameTime, v => Change(s => s.MonitorFpsFrameTime = v),
+            WithFrameAccess(Toggle(Loc.T("显示出帧间隔", "Show the frame interval"), S.MonitorFpsFrameTime, v => Change(s => s.MonitorFpsFrameTime = v),
                 help:
-                Loc.T("在帧率数字旁显示画一帧所需的毫秒数（1000 ÷ 帧率）。帧率开着才有读数。",
-                        "Shows the milliseconds it takes to draw one frame beside the figure (1000 over the rate). It reads nothing unless the frame rate is on.")),
+                Loc.T("在帧率数字旁显示前后两帧之间隔了多久（1000 ÷ 帧率）。这是出场的节奏，不是画一帧的耗时。帧率开着才有读数。",
+                        "Shows how far apart two frames are beside the figure (1000 over the rate) — the pace frames appear at, not the work inside one. It reads nothing unless the frame rate is on.")),
+                () => S.MonitorFrames && !Reading(S, CompactMonitorItems.Frames).Visible),
+            WithFrameAccess(Toggle(Loc.T("显示 GPU 帧耗时", "Show the GPU frame time"), S.MonitorFpsGpuTime, v => Change(s => s.MonitorFpsGpuTime = v),
+                help:
+                Loc.T("在帧率数字旁显示 GPU 画一帧实际执行的平均毫秒数（按本秒 GPU 运行时间 ÷ 帧数）。机器或驱动不提供时显示破折号。帧率开着才有读数。",
+                        "Shows the average milliseconds the GPU actually spent drawing one of the program's frames (its engines' running time over the reading, over the frames drawn). A dash where Windows does not say. It reads nothing unless the frame rate is on.")),
                 () => S.MonitorFrames && !Reading(S, CompactMonitorItems.Frames).Visible),
             WithSensorStops(Toggle(Loc.T("显示温度", "Show temperatures"), S.MonitorTemperatures, v => Resize(s => s.MonitorTemperatures = v, DeckPage.Monitor),
                 help:
