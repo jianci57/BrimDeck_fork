@@ -521,6 +521,9 @@ public sealed class DeckSettings
     // low). Only with the frame rate on.
     public bool MonitorFps1Low { get; set; }
     public bool MonitorFps01Low { get; set; }
+    // The frame-rate line also shows how long drawing one frame takes (the rate turned into milliseconds, 1000 over it). Only
+    // with the frame rate on.
+    public bool MonitorFpsFrameTime { get; set; }
     // The debug page: with DebugOverride on, the collapsed row's readings take the values of the Debug fields instead of the
     // sampler's (DebugOverrides), so a layout can be studied with steady figures. The values persist, so a session picks up
     // where the last one left off.

@@ -96,6 +96,11 @@ public sealed partial class SettingsWindow
                 Loc.T("在帧率数字旁显示最差的 0.1% 帧的平均帧率。",
                         "Shows the average rate of the worst 0.1% of frames beside the figure.")),
                 () => S.MonitorFrames && !Reading(S, CompactMonitorItems.Frames).Visible),
+            WithFrameAccess(Toggle(Loc.T("显示帧时间", "Show the frame time"), S.MonitorFpsFrameTime, v => Change(s => s.MonitorFpsFrameTime = v),
+                help:
+                Loc.T("在帧率数字旁显示画一帧所需的毫秒数（1000 ÷ 帧率）。帧率开着才有读数。",
+                        "Shows the milliseconds it takes to draw one frame beside the figure (1000 over the rate). It reads nothing unless the frame rate is on.")),
+                () => S.MonitorFrames && !Reading(S, CompactMonitorItems.Frames).Visible),
             WithSensorStops(Toggle(Loc.T("显示温度", "Show temperatures"), S.MonitorTemperatures, v => Resize(s => s.MonitorTemperatures = v, DeckPage.Monitor),
                 help:
                 Loc.T("读不到的温度不显示。CPU 温度由主板固件提供，许多电脑没有这项数据；有的电脑读到的是主板的温度，不是 CPU 本身的温度。",

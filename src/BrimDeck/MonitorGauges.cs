@@ -23,11 +23,17 @@ internal sealed class FramesBlock : FrameworkElement
     private readonly string _color;
     private readonly double _body, _caption;
     private FrameSample? _frames;
-    // Whether the low percentiles show follows the settings page's two toggles (MonitorFps1Low/MonitorFps01Low).
-    private bool _show1, _show01;
+    // Whether the low percentiles and the frame time show follows the settings page's toggles (MonitorFps1Low/MonitorFps01Low/
+    // MonitorFpsFrameTime).
+    private bool _show1, _show01, _showTime;
     private readonly DrawingCache<(IReadOnlyList<double>, double, double, double)> _curve = new();
     // The widest frames a reading can show: the room every figure after the frame rate stands in, so none of them moves.
     private const string WidestFrames = "999";
+    // The frame time: 1000 over the rate, in milliseconds, one decimal, at the widest "999.9ms"; a dash while there is no
+    // reading (no frames, no time).
+    private const string WidestFrameTime = "999.9ms";
+    private static string FrameTime(double? rate) => rate is { } value && double.IsFinite(value) && value > 0
+        ? Math.Clamp(1000.0 / value, 0, 999.9).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + "ms" : "—";
     // The low figure as the collapsed row's FramesFigure draws it: clamped to the three digits its room reserves.
     private static string Low(double? rate) => rate is { } value && double.IsFinite(value)
         ? Math.Clamp(Math.Round(value, MidpointRounding.AwayFromZero), 0, 999).ToString(System.Globalization.CultureInfo.InvariantCulture) : "—";
@@ -39,9 +45,9 @@ internal sealed class FramesBlock : FrameworkElement
         Describe();
     }
 
-    public void Set(MonitorSnapshot snapshot, bool low1, bool low01)
+    public void Set(MonitorSnapshot snapshot, bool low1, bool low01, bool frameTime)
     {
-        _show1 = low1; _show01 = low01;
+        _show1 = low1; _show01 = low01; _showTime = frameTime;
         var frames = snapshot.Frames.OrDefault;
         if (ReferenceEquals(frames, _frames)) return;
         // The curve moves with every reading; the tooltip's words only when the figure, the program or the display change.
@@ -95,6 +101,14 @@ internal sealed class FramesBlock : FrameworkElement
         MonitorDraw.Baseline(drawing, unit, x + number.WidthIncludingTrailingWhitespace + 3, baseline);
         x += MonitorDraw.Text(WidestFrames, _body + 1, UI.Primary, ppd, strong: true).WidthIncludingTrailingWhitespace + 3 + unit.WidthIncludingTrailingWhitespace;
         if (_frames is not { } frames) return;
+        // The frame time in the room the widest "999.9ms" reserves, caption size like the unit, only where the settings page's
+        // toggle asks for it, so it does not move with the figure's digits.
+        if (_showTime)
+        {
+            var time = MonitorDraw.Text(FrameTime(frames.PerSecond), _caption, UI.Tertiary, ppd);
+            MonitorDraw.Baseline(drawing, time, x + 3, baseline);
+            x += 3 + MonitorDraw.Text(WidestFrameTime, _caption, UI.Tertiary, ppd).WidthIncludingTrailingWhitespace;
+        }
         // The low percentiles each in the room the widest frames ("1% 999", "0.1% 999") reserve, caption size like the unit,
         // only where the settings page's toggles ask for them, so none of them moves with the figures.
         if (_show1)
