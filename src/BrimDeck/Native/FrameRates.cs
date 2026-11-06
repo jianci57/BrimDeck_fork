@@ -56,8 +56,6 @@ internal sealed class FrameRates : IDisposable
     private const double Lag = 0.4;
     private static readonly TimeSpan FlushEvery = TimeSpan.FromMilliseconds(100);
     private Timer? _flusher;
-    // The GPU engines' running time per process (GpuTimes), collected once per reading for the frame-time figure.
-    private readonly GpuTimes _gpu = new();
     private const int MostEvents = 200_000;
     private List<(long Time, int Pid, long Chain)> _events = [];
     // The list Sample emptied last time, given back to be filled again rather than grown anew each second; not kept once a
@@ -186,9 +184,9 @@ internal sealed class FrameRates : IDisposable
         // A process's frames: its busiest swap chain, or its kernel records if more.
         var busiest = _busiest; busiest.Clear();
         foreach (var ((pid, _), count) in counts) busiest[pid] = Math.Max(busiest.GetValueOrDefault(pid), count);
-        // The GPU engines' running time per process, collected once for this reading (GpuTimes); the program's and the desktop's
-        // readings both divide it by the frames their process drew.
-        var gpuBusy = _gpu.Collect();
+        // The GPU scheduler's busy time per process, integrated live from the QueuePacket events this session already receives;
+        // the program's and the desktop's readings both divide it by the frames their process drew.
+        var gpuBusy = GpuBusySnapshot();
         if (IsDesktop(front)) return DesktopRate(front, frontPid, busiest, seconds, now, gpuBusy);
         Dictionary<int, (int Parent, string File)> Known(int pid)
         {
@@ -464,7 +462,7 @@ internal sealed class FrameRates : IDisposable
             if (error != 0) throw new TraceRefused("StartTrace", error);
         }
         finally { Marshal.FreeHGlobal(properties); }
-        Enable(DxgKrnl, 0x8000001, 0x8000001, 0xAB);
+        Enable(DxgKrnl, 0x8008001, 0x8008001, 0xAB, 0xB2, 0xB4, 0xF4);
         Enable(Dxgi, 0x8000000000000002, 0x8000000000000002, 0x2A);
         Enable(D3D9, 0x8000000000000002, 0x8000000000000002, 0x01);
         // EVENT_TRACE_LOGFILEW, 448 bytes on x64: LoggerName at 8, ProcessTraceMode at 28 (real time, event records, and raw
@@ -592,7 +590,17 @@ internal sealed class FrameRates : IDisposable
         int length = (ushort)Marshal.ReadInt16(record, 86);
         IntPtr data = Marshal.ReadIntPtr(record, 96);
         long time = Marshal.ReadInt64(record, 16);
-        if (provider == DxgKrnlData1) { Count(time, pid, Kernel); return; }
+        if (provider == DxgKrnlData1)
+        {
+            _lastEventTime = time;
+            ushort id = (ushort)Marshal.ReadInt16(record, 40);   // EventDescriptor.Id
+            if (id == 0xAB) Count(time, pid, Kernel);
+            // The GPU scheduler's packet lifecycle (PresentMon's GPU Busy reads exactly these): Start (0xB2) carries the
+            // packet's type, Start_2 (0xF4) is a monitor wait, Stop (0xB4) completes the context's packet.
+            else if (id == 0xB2) PacketStart(record, time, pid);
+            else if (id == 0xB4) PacketStop(record, time);
+            return;
+        }
         int pointer = (Marshal.ReadInt16(record, 4) & 0x40) != 0 ? 8 : 4;
         long chain = 0;
         if (data != IntPtr.Zero && length >= pointer + 4)
@@ -602,6 +610,87 @@ internal sealed class FrameRates : IDisposable
         }
         Count(time, pid, chain);
     }
+    private long _lastEventTime;
+
+    // The GPU scheduler's packets, per context: while a context runs a work packet it is busy, and a process is busy while any
+    // of its contexts is. Waits occupy their context's queue but are not the GPU working, so they neither open nor extend the
+    // busy span. The union integration across a process's engines comes free: the busy span opens at the first context going
+    // busy and closes at the last one finishing, without counting parallel engines twice.
+    private void PacketStart(IntPtr record, long time, int pid)
+    {
+        if (!PacketProperty(record, PacketTypeDescriptor) || Marshal.ReadInt32(PropertyBuffer) == 4 /* DXGKETW_WAIT_COMMAND_BUFFER */) return;
+        if (!PacketProperty(record, HContextDescriptor)) return;
+        ulong context = unchecked((ulong)Marshal.ReadInt64(PropertyBuffer));
+        lock (_lock)
+        {
+            _ctxPid[context] = pid;
+            // A second Start while the context runs (queue buildup, a Stop lost) folds into the running packet's span.
+            if (_ctxWorkRunning.TryAdd(context, time) && _pidWorkRunning.GetValueOrDefault(pid) == 0) _pidBusyOpen[pid] = time;
+        }
+    }
+    private void PacketStop(IntPtr record, long time)
+    {
+        if (!PacketProperty(record, HContextDescriptor)) return;
+        ulong context = unchecked((ulong)Marshal.ReadInt64(PropertyBuffer));
+        lock (_lock)
+        {
+            if (!_ctxWorkRunning.Remove(context, out var startedAt)) return;
+            if (!_ctxPid.TryGetValue(context, out var pid) || !_pidWorkRunning.TryGetValue(pid, out var running)) return;
+            if (running <= 1)
+            {
+                _pidWorkRunning.Remove(pid);
+                _pidBusyOpen.Remove(pid);
+                _gpuBusyTicks[pid] = _gpuBusyTicks.GetValueOrDefault(pid) + (time - _pidBusyOpen.GetValueOrDefault(pid, startedAt));
+            }
+            else _pidWorkRunning[pid] = running - 1;
+        }
+    }
+
+    // The busy milliseconds per process integrated since the last reading. A Stop can be lost to a dropped event, which would
+    // hold a context open forever: past three seconds of apparent running the context goes back to idle, unpaid (a render
+    // packet that long does not happen on a present-driven workload). The context table is capped for the same reason.
+    private Dictionary<int, double> GpuBusySnapshot()
+    {
+        lock (_lock)
+        {
+            long stuck = _lastEventTime - 3 * Stopwatch.Frequency;
+            List<ulong>? orphaned = null;
+            foreach (var (context, startedAt) in _ctxWorkRunning)
+                if (startedAt < stuck) (orphaned ??= []).Add(context);
+            if (orphaned is not null)
+                foreach (var context in orphaned)
+                {
+                    _ctxWorkRunning.Remove(context);
+                    if (_ctxPid.TryGetValue(context, out var pid) && _pidWorkRunning.TryGetValue(pid, out var running))
+                    {
+                        if (running <= 1) { _pidWorkRunning.Remove(pid); _pidBusyOpen.Remove(pid); }
+                        else _pidWorkRunning[pid] = running - 1;
+                    }
+                }
+            if (_ctxPid.Count > 16_384) _ctxPid.Clear();
+            var times = new Dictionary<int, double>(_gpuBusyTicks.Count);
+            foreach (var (pid, ticks) in _gpuBusyTicks)
+                if (ticks > 0) times[pid] = ticks * 1000.0 / Stopwatch.Frequency;
+            _gpuBusyTicks.Clear();
+            return times;
+        }
+    }
+    private readonly Dictionary<ulong, int> _ctxPid = [];
+    private readonly Dictionary<ulong, long> _ctxWorkRunning = [];
+    private readonly Dictionary<int, int> _pidWorkRunning = [];
+    private readonly Dictionary<int, long> _pidBusyOpen = [];
+    private readonly Dictionary<int, long> _gpuBusyTicks = [];
+
+    // The queue packet payloads by name (TdhGetProperty): the layout comes from the manifest at runtime rather than guessed
+    // offsets — the lesson the PDH route taught the hard way.
+    private static readonly UIntPtr PacketTypeName = (UIntPtr)Marshal.StringToHGlobalUni("PacketType");
+    private static readonly UIntPtr HContextName = (UIntPtr)Marshal.StringToHGlobalUni("hContext");
+    private static readonly IntPtr PropertyBuffer = Marshal.AllocHGlobal(16);
+    private static readonly PropertyDataDescriptor[] PacketTypeDescriptor = [new() { Name = PacketTypeName, Index = 0 }];
+    private static readonly PropertyDataDescriptor[] HContextDescriptor = [new() { Name = HContextName, Index = 0 }];
+
+    private static bool PacketProperty(IntPtr record, PropertyDataDescriptor[] descriptor)
+        => TdhGetProperty(record, 0, IntPtr.Zero, 1, descriptor, 8, PropertyBuffer) == 0;
     private void Count(long time, int pid, long chain)
     {
         lock (_lock) if (_events.Count < MostEvents) _events.Add((time, pid, chain));
@@ -619,7 +708,6 @@ internal sealed class FrameRates : IDisposable
     public void Dispose()
     {
         lock (_lock) { _wanted = false; StopTrace(); }
-        _gpu.Dispose();
     }
 
     private sealed class TraceRefused(string call, uint error) : Exception($"{call} failed: {error}");
@@ -632,6 +720,10 @@ internal sealed class FrameRates : IDisposable
     [DllImport("advapi32.dll")] private static extern uint EnableTraceEx2(ulong handle, in Guid provider, uint code, byte level, ulong any, ulong all, uint timeout, IntPtr parameters);
     [DllImport("advapi32.dll", SetLastError = true)] private static extern ulong OpenTraceW(IntPtr logfile);
     [DllImport("advapi32.dll")] private static extern uint ProcessTrace(ulong[] handles, uint count, IntPtr start, IntPtr end);
+
+    // TDH: the event payload's properties by name (PROPERTY_DATA_DESCRIPTOR: the name's pointer, then the array index).
+    [StructLayout(LayoutKind.Sequential)] private struct PropertyDataDescriptor { public UIntPtr Name; public uint Index; }
+    [DllImport("tdh.dll")] private static extern uint TdhGetProperty(IntPtr eventRecord, uint contextCount, IntPtr contexts, uint propertyCount, PropertyDataDescriptor[] descriptors, uint size, IntPtr buffer);
     [DllImport("advapi32.dll")] private static extern uint CloseTrace(ulong handle);
     [DllImport("advapi32.dll")] private static extern uint QueryAllTracesW([In] IntPtr[] properties, uint count, out uint loggers);
     [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
