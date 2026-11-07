@@ -9,6 +9,16 @@ void Check(string name, bool condition)
 }
 JsonElement Json(string value) { using var doc = JsonDocument.Parse(value); return doc.RootElement.Clone(); }
 DeckSettings Only(params ProviderId[] ids) => new() { Apps = ids.Select(id => new AppEntry { Id = id }).ToList() };
+// "--only frames": the frame timeline, GPU work and frame rate logic, without the rest (some of it
+// P/Invokes into libraries Linux does not have).
+if (args is ["--only", "frames"])
+{
+    FrameTimelineTests.Run(Check);
+    FrameSampleTests.Run(Check);
+    FrameRateTests.Run(Check);
+    Console.WriteLine($"{passed} checks passed.");
+    return 0;
+}
 var root = Path.Combine(Path.GetTempPath(), "BrimDeck-Tests-" + Guid.NewGuid().ToString("N"));
 Directory.CreateDirectory(root);
 try
@@ -24,6 +34,7 @@ try
     EqualizerModeTests.Run(root, Check);
     ColorMathTests.Run(Check);
     FrameSampleTests.Run(Check);
+    FrameTimelineTests.Run(Check);
     DebugOverridesTests.Run(Check);
     CompactSpacingTests.Run(Check);
     CompactDragTests.Run(Check);
@@ -829,6 +840,7 @@ finally
     // A unique test-owned directory, verified before recursive cleanup.
     if (Path.GetFullPath(root).StartsWith(Path.GetFullPath(Path.GetTempPath()), StringComparison.OrdinalIgnoreCase) && Path.GetFileName(root).StartsWith("BrimDeck-Tests-")) Directory.Delete(root, true);
 }
+return 0;
 
 sealed class CatalogHandler(string json) : HttpMessageHandler
 {

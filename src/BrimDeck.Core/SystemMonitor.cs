@@ -263,9 +263,9 @@ public sealed record FrameSample(double PerSecond, string Program)
     // into a rate), null where too few frames were counted.
     public double? Low1 { get; init; }
     public double? Low01 { get; init; }
-    // GpuMs: the average time the GPU spent executing one of the program's frames over the last reading's interval (the GPU
-    // engines' running time over the frames drawn), null while no measurement exists (no counters, no frames this interval). It
-    // is the time drawing took, not the pace frames appear at (that is 1000 over PerSecond).
+    // GpuMs: the selected rendering process's GPU execution busy-time union over this reading's window, divided by the same
+    // selected chain's frame count as PerSecond. This is a window average, not a measurement attributed to each frame; other
+    // GPU work in that process is included. HAGS uses queue execution as a proxy. Null without a known trace or any frames.
     public double? GpuMs { get; init; }
 
     // The average rate of the slowest share of the gaps given (0.01 for the 1% low, 0.001 for the 0.1% low): the gaps sorted

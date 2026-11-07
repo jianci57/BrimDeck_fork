@@ -19,6 +19,9 @@ internal static class Program
             if (args is ["--only", "gpu"]) { CheckGpus(); return Finish(); }
             if (args is ["--only", "capture"]) { CaptureChecks.Run(Check); return Finish(); }
             if (args is ["--only", "frames"]) { FrameRateChecks.Run(Check); return Finish(); }
+            if (args is ["--frame-probe"]) { FrameRateChecks.Probe(Check); return Finish(); }
+            if (args is ["--frame-decode"]) { FrameRateChecks.Decode(Check); FrameRateChecks.OverflowRecovery(Check); return Finish(); }
+            if (args is ["--frame-trace-probe", var target] && int.TryParse(target, out var targetPid) && targetPid > 0) { FrameRateChecks.TraceProbe(Check, targetPid); return Finish(); }
             if (args is ["--only", "ringletter", ..]) { RingLetterChecks.Run(Check, args.Length > 2 ? args[2] : null); return Finish(); }
             if (args is ["--only", "drawn"]) { DrawnAutomationTests.Run(Check); return Finish(); }
             if (args is ["--only", "settings"]) { SettingsFocusTests.Run(Check); BrimDeck.MainWindow.CheckPageCapsuleFit(Check); return Finish(); }

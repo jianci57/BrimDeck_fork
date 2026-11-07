@@ -21,10 +21,9 @@ namespace BrimDeck.Native;
 // The desktop and the taskbar in front show the desktop's own frames: a live wallpaper (Wallpaper Engine, Lively) draws in a
 // window of its own inside the desktop's (a child of Progman or WorkerW not owned by explorer), so that program's frame rate and
 // name show; behind a still wallpaper, the desktop (explorer's own frames, near none).
-// Only these three events are asked for (an event ID filter), so the session costs little: about 1 ms of processor time a second
-// with two displays drawing at 60 frames a second each, and the compositor's and the kernel's own did not rise; counting frames by
-// capturing the screen (Windows Graphics Capture) took about 39 ms here and raised the compositor's by a third of a percent of the
-// machine, so it is not used.
+// The session subscribes to the selected present events and the DxgKrnl device, context, hardware-queue and packet events used to
+// reconstruct GPU work. Each provider is filtered to those event IDs; the GPU figure is unknown when the trace cannot establish work.
+// Capturing the screen (Windows Graphics Capture) was measured separately at about 39 ms here and is not used.
 // Reading the events takes membership of the Performance Log Users group (or an elevated process); without it the session is
 // refused and there is no frame rate (State None): the collapsed row leaves the reading out and the page's line shows a dash.
 // Which program: the one whose window is in front. A browser or an Electron app draws in a child process of the same executable,
@@ -57,22 +56,20 @@ internal sealed class FrameRates : IDisposable
     private static readonly TimeSpan FlushEvery = TimeSpan.FromMilliseconds(100);
     private Timer? _flusher;
     private const int MostEvents = 200_000;
-    private List<(long Time, int Pid, long Chain)> _events = [];
-    // The list Sample emptied last time, given back to be filled again rather than grown anew each second; not kept once a
-    // stall has grown it large.
-    private List<(long Time, int Pid, long Chain)> _drained = [];
+    // The raw events of the live session, as they arrive on the reader's callback: present starts, and
+    // the scheduler's packet and mapping events. Sample is the single consumer: it takes the list, feeds
+    // the timeline (a new one for each session generation) and reads one window out of it. A generation
+    // that has been stopped or replaced loses its events at the door, so nothing of an old session can
+    // reach the new session's reading.
+    private List<FrameTraceEvent> _pending = [], _spare = [];
+    private bool _overflow;
+    private int _generation;
     private const int KeptCapacity = 16_384;
-    // Sample's own, emptied at each reading.
-    private readonly Dictionary<(int Pid, long Chain), long> _counts = [];
-    private readonly Dictionary<int, long> _busiest = [];
-    // _lastPresent turns the next frame's arrival into a gap; gaps past a second are suspend gaps, not frames, and go. The
-    // gaps themselves are kept per reading only (the interval's own frames are what both the figure and the percentiles judge).
-    private readonly Dictionary<(int Pid, long Chain), long> _lastPresent = [];
-    private double _cutoff = double.NaN;
-    private readonly EventRecordCallback _callback;
+    // The sampler's own: the window logic of one session, dropped when the session is (reset, restart,
+    // stop) and rebuilt from the next events. Never touched by the reader's thread.
+    private FrameTimeline? _timeline;
     private ulong _session, _trace;
     private Thread? _reader;
-    private IntPtr _loggerName;
     private bool _wanted, _refused;
     // Set when the frame rate is wanted anew: the sampler's thread starts its count and its history over (Sample).
     private bool _reset = true;
@@ -94,7 +91,6 @@ internal sealed class FrameRates : IDisposable
     private int _processesFront;
     private const double ProcessesSeconds = 10;
 
-    public FrameRates() => _callback = OnEvent;
 
     // Found while the events are read, None once the session was refused (no permission); Unknown before it is asked for. Kept
     // while not wanted, so a refusal is not asked again until BrimDeck starts again.
@@ -124,199 +120,117 @@ internal sealed class FrameRates : IDisposable
     // without permission, or on the first call, which starts the count.
     public Reading<FrameSample> Sample(double now)
     {
-        List<(long Time, int Pid, long Chain)> events;
-        bool reset;
+        List<FrameTraceEvent> events;
+        bool reset; int generation;
         lock (_lock)
         {
             if (!_wanted) return Reading<FrameSample>.Unavailable(Why.Waiting);
-            if (_refused) return Reading<FrameSample>.Unavailable(Loc.T("无权读取帧事件", "Not allowed to read frame events"));
-            // The session ended without being asked (stopped from outside): it is started again, at most every five seconds.
-            if (_reader is { IsAlive: false } && now - _restarted >= 5)
+            if (_refused) return Reading<FrameSample>.Unavailable(Loc.T("无权读取帧事件", "No access to frame events"));
+            if ((_reader is null || !_reader.IsAlive) && now - _restarted >= 5)
             {
-                _restarted = now;
-                StopTrace();
+                _restarted = now; StopTrace();
                 try { StartTrace(); _reset = true; }
                 catch (TraceRefused ex) { Debug.WriteLine(ex.Message); StopTrace(); }
             }
-            events = _events; _events = _drained;
-            reset = _reset; _reset = false;
+            generation = _generation;
+            events = _pending; _pending = _spare; _spare = [];
+            bool overflow = _overflow;
+            reset = _reset || overflow;
+            _reset = false; _overflow = false;
+            // An overflowed batch is thrown away whole, never fed to the new timeline: a batch whose stops
+            // were lost would leave packets open forever and paint busy time into future windows.
+            if (overflow) events.Clear();
+            // The mappings that died with the batch are asked for again (capture state). If Windows
+            // refuses, the reading stays unknown rather than inventing work from a timeline missing them.
+            if (overflow)
+                try { Enable(DxgKrnl, 0x841, 0, EVENT_CONTROL_CODE_CAPTURE_STATE, DxgKrnlIds); }
+                catch (TraceRefused ex) { Debug.WriteLine(ex.Message); }
         }
-        // The frames presented up to the cutoff are counted (and dropped after a reset); the later ones wait for the next Sample.
-        double cutoff = now - Lag;
-        long through = (long)(cutoff * Stopwatch.Frequency);
-        var counts = _counts; counts.Clear();
-        // The gaps between the interval's own frames, per chain: the low percentiles are read over exactly the frames the
-        // figure counts (this interval's presents), not over a longer window, so both numbers tell of the same frames.
-        var intervals = new Dictionary<(int Pid, long Chain), List<double>>();
-        int later = 0;
-        foreach (var e in events)
-            if (e.Time > through) later++;
-            else if (!reset)
-            {
-                counts[(e.Pid, e.Chain)] = counts.GetValueOrDefault((e.Pid, e.Chain)) + 1;
-                // The gap to the chain's previous frame, in milliseconds; past a second it is a suspend gap, not a frame, and goes.
-                if (_lastPresent.TryGetValue((e.Pid, e.Chain), out var last))
-                {
-                    var gap = (e.Time - last) * 1000.0 / Stopwatch.Frequency;
-                    if (gap > 0 && gap < 1000)
-                    {
-                        if (!intervals.TryGetValue((e.Pid, e.Chain), out var gaps)) intervals[(e.Pid, e.Chain)] = gaps = [];
-                        gaps.Add(gap);
-                    }
-                }
-                _lastPresent[(e.Pid, e.Chain)] = e.Time;
-            }
+        if (reset || _timeline is null)
+        {
+            _timeline = new FrameTimeline(Stopwatch.Frequency);
+            _history.Clear(); _shown = 0; _lastDrawing = 0;
+            _processes = null; _processesAt = double.NegativeInfinity; _wallpaperAt = _mainAt = double.NegativeInfinity;
+            _names.Clear(); _displays = []; // a new session's names and displays are read again, not carried over
+        }
+        foreach (var value in events) _timeline.Add(value);
+        events.Clear();
         lock (_lock)
         {
-            if (later > 0 && _wanted && _events.Count + later <= MostEvents)
-                foreach (var e in events) if (e.Time > through) _events.Add(e);
-            events.Clear();
-            _drained = events.Capacity <= KeptCapacity ? events : [];
+            if (!_wanted || generation != _generation) return Reading<FrameSample>.Unavailable(Why.Waiting);
+            if (events.Capacity <= KeptCapacity) _spare = events;
         }
-        if (reset) { _cutoff = double.NaN; _history.Clear(); _shown = _lastDrawing = 0; _processes = null; _processesAt = _wallpaperAt = _mainAt = double.NegativeInfinity; _lastPresent.Clear(); }
-        var front = GetForegroundWindow();
-        int frontPid = Owner(front);
-        double seconds = cutoff - _cutoff;
-        _cutoff = cutoff;
-        if (!double.IsFinite(seconds) || seconds <= 0) return Reading<FrameSample>.Unavailable(Why.Waiting);
-
-        // A process's frames: its busiest swap chain, or its kernel records if more.
-        var busiest = _busiest; busiest.Clear();
-        foreach (var ((pid, _), count) in counts) busiest[pid] = Math.Max(busiest.GetValueOrDefault(pid), count);
-        // The GPU scheduler's busy time per process, integrated live from the QueuePacket events this session already receives;
-        // the program's and the desktop's readings both divide it by the frames their process drew.
-        var gpuBusy = GpuBusySnapshot();
-        if (IsDesktop(front)) return DesktopRate(front, frontPid, busiest, seconds, now, gpuBusy, intervals);
+        var interval = _timeline.Read((long)((now - Lag) * Stopwatch.Frequency));
+        if (interval is null || !double.IsFinite(interval.Seconds) || interval.Seconds <= 0)
+            return Reading<FrameSample>.Unavailable(Why.Waiting);
+        var front = GetForegroundWindow(); int frontPid = Owner(front);
+        if (IsDesktop(front))
+        {
+            var desktop = DesktopRate(front, frontPid, interval, now);
+            lock (_lock) return _wanted && generation == _generation ? desktop : Reading<FrameSample>.Unavailable(Why.Waiting);
+        }
         Dictionary<int, (int Parent, string File)> Known(int pid)
         {
             bool stale = _processes is null || _processesFront != frontPid || now - _processesAt >= ProcessesSeconds
-                || !_processes.ContainsKey(pid) || busiest.Keys.Any(process => !_processes.ContainsKey(process));
-            // At most once a reading: a process that ended before the list was taken stays missing from it.
+                || !_processes.ContainsKey(pid) || interval.Counts.Keys.Any(key => !_processes.ContainsKey(key.Pid));
             if (stale && _processesAt != now) { _processes = ProcessSnapshot.Read(); _processesAt = now; _processesFront = frontPid; }
             return _processes!;
         }
-        long Family(int pid)
+        FrameSelection? Select(int owner)
         {
-            if (pid == 0) return 0;
-            long own = busiest.GetValueOrDefault(pid);
-            if (own > 0) return own;
-            // The window's process presents nothing itself: its own executable's descendants draw for it (a browser's GPU process),
-            // or WebView2's.
-            var processes = Known(pid);
-            if (!processes.TryGetValue(pid, out var self)) return 0;
-            long most = 0;
-            foreach (var (process, count) in busiest)
-                if (count > most && processes.TryGetValue(process, out var child) && (Same(child.File, self.File) || Same(child.File, "msedgewebview2.exe"))
-                    && Descends(process, pid, processes))
-                    most = count;
-            return most;
+            if (owner == 0) return null;
+            bool Belongs(int pid)
+            {
+                var processes = Known(owner);
+                return processes.TryGetValue(owner, out var self) && processes.TryGetValue(pid, out var child)
+                    && (Same(child.File, self.File) || Same(child.File, "msedgewebview2.exe")) && Descends(pid, owner, processes);
+            }
+            return interval.Select(owner, Belongs);
         }
-        long frontFrames = Family(frontPid);
-        int shown;
-        long frames;
-        if (frontFrames > 0 || _lastDrawing == 0 || _lastDrawing == frontPid) { shown = frontPid; frames = frontFrames; }
-        else
+        int shown = frontPid; var chosen = Select(frontPid);
+        if (chosen is null && _lastDrawing != 0 && _lastDrawing != frontPid)
         {
-            long last = Family(_lastDrawing);
-            (shown, frames) = last > 0 ? (_lastDrawing, last) : (frontPid, frontFrames);
+            var last = Select(_lastDrawing);
+            if (last is not null) { shown = _lastDrawing; chosen = last; }
         }
-        if (frames > 0) _lastDrawing = shown;
-        if (shown != _shown) { _shown = shown; _history.Clear(); }
+        long count = chosen?.Count ?? 0;
+        if (count > 0) _lastDrawing = shown;
+        if (_shown != shown) { _shown = shown; _history.Clear(); }
         var window = shown == frontPid ? front : MainWindow(shown, front, now);
-        var display = Display(window);
-        double rate = frames / seconds;
+        var display = Display(window); double rate = count / interval.Seconds;
         if (_history.Count == HistoryLength) _history.Dequeue();
         _history.Enqueue(rate);
         var (name, path) = Describe(shown);
-        // The low percentiles come from the busiest chain's frame gaps; the other chains' gaps go, so a switch of the program in
-        // front cannot pollute them. A browser's and a WebView2 program's frames come from a child process (its GPU process),
-        // so the chain belongs to the program rather than to the process that presents it.
-        List<double>? chosen = null;
-        double? gpuMs = null;
-        if (frames > 0)
+        var result = new FrameSample(rate, name)
         {
-            bool Belongs(int pid)
-            {
-                if (pid == shown) return true;
-                var processes = Known(shown);
-                if (!processes.TryGetValue(shown, out var self) || !processes.TryGetValue(pid, out var child)) return false;
-                return (Same(child.File, self.File) || Same(child.File, "msedgewebview2.exe")) && Descends(pid, shown, processes);
-            }
-            chosen = BusiestGaps(counts, intervals, Belongs);
-            // The GPU's running time over this interval (collected at the reading's start), over the frames the family drew in
-            // it: the average time the GPU spent drawing one of the program's frames. A process the counters say nothing about
-            // leaves the figure unknown (a dash), so an idle engine never reads as a 0 ms frame.
-            int familyFrames = 0; double busyMs = 0; bool busyKnown = false;
-            foreach (var ((pid, _), count) in counts)
-                if (Belongs(pid))
-                {
-                    familyFrames += (int)count;
-                    if (gpuBusy.TryGetValue(pid, out var ms)) { busyMs += ms; busyKnown = true; }
-                }
-            if (familyFrames > 0 && busyKnown) gpuMs = Math.Min(busyMs / familyFrames, 999.9);
-        }
-        // A program that drew nothing in the interval has no gaps to judge, and its worst share is nothing too: the low
-        // figures say 0 beside the 0 of the figure, rather than leaving the room the row keeps for them empty. The GPU time
-        // says nothing when nothing was drawn (there was no frame to draw), so it keeps its dash.
-        double? low1 = frames == 0 ? 0 : chosen is not null ? FrameSample.Low(chosen, 0.01) : null;
-        double? low01 = frames == 0 ? 0 : chosen is not null ? FrameSample.Low(chosen, 0.001) : null;
-        return new FrameSample(rate, name)
-        {
-            Path = path,
-            Refresh = display?.Refresh,
-            History = _history.ToArray(),
-            Low1 = low1,
-            Low01 = low01,
-            GpuMs = gpuMs,
+            Path = path, Refresh = display?.Refresh, History = _history.ToArray(),
+            Low1 = count == 0 ? 0 : FrameSample.Low(chosen!.Gaps, 0.01),
+            Low01 = count == 0 ? 0 : FrameSample.Low(chosen!.Gaps, 0.001),
+            GpuMs = interval.GpuMilliseconds(chosen),
         };
+        lock (_lock) return _wanted && generation == _generation ? result : Reading<FrameSample>.Unavailable(Why.Waiting);
     }
 
-    // The frame gaps of the busiest chain among the processes the reading belongs to, as the figure itself counts them
-    // (Sample's Family), taken from the interval's own gaps: the percentiles and the figure judge the same frames.
-    private static List<double>? BusiestGaps(Dictionary<(int Pid, long Chain), long> counts, Dictionary<(int Pid, long Chain), List<double>> intervals, Func<int, bool> belongs)
-    {
-        foreach (var ((pid, key), _) in counts.Where(pair => belongs(pair.Key.Pid)).OrderByDescending(pair => pair.Value))
-            if (intervals.TryGetValue((pid, key), out var chosen) && chosen.Count > 0) return chosen;
-        return null;
-    }
-
-    // The desktop's own frames, with the desktop or taskbar in front (explorer, explorerPid): a live wallpaper's program if one draws
-    // the desktop, named and with its icon, else the desktop itself. On the display under the window in front, for the refresh rate.
-    private Reading<FrameSample> DesktopRate(IntPtr front, int explorerPid, Dictionary<int, long> busiest, double seconds, double now, Dictionary<int, double> gpuBusy, Dictionary<(int Pid, long Chain), List<double>> intervals)
+    private Reading<FrameSample> DesktopRate(IntPtr front, int explorerPid, FrameWindow interval, double now)
     {
         var display = Display(front);
         if (_wallpaperFront != front || now - _wallpaperAt >= LookAgainSeconds) { _wallpaper = Wallpaper(explorerPid); _wallpaperFront = front; _wallpaperAt = now; }
-        int wallpaper = _wallpaper;
-        int key = wallpaper != 0 ? wallpaper : Desktop;
+        int wallpaper = _wallpaper; int key = wallpaper != 0 ? wallpaper : Desktop;
         if (_shown != key) { _shown = key; _history.Clear(); }
         int drawing = wallpaper != 0 ? wallpaper : explorerPid;
-        double rate = busiest.GetValueOrDefault(drawing) / seconds;
+        var chosen = interval.Select(drawing); long count = chosen?.Count ?? 0;
+        double rate = count / interval.Seconds;
         if (_history.Count == HistoryLength) _history.Dequeue();
         _history.Enqueue(rate);
         var (name, path) = wallpaper != 0 ? Describe(wallpaper) : (Loc.T("桌面", "Desktop"), null);
-        // The desktop's own frame gaps from the interval, when its process presents any (a live wallpaper's program, or
-        // explorer's shell animations): the low percentiles are the same figures a program's row shows, judged over the same
-        // interval's frames. A desktop that draws nothing says 0, as its figure does, rather than leaving the room kept for the
-        // figures empty.
-        List<double>? gaps = null;
-        foreach (var ((pid, chain), _) in _counts.Where(pair => pair.Key.Pid == drawing).OrderByDescending(pair => pair.Value))
-            if (intervals.TryGetValue((pid, chain), out var list) && list.Count > 0) { gaps = list; break; }
-        double? low1 = rate == 0 ? 0 : gaps is not null ? FrameSample.Low(gaps, 0.01) : null;
-        double? low01 = rate == 0 ? 0 : gaps is not null ? FrameSample.Low(gaps, 0.001) : null;
-        // The desktop's GPU time over the frames its process drew, as a program's row shows it; nothing drawn, nothing said.
-        long drawingFrames = busiest.GetValueOrDefault(drawing);
-        double? gpuMs = drawingFrames > 0 && gpuBusy.TryGetValue(drawing, out var ms) ? Math.Min(ms / drawingFrames, 999.9) : null;
         return new FrameSample(rate, name)
         {
-            Path = path,
-            Refresh = display?.Refresh,
-            History = _history.ToArray(),
-            Low1 = low1,
-            Low01 = low01,
-            GpuMs = gpuMs,
+            Path = path, Refresh = display?.Refresh, History = _history.ToArray(),
+            Low1 = count == 0 ? 0 : FrameSample.Low(chosen!.Gaps, 0.01),
+            Low01 = count == 0 ? 0 : FrameSample.Low(chosen!.Gaps, 0.001),
+            GpuMs = interval.GpuMilliseconds(chosen),
         };
     }
-
     // The windows looked for each reading (a live wallpaper's program, a program's largest window) are kept until the window in front
     // changes, or for LookAgainSeconds: listing every window each second cost the most of a reading.
     private const double LookAgainSeconds = 5;
@@ -445,55 +359,69 @@ internal sealed class FrameRates : IDisposable
 
     // ---- the event tracing session ----
 
+    private const uint EVENT_CONTROL_CODE_ENABLE_PROVIDER = 1, EVENT_CONTROL_CODE_CAPTURE_STATE = 2;
+    private static readonly ushort[] DxgKrnlIds = [27,28,29,30,31,32,171,175,177,178,180,244,422,424];
+    private TraceSession? _activeSession;
+    private sealed class TraceSession : IDisposable
+    {
+        public readonly int Generation;
+        public IntPtr LoggerName = Marshal.StringToHGlobalUni(Session);
+        public IntPtr Buffer = Marshal.AllocHGlobal(8);
+        public EventRecordCallback Callback { get; }
+        public TraceSession(FrameRates owner, int generation) { Generation = generation; Callback = record => owner.OnEvent(record, this); }
+        private long _handle;
+        public void SetHandle(ulong handle) => Interlocked.Exchange(ref _handle, unchecked((long)handle));
+        public void Close() { long handle = Interlocked.Exchange(ref _handle, 0); if (handle != 0 && handle != -1) CloseTrace(unchecked((ulong)handle)); }
+        public void Dispose() { Close(); if (LoggerName != IntPtr.Zero) { Marshal.FreeHGlobal(LoggerName); LoggerName = IntPtr.Zero; } if (Buffer != IntPtr.Zero) { Marshal.FreeHGlobal(Buffer); Buffer = IntPtr.Zero; } GC.KeepAlive(Callback); }
+    }
+
     private void StartTrace()
     {
         StopLeftSessions();
-        IntPtr properties = Properties();
+        var state = new TraceSession(this, ++_generation);
+        _activeSession = state;
+        bool readerStarted = false;
         try
         {
-            uint error = StartTraceW(out _session, Session, properties);
+            IntPtr properties = Properties(); uint error;
+            try { error = StartTraceW(out _session, Session, properties); } finally { Marshal.FreeHGlobal(properties); }
             if (error != 0) throw new TraceRefused("StartTrace", error);
+            Enable(DxgKrnl, 0x841, 0, EVENT_CONTROL_CODE_ENABLE_PROVIDER, DxgKrnlIds);
+            Enable(Dxgi, 0x8000000000000002, 0x8000000000000002, EVENT_CONTROL_CODE_ENABLE_PROVIDER, [42]);
+            Enable(D3D9, 0x8000000000000002, 0x8000000000000002, EVENT_CONTROL_CODE_ENABLE_PROVIDER, [1]);
+            IntPtr logfile = Zeroed(448);
+            try
+            {
+                Marshal.WriteIntPtr(logfile, 8, state.LoggerName);
+                Marshal.WriteInt32(logfile, 28, 0x100 | 0x10000000 | 0x1000);
+                Marshal.WriteIntPtr(logfile, 424, Marshal.GetFunctionPointerForDelegate(state.Callback));
+                _trace = OpenTraceW(logfile);
+                if (_trace == ulong.MaxValue) throw new TraceRefused("OpenTrace", (uint)Marshal.GetLastWin32Error());
+                state.SetHandle(_trace);
+            }
+            finally { Marshal.FreeHGlobal(logfile); }
+            ulong trace = _trace;
+            _reader = new Thread(() => { try { ProcessTrace([trace], 1, IntPtr.Zero, IntPtr.Zero); } finally { state.Dispose(); } }) { IsBackground = true, Name = "BrimDeck frame events" };
+            _reader.Start(); readerStarted = true;
+            Enable(DxgKrnl, 0x841, 0, EVENT_CONTROL_CODE_CAPTURE_STATE, DxgKrnlIds);
+            int generation = state.Generation;
+            _flusher = new Timer(_ => { lock (_lock) if (_wanted && generation == _generation) Control(0, Session, 3); }, null, FlushEvery, FlushEvery);
         }
-        finally { Marshal.FreeHGlobal(properties); }
-        // The keyword match: an event is delivered when its keyword has a bit in common with the "any" mask (the DxgKrnl
-        // Present event carries 0x800000 among its bits, the scheduler's QueuePacket carries only the 0x1 bit) and ALL bits of
-        // the "all" mask. QueuePacket's keyword (0x4000000000000001) lacks 0x800000, so a non-zero "all" here dropped every
-        // scheduler event before our callback ever saw it; the event-ID filter below keeps the delivery to these IDs alone.
-        Enable(DxgKrnl, 0x8008001, 0, 0xAB, 0xB2, 0xB4, 0xF4);
-        Enable(Dxgi, 0x8000000000000002, 0x8000000000000002, 0x2A);
-        Enable(D3D9, 0x8000000000000002, 0x8000000000000002, 0x01);
-        // EVENT_TRACE_LOGFILEW, 448 bytes on x64: LoggerName at 8, ProcessTraceMode at 28 (real time, event records, and raw
-        // timestamps: the performance counter the session records, not converted to the system time),
-        // EventRecordCallback at 424.
-        IntPtr logfile = Zeroed(448);
-        try
+        catch
         {
-            _loggerName = Marshal.StringToHGlobalUni(Session);
-            Marshal.WriteIntPtr(logfile, 8, _loggerName);
-            Marshal.WriteInt32(logfile, 28, 0x100 | 0x10000000 | 0x1000);
-            Marshal.WriteIntPtr(logfile, 424, Marshal.GetFunctionPointerForDelegate(_callback));
-            _trace = OpenTraceW(logfile);
-            if (_trace == ulong.MaxValue) throw new TraceRefused("OpenTrace", (uint)Marshal.GetLastWin32Error());
+            if (_session != 0) { Control(0, Session, 1); _session = 0; }
+            state.Close(); _trace = 0; _activeSession = null;
+            if (!readerStarted) state.Dispose();
+            throw;
         }
-        finally { Marshal.FreeHGlobal(logfile); }
-        ulong trace = _trace;
-        _reader = new Thread(() => ProcessTrace([trace], 1, IntPtr.Zero, IntPtr.Zero)) { IsBackground = true, Name = "BrimDeck frame events" };
-        _reader.Start();
-        _flusher = new Timer(_ => Control(0, Session, 3 /* EVENT_TRACE_CONTROL_FLUSH */), null, FlushEvery, FlushEvery);
     }
-
     private void StopTrace()
     {
-        // By name, which is this process's alone: a handle kept after the session ended may already name another session.
-        if (_session != 0) { Control(0, Session, 1); _session = 0; }
-        if (_trace != 0 && _trace != ulong.MaxValue) CloseTrace(_trace);
-        _trace = 0;
-        // Not joined: its thread may be waiting for the lock held here to count an event, and it ends once the session is closed.
-        _reader = null;
+        _generation++; _reset = true;
         _flusher?.Dispose(); _flusher = null;
-        if (_loggerName != IntPtr.Zero) { Marshal.FreeHGlobal(_loggerName); _loggerName = IntPtr.Zero; }
-        _events = []; _drained = [];
-        _lastPresent.Clear();
+        if (_session != 0) { Control(0, Session, 1); _session = 0; }
+        _activeSession?.Close(); _activeSession = null; _trace = 0; _reader = null;
+        _pending = []; _overflow = false;
     }
 
     // Stops the sessions of BrimDecks no longer running (and the one this process may have left), found among all the machine's
@@ -558,7 +486,7 @@ internal sealed class FrameRates : IDisposable
     // A provider with only these events (EVENT_FILTER_TYPE_EVENT_ID, filtered in) at the information level, through
     // ENABLE_TRACE_PARAMETERS (48 bytes: Version 2 at 0, EnableFilterDesc at 32, FilterDescCount at 40) and one
     // EVENT_FILTER_DESCRIPTOR (Ptr at 0, Size at 8, Type at 12) over an EVENT_FILTER_EVENT_ID (FilterIn, Reserved, Count, the IDs).
-    private void Enable(Guid provider, ulong any, ulong all, params ushort[] ids)
+    private void Enable(Guid provider, ulong any, ulong all, uint code, params ushort[] ids)
     {
         int size = 4 + 2 * ids.Length;
         IntPtr filter = Zeroed(size), descriptor = Zeroed(16), parameters = Zeroed(48);
@@ -570,7 +498,7 @@ internal sealed class FrameRates : IDisposable
             Marshal.WriteInt32(parameters, 0, 2);
             Marshal.WriteIntPtr(parameters, 32, descriptor);
             Marshal.WriteInt32(parameters, 40, 1);
-            uint error = EnableTraceEx2(_session, provider, 1 /* EVENT_CONTROL_CODE_ENABLE_PROVIDER */, 4, any, all, 0, parameters);
+            uint error = EnableTraceEx2(_session, provider, code, 4, any, all, 0, parameters);
             if (error != 0) throw new TraceRefused($"EnableTraceEx2 {provider}", error);
         }
         finally { Marshal.FreeHGlobal(filter); Marshal.FreeHGlobal(descriptor); Marshal.FreeHGlobal(parameters); }
@@ -579,118 +507,151 @@ internal sealed class FrameRates : IDisposable
     // EVENT_RECORD (112 bytes on x64): EventHeader.Flags at 4 (0x40: pointers in the data are 64 bits), ProcessId at 12, TimeStamp at
     // 16 (the performance counter, as the session's ClientContext asks), ProviderId at 24 (its first four bytes tell the three apart), UserDataLength at 86, UserData at 96. The data:
     // DXGI's Present start pIDXGISwapChain then Flags, D3D9's pSwapchain then Flags.
-    private void OnEvent(IntPtr record)
+    // ---- event decoding: runtime presents, kernel present records, scheduler metadata and packets ----
+    // Normalized into FrameTraceEvents and handed to the sampler's timeline via Count. Every event here
+    // carries its own timestamp; a rundown (DCStart) that arrives after a window was already paid is the
+    // timeline's late path to decide about, never a rewrite of paid history. The payloads are read by name (TdhGetProperty), so the layout comes from
+    // the manifest at runtime rather than guessed offsets.
+    private const ushort
+        KernelPresentId = 171,          // PresentHistoryInfo (0xAB)
+        DeviceStartId = 27, DeviceStopId = 28, DeviceDCStartId = 29,
+        ContextStartId = 30, ContextStopId = 31, ContextDCStartId = 32,
+        DmaPacketStartId = 175, DmaPacketInfoId = 177,
+        QueuePacketStartId = 178, QueuePacketWaitStartId = 244, QueuePacketStopId = 180,
+        HwQueueStartId = 422, HwQueueDCStartId = 424;
+
+    private static readonly UIntPtr PDxgAdapterName = (UIntPtr)Marshal.StringToHGlobalUni("pDxgAdapter"),
+        HDeviceName = (UIntPtr)Marshal.StringToHGlobalUni("hDevice"),
+        HContextName = (UIntPtr)Marshal.StringToHGlobalUni("hContext"),
+        NodeOrdinalName = (UIntPtr)Marshal.StringToHGlobalUni("NodeOrdinal"),
+        SubmitSequenceName = (UIntPtr)Marshal.StringToHGlobalUni("SubmitSequence"),
+        DmaSequenceName = (UIntPtr)Marshal.StringToHGlobalUni("ulQueueSubmitSequence"),
+        PacketTypeName = (UIntPtr)Marshal.StringToHGlobalUni("PacketType"),
+        ParentHwQueueName = (UIntPtr)Marshal.StringToHGlobalUni("ParentDxgHwQueue");
+
+    private void OnEvent(IntPtr record, TraceSession session)
     {
         int pid = Marshal.ReadInt32(record, 12);
         uint provider = (uint)Marshal.ReadInt32(record, 24);
         if (provider is not (DxgiData1 or D3D9Data1 or DxgKrnlData1)) return;
-        int length = (ushort)Marshal.ReadInt16(record, 86);
-        IntPtr data = Marshal.ReadIntPtr(record, 96);
         long time = Marshal.ReadInt64(record, 16);
+        ushort id = (ushort)Marshal.ReadInt16(record, 40);
+        int length = (ushort)Marshal.ReadInt16(record, 86);   // UserData.Length
+        IntPtr data = Marshal.ReadIntPtr(record, 96);          // UserData.Ptr
+
         if (provider == DxgKrnlData1)
         {
-            _lastEventTime = time;
-            ushort id = (ushort)Marshal.ReadInt16(record, 40);   // EventDescriptor.Id
-            if (id == 0xAB) Count(time, pid, Kernel);
-            // The GPU scheduler's packet lifecycle (PresentMon's GPU Busy reads exactly these): Start (0xB2) carries the
-            // packet's type, Start_2 (0xF4) is a monitor wait, Stop (0xB4) completes the context's packet.
-            else if (id == 0xB2) PacketStart(record, time, pid);
-            else if (id == 0xB4) PacketStop(record, time);
+            switch (id)
+            {
+                case KernelPresentId:
+                    Count(session, new(time, FrameTraceKind.Present, Pid: pid, Chain: Kernel));
+                    return;
+                // ---- metadata: device, context and hardware queue mappings ----
+                case DeviceDCStartId or DeviceStartId:
+                    if (U64(session, record, PDxgAdapterName, out ulong adapter) && U64(session, record, HDeviceName, out ulong device))
+                        Count(session, new(time, FrameTraceKind.DeviceStart, Device: device, Adapter: adapter));
+                    return;
+                case DeviceStopId:
+                    if (U64(session, record, HDeviceName, out ulong deadDevice))
+                        Count(session, new(time, FrameTraceKind.DeviceStop, Device: deadDevice));
+                    return;
+                case ContextDCStartId or ContextStartId:
+                    // A DCStart comes from the rundown (capture state), not the context's process: Pid 0,
+                    // claimed later by the context's first QueueStart.
+                    if (U64(session, record, HContextName, out ulong context) && U64(session, record, HDeviceName, out ulong onDevice)
+                        && U32(session, record, NodeOrdinalName, out uint node))
+                        Count(session, new(time, FrameTraceKind.ContextStart, Pid: id == ContextDCStartId ? 0 : pid,
+                            Context: context, Device: onDevice, Node: node));
+                    return;
+                case ContextStopId:
+                    if (U64(session, record, HContextName, out ulong stopped))
+                        Count(session, new(time, FrameTraceKind.ContextStop, Context: stopped));
+                    return;
+                case HwQueueStartId or HwQueueDCStartId:
+                    // The payload's ParentDxgHwQueue is the hContext later QueuePacket events carry, so it
+                    // becomes the packet target (Device); the queue's own hContext is the parent side. The
+                    // event's pid is the capture requester's, never the queue owner's: Pid 0, claimed later
+                    // through the parent context's QueueStart.
+                    if (U64(session, record, HContextName, out ulong parent) && U64(session, record, ParentHwQueueName, out ulong hwQueue))
+                        Count(session, new(time, FrameTraceKind.HwQueueStart, Pid: 0,
+                            Context: parent /* hContext */, Device: hwQueue /* ParentDxgHwQueue */));
+                    return;
+                // ---- packets: legacy DMA and HAGS queue packets ----
+                case DmaPacketStartId:
+                    if (U64(session, record, HContextName, out ulong dmaContext) && U32(session, record, DmaSequenceName, out uint dmaSeq))
+                        Count(session, new(time, FrameTraceKind.DmaStart, Pid: pid, Context: dmaContext, Sequence: dmaSeq));
+                    return;
+                case DmaPacketInfoId:
+                    if (U64(session, record, HContextName, out ulong dmaDone) && U32(session, record, DmaSequenceName, out uint dmaDoneSeq))
+                        Count(session, new(time, FrameTraceKind.DmaStop, Pid: pid, Context: dmaDone, Sequence: dmaDoneSeq));
+                    return;
+                case QueuePacketStartId:
+                    // PacketType 4 is DXGKETW_WAIT_COMMAND_BUFFER: it holds the FIFO's head but is not work.
+                    // A payload whose PacketType cannot be read is dropped rather than guessed as a wait.
+                    if (!U32(session, record, PacketTypeName, out uint packetType)) return;
+                    if (U64(session, record, HContextName, out ulong queueContext) && U32(session, record, SubmitSequenceName, out uint queueSeq))
+                        Count(session, new(time, FrameTraceKind.QueueStart, Pid: pid, Context: queueContext, Sequence: queueSeq, Wait: packetType == 4));
+                    return;
+                case QueuePacketWaitStartId:
+                    // Start_2 (a monitor wait) has no PacketType in its schema: always a wait.
+                    if (U64(session, record, HContextName, out ulong waitContext) && U32(session, record, SubmitSequenceName, out uint waitSeq))
+                        Count(session, new(time, FrameTraceKind.QueueStart, Pid: pid, Context: waitContext, Sequence: waitSeq, Wait: true));
+                    return;
+                case QueuePacketStopId:
+                    if (U64(session, record, HContextName, out ulong doneContext) && U32(session, record, SubmitSequenceName, out uint doneSeq))
+                        Count(session, new(time, FrameTraceKind.QueueStop, Pid: pid, Context: doneContext, Sequence: doneSeq));
+                    return;
+            }
             return;
         }
+
+        // ---- runtime presents: DXGI 42 / D3D9 1, the swap chain is the payload's first field ----
+        // Validate the id as well as the provider: the session's filter decides what arrives live, but a
+        // synthetic record (or a future manifest change) must not decode as a present.
+        if ((provider == DxgiData1) != (id == 42) || (provider == D3D9Data1) != (id == 1)) return;
+        // A 64-bit header (header flag 0x40, EVENT_HEADER_FLAG_64_BIT_HEADER) aligns its payload at 8 bytes. A DXGI present with
+        // DXGI_PRESENT_TEST (flag bit 1) only asks whether the window shows and presents no frame.
         int pointer = (Marshal.ReadInt16(record, 4) & 0x40) != 0 ? 8 : 4;
-        long chain = 0;
-        if (data != IntPtr.Zero && length >= pointer + 4)
-        {
-            chain = pointer == 8 ? Marshal.ReadInt64(data, 0) : Marshal.ReadInt32(data, 0);
-            if (provider == DxgiData1 && (Marshal.ReadInt32(data, pointer) & 1) != 0) return;
-        }
-        Count(time, pid, chain);
-    }
-    private long _lastEventTime;
-
-    // The GPU scheduler's packets, per context: while a context runs a work packet it is busy, and a process is busy while any
-    // of its contexts is. Waits occupy their context's queue but are not the GPU working, so they neither open nor extend the
-    // busy span. The union integration across a process's engines comes free: the busy span opens at the first context going
-    // busy and closes at the last one finishing, without counting parallel engines twice.
-    private void PacketStart(IntPtr record, long time, int pid)
-    {
-        if (!PacketProperty(record, PacketTypeDescriptor) || Marshal.ReadInt32(PropertyBuffer) == 4 /* DXGKETW_WAIT_COMMAND_BUFFER */) return;
-        if (!PacketProperty(record, HContextDescriptor)) return;
-        ulong context = unchecked((ulong)Marshal.ReadInt64(PropertyBuffer));
-        lock (_lock)
-        {
-            _ctxPid[context] = pid;
-            // A second Start while the context runs (queue buildup, a Stop lost) folds into the running packet's span.
-            if (_ctxWorkRunning.TryAdd(context, time) && _pidWorkRunning.GetValueOrDefault(pid) == 0) _pidBusyOpen[pid] = time;
-        }
-    }
-    private void PacketStop(IntPtr record, long time)
-    {
-        if (!PacketProperty(record, HContextDescriptor)) return;
-        ulong context = unchecked((ulong)Marshal.ReadInt64(PropertyBuffer));
-        lock (_lock)
-        {
-            if (!_ctxWorkRunning.Remove(context, out var startedAt)) return;
-            if (!_ctxPid.TryGetValue(context, out var pid) || !_pidWorkRunning.TryGetValue(pid, out var running)) return;
-            if (running <= 1)
-            {
-                _pidWorkRunning.Remove(pid);
-                _pidBusyOpen.Remove(pid);
-                _gpuBusyTicks[pid] = _gpuBusyTicks.GetValueOrDefault(pid) + (time - _pidBusyOpen.GetValueOrDefault(pid, startedAt));
-            }
-            else _pidWorkRunning[pid] = running - 1;
-        }
+        if (data == IntPtr.Zero || length < pointer + 4) return; // a short payload has no chain to read
+        long chain = pointer == 8 ? Marshal.ReadInt64(data, 0) : Marshal.ReadInt32(data, 0);
+        if (provider == DxgiData1 && (Marshal.ReadInt32(data, pointer) & 1) != 0) return;
+        Count(session, new(time, FrameTraceKind.Present, Pid: pid, Chain: chain));
     }
 
-    // The busy milliseconds per process integrated since the last reading. A Stop can be lost to a dropped event, which would
-    // hold a context open forever: past three seconds of apparent running the context goes back to idle, unpaid (a render
-    // packet that long does not happen on a present-driven workload). The context table is capped for the same reason.
-    private Dictionary<int, double> GpuBusySnapshot()
+    // TDH reads a scalar by property name; Index = uint.MaxValue asks for the first instance by name, so
+    // no version's layout is guessed. The buffer is this call's own, zeroed before the read and freed
+    // after: no static buffer is shared across (possibly re-entrant) callbacks.
+    private bool U64(TraceSession session, IntPtr record, UIntPtr name, out ulong value)
+    {
+        value = 0;
+        // The session's own 8-byte scratch buffer, zeroed before each read: one reader thread owns one
+        // session, so no locking, and no buffer is shared between instances.
+        IntPtr buffer = session.Buffer;
+        for (int i = 0; i < 8; i++) Marshal.WriteByte(buffer, i, 0);
+        var descriptor = new[] { new PropertyDataDescriptor { Name = name, Index = uint.MaxValue } };
+        if (TdhGetProperty(record, 0, IntPtr.Zero, 1, descriptor, 8, buffer) != 0) return false;
+        value = (ulong)Marshal.ReadInt64(buffer); return true;
+    }
+    private bool U32(TraceSession session, IntPtr record, UIntPtr name, out uint value)
+    {
+        value = 0;
+        IntPtr buffer = session.Buffer;
+        for (int i = 0; i < 8; i++) Marshal.WriteByte(buffer, i, 0);
+        var descriptor = new[] { new PropertyDataDescriptor { Name = name, Index = uint.MaxValue } };
+        if (TdhGetProperty(record, 0, IntPtr.Zero, 1, descriptor, 8, buffer) != 0) return false;
+        value = (uint)Marshal.ReadInt32(buffer); return true;
+    }
+
+    // The sampler's single consumer path: only this generation's events are kept, and an overflow marks
+    // the whole batch a reset rather than a partial reading.
+    private void Count(TraceSession session, FrameTraceEvent value)
     {
         lock (_lock)
         {
-            long stuck = _lastEventTime - 3 * Stopwatch.Frequency;
-            List<ulong>? orphaned = null;
-            foreach (var (context, startedAt) in _ctxWorkRunning)
-                if (startedAt < stuck) (orphaned ??= []).Add(context);
-            if (orphaned is not null)
-                foreach (var context in orphaned)
-                {
-                    _ctxWorkRunning.Remove(context);
-                    if (_ctxPid.TryGetValue(context, out var pid) && _pidWorkRunning.TryGetValue(pid, out var running))
-                    {
-                        if (running <= 1) { _pidWorkRunning.Remove(pid); _pidBusyOpen.Remove(pid); }
-                        else _pidWorkRunning[pid] = running - 1;
-                    }
-                }
-            if (_ctxPid.Count > 16_384) _ctxPid.Clear();
-            var times = new Dictionary<int, double>(_gpuBusyTicks.Count);
-            foreach (var (pid, ticks) in _gpuBusyTicks)
-                if (ticks > 0) times[pid] = ticks * 1000.0 / Stopwatch.Frequency;
-            _gpuBusyTicks.Clear();
-            return times;
+            if (!_wanted || session.Generation != _generation) return;
+            if (_pending.Count >= MostEvents) { _overflow = true; return; }
+            _pending.Add(value);
         }
-    }
-    private readonly Dictionary<ulong, int> _ctxPid = [];
-    private readonly Dictionary<ulong, long> _ctxWorkRunning = [];
-    private readonly Dictionary<int, int> _pidWorkRunning = [];
-    private readonly Dictionary<int, long> _pidBusyOpen = [];
-    private readonly Dictionary<int, long> _gpuBusyTicks = [];
-
-    // The queue packet payloads by name (TdhGetProperty): the layout comes from the manifest at runtime rather than guessed
-    // offsets — the lesson the PDH route taught the hard way.
-    private static readonly UIntPtr PacketTypeName = (UIntPtr)Marshal.StringToHGlobalUni("PacketType");
-    private static readonly UIntPtr HContextName = (UIntPtr)Marshal.StringToHGlobalUni("hContext");
-    private static readonly IntPtr PropertyBuffer = Marshal.AllocHGlobal(16);
-    private static readonly PropertyDataDescriptor[] PacketTypeDescriptor = [new() { Name = PacketTypeName, Index = 0 }];
-    private static readonly PropertyDataDescriptor[] HContextDescriptor = [new() { Name = HContextName, Index = 0 }];
-
-    private static bool PacketProperty(IntPtr record, PropertyDataDescriptor[] descriptor)
-        => TdhGetProperty(record, 0, IntPtr.Zero, 1, descriptor, 8, PropertyBuffer) == 0;
-    private void Count(long time, int pid, long chain)
-    {
-        lock (_lock) if (_events.Count < MostEvents) _events.Add((time, pid, chain));
     }
 
     // As large as the largest block asked for (StopLeftSessions).

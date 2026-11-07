@@ -103,8 +103,8 @@ public sealed partial class SettingsWindow
                 () => S.MonitorFrames && !Reading(S, CompactMonitorItems.Frames).Visible),
             WithFrameAccess(Toggle(Loc.T("显示 GPU 帧耗时", "Show the GPU frame time"), S.MonitorFpsGpuTime, v => Change(s => s.MonitorFpsGpuTime = v),
                 help:
-                Loc.T("在帧率数字旁显示 GPU 画一帧实际执行的平均毫秒数（按本秒 GPU 运行时间 ÷ 帧数）。机器或驱动不提供时显示破折号。帧率开着才有读数。",
-                        "Shows the average milliseconds the GPU actually spent drawing one of the program's frames (its engines' running time over the reading, over the frames drawn). A dash where Windows does not say. It reads nothing unless the frame rate is on.")),
+                Loc.T("显示所选渲染进程在本读数间隔内的 GPU 忙时 ÷ 所选呈现链的帧数（毫秒），并行执行的重叠时间只算一次。这是窗口均值，包含该进程的其他 GPU 工作，不是逐帧测量；硬件加速 GPU 调度使用队列时长估计。数据不完整时显示破折号。帧率开着才有读数。",
+                        "Shows the selected rendering process's GPU busy time divided by its selected presentation chain's frames over the reading, in milliseconds. Overlapping execution counts once. This window average includes other GPU work in that process; it is not a per-frame measurement. Hardware-accelerated scheduling uses queue duration as an estimate. Incomplete data shows a dash. It reads nothing unless the frame rate is on.")),
                 () => S.MonitorFrames && !Reading(S, CompactMonitorItems.Frames).Visible),
             WithSensorStops(Toggle(Loc.T("显示温度", "Show temperatures"), S.MonitorTemperatures, v => Resize(s => s.MonitorTemperatures = v, DeckPage.Monitor),
                 help:
