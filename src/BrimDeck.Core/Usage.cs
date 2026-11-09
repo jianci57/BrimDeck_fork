@@ -8,9 +8,10 @@ public sealed record Quota(string Label, double UsedPercent, DateTimeOffset? Res
     public double Remaining => Math.Clamp(100 - UsedPercent, 0, 100);
 }
 
-// Each input category is disjoint. Reasoning tokens are already included in Output.
+// Each input category is disjoint. Reasoning tokens are already included in Output. FittedCost marks a ReportedCostUsd
+// that no service reported for the record but was worked out from an amount covering many records (CursorPrices).
 public sealed record TokenEntry(string Key, DateTimeOffset Time, string Model,
-    long Input, long CacheRead, long CacheWrite, long CacheWriteHour, long Output, decimal? ReportedCostUsd = null)
+    long Input, long CacheRead, long CacheWrite, long CacheWriteHour, long Output, decimal? ReportedCostUsd = null, bool FittedCost = false)
 {
     public long Total => Input + CacheRead + CacheWrite + CacheWriteHour + Output;
 }
@@ -43,6 +44,10 @@ public sealed class ProviderSnapshot(ProviderId id)
     public DateTime? UsageStart { get; set; }
     public List<Quota> Quotas { get; set; } = [];
     public List<TokenEntry> Entries { get; set; } = [];
+    // A merged Cursor plan, whose included records share the weekly amount used (CursorPrices), and the prices per token
+    // worked out from it; null until they are.
+    public bool WeeklyShares { get; set; }
+    public TokenPrices? WeeklyPrices { get; set; }
     // A shallow copy: setting a property of the copy leaves this snapshot as it was, but the two share their lists.
     public ProviderSnapshot Copy() => (ProviderSnapshot)MemberwiseClone();
 }

@@ -38,6 +38,14 @@ internal static class FullscreenRuleTests
             && mixed.Behavior(ScreenContext.Exclusive, "Sahhpire") == WindowBehavior.Line);
         check("A desktop context has no rule and no override",
             mixed.Behavior(ScreenContext.Desktop, "Sahhpire") == WindowBehavior.Normal);
+        // A panel that is an ordinary window is covered by full-screen windows anyway, so neither rule applies.
+        var ordinary = new DeckSettings { AlwaysOnTop = false, FullscreenRules = [new FullscreenRule("Sahhpire") { Maximized = WindowBehavior.Hide }] };
+        check("A panel that is not kept above other windows follows no window rule",
+            ordinary.Behavior(ScreenContext.Maximized) == WindowBehavior.Normal && ordinary.Behavior(ScreenContext.Borderless) == WindowBehavior.Normal
+            && ordinary.Behavior(ScreenContext.Exclusive) == WindowBehavior.Normal && ordinary.Behavior(ScreenContext.Maximized, "Sahhpire") == WindowBehavior.Normal
+            && ordinary.Behavior(ScreenContext.BackgroundFullscreen, "Sahhpire", "", ScreenContext.Maximized) == WindowBehavior.Normal);
+        check("A file saved before the switch keeps the panel above other windows",
+            JsonSerializer.Deserialize<DeckSettings>("{}")!.AlwaysOnTop);
 
         // Saved settings: the rules round-trip, and the exceptions of an older file become rules.
         var saved = JsonSerializer.Deserialize<DeckSettings>("""{"FullscreenRules":[{"Name":"Sahhpire","Path":"","Maximized":2,"Borderless":null,"Exclusive":1}]}""")!;

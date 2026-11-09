@@ -23,9 +23,11 @@ try
     EqualizerSpectrumTests.Run(Check);
     EqualizerModeTests.Run(root, Check);
     ColorMathTests.Run(Check);
+    ShelfTests.Run(Check);
     CompactSpacingTests.Run(Check);
     CompactDragTests.Run(Check);
     RingLetterTests.Run(root, Check);
+    QuotaRingTests.Run(Check);
     PanelThemeTests.Run(root, Check);
     PanelThemeEditorTests.Run(root, Check);
     PixelBlocksTests.Run(root, Check);
@@ -46,12 +48,17 @@ try
     StorageTests.Run(Check);
     SensorStopTests.Run(Check);
     StripAdmissionTests.Run(Check);
+    DevicesTests.Run(Check);
+    DeviceProtocolTests.Run(Check);
+    DeviceSafetyTests.Run(Check);
     PowerTests.Run(Check);
+    DevicesPageTests.Run(Check);
     FrameRateTests.Run(Check);
     ResizeMotionTests.Run(Check);
     CurvesTests.Run(Check);
     ExpandBounceTests.Run(Check);
     ExpandStillTests.Run(Check);
+    FontTests.Run(root, Check);
     ExpandSnapTests.Run(Check);
     MotionReviewTests.Run(Check);
     IdleCostTests.Run(Check);
@@ -83,6 +90,7 @@ try
     await OfficialPriceTests.Run(root, Check);
     await GrokBotUsageTests.Run(root, Check);
     await CursorUsageTests.Run(root, Check);
+    await CursorPricesTests.Run(root, Check);
     var priceTime = DateTimeOffset.UtcNow;
     const string catalogJson = """
         {"data":[
@@ -634,6 +642,13 @@ try
     Check("Unknown Claude profile does not invent a plan", PlanParser.ClaudeProfile(Json("""{"oauthAccount":{"organizationRateLimitTier":"unknown"}}""")) == "");
     var eventItem = UsageService.ParseCursorEvent(Json("""{"timestamp":"1789000000000","model":"composer-2.5","tokenUsage":{"inputTokens":100,"cacheReadTokens":900,"cacheWriteTokens":20,"outputTokens":30,"totalCents":3.45131}}"""));
     Check("Cursor token categories are disjoint", eventItem!.Total == 1050);
+    var billingItem = UsageService.ParseCursorBillingItem(Json("""{"billingItemId":"b-1","eventTime":"2026-11-02T03:20:43.357Z","product":"grok-bot","chargeCategory":"usage","usageType":"included","usage":{"cache-write-text-tokens":"17128","cached-prompt-text-tokens":"22031","completion-text-tokens":"664","prompt-text-tokens":"4","web-search-calls":"2"},"pricing":{"currency":"USD","contracted":"0.0000000000"},"totalTokens":"39827"}"""));
+    Check("A merged Cursor billing item keeps its token kinds apart and is named by its product",
+        billingItem is { Key: "cursor:b-1", Model: "Grok Bot", Input: 4, CacheRead: 22031, CacheWrite: 17128, Output: 664, Total: 39827, ReportedCostUsd: null });
+    Check("A merged Cursor billing item outside the included usage keeps its amount and model",
+        UsageService.ParseCursorBillingItem(Json("""{"billingItemId":"b-2","eventTime":"2026-11-02T03:20:43Z","product":"agent","chargeCategory":"usage","usageType":"on_demand","usage":{"prompt-text-tokens":"10"},"pricing":{"contracted":"0.0123000000"},"displayExtras":{"model":"composer-2.5"}}""")) is { Model: "composer-2.5", ReportedCostUsd: 0.0123m });
+    Check("A Cursor credit grant is not a usage record",
+        UsageService.ParseCursorBillingItem(Json("""{"billingItemId":"b-3","eventTime":"2026-11-02T03:20:43Z","chargeCategory":"credit","usageType":"credits","usage":{},"pricing":{"contracted":"-5.0000000000"}}""")) is null);
     Check("Cursor API cost cents converted", pricing.Estimate(eventItem!) == .0345131m);
     Check("Reported cost is not marked as an estimate", pricing.Summarize([eventItem!]) is { Reported: 1, Estimated: 0, IsEstimate: false });
     TokenEntry Charged(int i, long input, long output, long write, long read, decimal perInput = 2, decimal perOutput = 6) =>

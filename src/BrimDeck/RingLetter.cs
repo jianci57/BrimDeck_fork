@@ -11,6 +11,9 @@ namespace BrimDeck;
 // Here the outline (unhinted, stroked a little to give back the weight hinting would) is scaled to a box of whole device pixels
 // whose width and height have the parity of the ring's, so that the box is centred on the ring's centre exactly
 // (CompactMusicLayout.RingLetterBox); at 12 pixels across, a letter 5 pixels wide could only be half a pixel off.
+// The box is centred, but what the eye sees is the drawn pixels: a stem that falls between two columns draws as two faint ones and
+// the letter looks moved toward its solid side. So the outline is drawn a few quarter pixels either way and kept where its drawn
+// pixels are centred (Settle).
 internal static class RingLetter
 {
     private static readonly Dictionary<(string Letter, double Size, double Cell, double Inner, double Ppd, string Font), (Geometry Glyph, double Stroke)> Made = [];
@@ -36,6 +39,7 @@ internal static class RingLetter
             double sx = (box.Width - stroke) / (bounds.Width * ppd), sy = (box.Height - stroke) / (bounds.Height * ppd);
             // Outline to its origin, scaled to the box less the stroke, moved to the box's corner plus half the stroke; all in DIP.
             var place = new Matrix(sx, 0, 0, sy, (box.Left + stroke / 2) / ppd - bounds.X * sx, (box.Top + stroke / 2) / ppd - bounds.Y * sy);
+            place = Settle(outline, place, strokeDip, ppd, (int)Math.Round(cell * ppd));
             outline.Transform = new MatrixTransform(place);
             outline.Freeze();
             if (Made.Count > 64) Made.Clear();
@@ -43,6 +47,66 @@ internal static class RingLetter
         }
         return new Path { Data = made.Glyph, Fill = ink, Stroke = ink, StrokeThickness = made.Stroke, StrokeLineJoin = PenLineJoin.Round,
             HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top, IsHitTestVisible = false };
+    }
+
+    // The placement moved by up to half a device pixel on each axis so that the drawn letter is centred in the cell (pixels
+    // across): each edge counts as far in as its outermost row or column is faint, so a faint column counts for little. Of
+    // placements equally centred, the one nearest the box is kept.
+    private static Matrix Settle(Geometry outline, Matrix place, double stroke, double ppd, int pixels)
+    {
+        if (pixels < 2) return place;
+        double[] steps = [0, -.25, .25, -.5, .5];
+        double Best(bool across)
+        {
+            double best = 0, miss = double.MaxValue;
+            foreach (double step in steps)
+            {
+                var moved = place;
+                if (across) moved.OffsetX += step / ppd; else moved.OffsetY += step / ppd;
+                double off = Math.Abs(Centre(Draw(outline, moved, stroke, ppd, pixels), pixels, across) - pixels / 2.0);
+                if (off < miss - .02) { miss = off; best = step; }
+            }
+            return best;
+        }
+        double x = Best(true), y = Best(false);
+        place.OffsetX += x / ppd; place.OffsetY += y / ppd;
+        return place;
+    }
+
+    // The letter drawn as the ring draws it, on a square of whole device pixels: each pixel's coverage, 0 to 1.
+    private static double[] Draw(Geometry outline, Matrix place, double stroke, double ppd, int pixels)
+    {
+        var glyph = outline.Clone(); glyph.Transform = new MatrixTransform(place);
+        var visual = new DrawingVisual();
+        using (var context = visual.RenderOpen())
+        {
+            context.PushTransform(new ScaleTransform(ppd, ppd));
+            context.DrawGeometry(Brushes.White, new Pen(Brushes.White, stroke) { LineJoin = PenLineJoin.Round }, glyph);
+        }
+        var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap(pixels, pixels, 96, 96, PixelFormats.Pbgra32);
+        bitmap.Render(visual);
+        var bytes = new byte[pixels * pixels * 4];
+        bitmap.CopyPixels(bytes, pixels * 4, 0);
+        var coverage = new double[pixels * pixels];
+        for (int i = 0; i < coverage.Length; i++) coverage[i] = bytes[i * 4 + 3] / 255.0;
+        return coverage;
+    }
+
+    // Where the drawn letter's middle lies across (or down), in pixels from the cell's edge: each column's (row's) strongest
+    // pixel, against the letter's strongest; the first and last that show count from their inner side as far as they are faint.
+    private static double Centre(double[] coverage, int pixels, bool across)
+    {
+        var line = new double[pixels];
+        for (int y = 0; y < pixels; y++)
+            for (int x = 0; x < pixels; x++)
+            {
+                int at = across ? x : y;
+                line[at] = Math.Max(line[at], coverage[y * pixels + x]);
+            }
+        double strongest = line.Max();
+        if (strongest <= 0) return pixels / 2.0;
+        int first = Array.FindIndex(line, value => value / strongest > .05), last = Array.FindLastIndex(line, value => value / strongest > .05);
+        return (first + 1 - line[first] / strongest + last + line[last] / strongest) / 2;
     }
 
     // Where the glyph's mass lies in its box, 0 to 1 from the left and from the top: the centroid of the outline's polygon (the

@@ -39,22 +39,22 @@ public sealed class StripPresence
     }
 }
 
-// Which parts of the collapsed row wait for their first figures, and when they join: the temperatures of CPU and GPU, and each
-// chosen drive letter's space and temperature (CompactFigures, CompactSources). No part shows before its first figure arrives,
+// Which parts of the collapsed row wait for their first figures, and when they join: the temperatures of CPU and GPU, each
+// chosen drive letter's space and temperature (CompactFigures, CompactSources), and the lowest device battery. No part shows before its first figure arrives,
 // so the row never shows a dash for a sensor still being read, nor builds itself again when the sensor turns out to be missing:
 // a machine without one never shows it, and the drives with none of their letters showing are left out. Once a part has shown it
 // stays (a figure missing for a moment shows a dash) until its sensor is known to be missing.
 public sealed class StripAdmission
 {
     public const CompactMonitorItems Later = CompactMonitorItems.Storage | CompactMonitorItems.Power | CompactMonitorItems.Charge | CompactMonitorItems.Frames;
-    // A part: a ring's temperature (Heat), a letter's space ("C:"), or a letter's temperature ("C:" + Heat).
+    // A part: a ring's temperature (Heat), a letter's space ("C:"), a letter's temperature ("C:" + Heat), or the devices' battery ("").
     public const string Heat = "°";
     private readonly HashSet<(CompactMonitorItems Item, string Part)> _seen = [], _showing = [];
     // The machine's power draw and its own battery have given a reading, and the sampler has not since found it has none (a battery
     // reading is the machine's own and a desktop never shows one; the power reading stays away on a machine with no source). The frame
     // rate likewise: seen once counted, gone where Windows' frame events cannot be read.
     private bool _powerSeen, _chargeSeen, _framesSeen;
-    // The readings left out of the row as it was last built; the drives until their first figures.
+    // The readings left out of the row as it was last built; the drives and the devices' battery until their first figures.
     public CompactMonitorItems Hidden { get; private set; } = Later;
     // The parts showing, as text: when it changes, the row is built again for the new widths.
     public string Layout { get; private set; } = "";
@@ -76,7 +76,7 @@ public sealed class StripAdmission
                 yield return (reading.Item, Heat, (reading.Item == CompactMonitorItems.Cpu ? states.Cpu : states.Gpu) == SensorState.None);
         }
     }
-    private static bool Seen(CompactMonitorItems item, string part, MonitorSnapshot? latest) => item == CompactMonitorItems.Storage
+    private static bool Seen(CompactMonitorItems item, string part, MonitorSnapshot? latest, SensorStates states) => item == CompactMonitorItems.Storage
         ? part.EndsWith(Heat, StringComparison.Ordinal) ? CompactSources.Heat(part[..^Heat.Length], latest) is not null : CompactSources.Share(part, latest) is not null
         : CompactFigures.Heat(item, latest) is not null;
 
@@ -90,6 +90,7 @@ public sealed class StripAdmission
     // Whether the system must still be read for the row although it does not show the drives yet, only because their first
     // figures have not come. Without this a row showing only the drives would have no width, so no readings would be asked for,
     // so the first figure would never come. False once each part is known to be missing, so a machine without them stops asking.
+    // The battery is the devices', so the system is never read for it.
     public bool Awaits(IReadOnlyList<CompactReading> readings, MonitorSnapshot? latest, SensorStates states)
     {
         var pending = CompactMonitor.Shown(readings) & Hidden;
@@ -108,7 +109,7 @@ public sealed class StripAdmission
         var layout = new System.Text.StringBuilder();
         foreach (var (item, part, missing) in Wanted(readings, latest, states))
         {
-            if (Seen(item, part, latest)) _seen.Add((item, part));
+            if (Seen(item, part, latest, states)) _seen.Add((item, part));
             if (missing || !_seen.Contains((item, part))) continue;
             _showing.Add((item, part));
             hidden &= ~item;

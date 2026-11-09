@@ -168,3 +168,7 @@ An unofficial fan palette. It uses colors only, no artwork, logos or fonts from 
 **Check.** Primary text is above 15:1 on both gradient stops and tertiary text above 5:1; the yellow clock and warning are about 15:1 on the violet-black; the magenta progress is about 3:1 on the yellow Indicator. Every rule passes the first time, with no adjustment.
 
 The full file is [`cyberpunk-edgerunners.json`](../../src/BrimDeck.Core/Themes/cyberpunk-edgerunners.json). To start your own theme from it, choose it in settings and press "New from current theme".
+
+## Interface font
+
+The interface font is an app setting, not part of a theme: choose it under Settings › General › Appearance and language › Interface font. A theme file cannot name a font. The chosen font goes in front of the default one and Chinese still falls back to Microsoft YaHei, so a missing glyph never shows as a box. The settings window itself keeps the app's own font, so it stays readable while you try fonts. The clock styles that ship their own font (such as Orbitron and Fredoka) and the seven-segment, dot-matrix and pixel styles keep their own letterforms; the other clock styles follow the chosen font.

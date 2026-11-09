@@ -11,15 +11,18 @@ internal static class CaptureChecks
         var window = new Window { Title = "BrimDeck capture test", Width = 160, Height = 80,
             WindowStyle = WindowStyle.None, AllowsTransparency = true, Background = Brushes.Black,
             ShowInTaskbar = false, ShowActivated = false, Topmost = true };
-        window.SourceInitialized += (_, _) => WindowsHost.ConfigureOverlay(window);
+        window.SourceInitialized += (_, _) => WindowsHost.ConfigureOverlay(window, false);
         try
         {
             window.Show();
             var handle = new WindowInteropHelper(window).Handle;
             check("overlay delivers mouse clicks without activation", SendMessage(handle, 0x21, IntPtr.Zero, new IntPtr(0x02010001)) == new IntPtr(3));
-            long style = GetWindowLongPtrW(handle, -20).ToInt64();
-            check("overlay has no WGC-incompatible no-activate style", (style & 0x08000000) == 0);
-            check("transparent overlay supports WGC", CreateItem(handle) == 0);
+            check("overlay keeps the no-activate style by default", (GetWindowLongPtrW(handle, -20).ToInt64() & 0x08000000) != 0);
+            WindowsHost.SetCapturable(window, true);
+            check("capturable overlay drops the no-activate style", (GetWindowLongPtrW(handle, -20).ToInt64() & 0x08000000) == 0);
+            check("capturable transparent overlay supports WGC", CreateItem(handle) == 0);
+            WindowsHost.SetCapturable(window, false);
+            check("overlay takes the no-activate style back", (GetWindowLongPtrW(handle, -20).ToInt64() & 0x08000000) != 0);
         }
         finally { window.Close(); }
     }

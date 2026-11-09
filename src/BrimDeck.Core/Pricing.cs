@@ -11,9 +11,10 @@ public sealed record ModelPrice(string Model, TokenPrices Prices, IReadOnlyList<
 public enum RecoveryStatus { Recovered, TooFewRecords, Undetermined, Inconsistent }
 // Records is the number of records with an API amount; Needed is how many the fit requires.
 public sealed record PriceRecovery(RecoveryStatus Status, TokenPrices? Prices, int Records, int Needed);
-public sealed record CostSummary(decimal Amount, int Reported, int Estimated, int Unpriced)
+// Fitted counts the records priced from a merged Cursor plan's weekly amount (TokenEntry.FittedCost).
+public sealed record CostSummary(decimal Amount, int Reported, int Estimated, int Unpriced, int Fitted = 0)
 {
-    public bool HasValue => Reported + Estimated > 0;
+    public bool HasValue => Reported + Estimated + Fitted > 0;
     public bool IsEstimate => Estimated > 0;
 }
 
@@ -481,15 +482,15 @@ public sealed class Pricing : IDisposable
     }
     public CostSummary Summarize(IEnumerable<TokenEntry> entries)
     {
-        decimal amount = 0; int reported = 0, estimated = 0, unpriced = 0;
+        decimal amount = 0; int reported = 0, estimated = 0, unpriced = 0, fitted = 0;
         foreach (var entry in entries)
         {
             if (string.IsNullOrWhiteSpace(entry.Model) && entry.Total == 0 && entry.ReportedCostUsd is null) continue;
             if (Estimate(entry) is not { } price) { unpriced++; continue; }
             amount += price;
-            if (entry.ReportedCostUsd is not null) reported++; else estimated++;
+            if (entry.FittedCost) fitted++; else if (entry.ReportedCostUsd is not null) reported++; else estimated++;
         }
-        return new(amount, reported, estimated, unpriced);
+        return new(amount, reported, estimated, unpriced, fitted);
     }
     // Antigravity adds its own words to a model name: reasoning levels and other qualifiers, such as "claude-opus-5-5-high",
     // "claude-opus-4-6-thinking", "gpt-oss-120b-medium" (names seen in Antigravity records, confirmed by the user) and

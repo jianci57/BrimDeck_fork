@@ -9,8 +9,8 @@ using BrimDeck;
 // The letter inside a collapsed quota ring, rendered offscreen at 100 to 200 %: where its ink lands against the ring's centre, drawn
 // as it is now (RingLetter) and as it was (a TextBlock centred in the ring). Nothing is shown. Rings are sized in device pixels
 // (10 to 20 across, whole, on whole pixels, as the carousel places them). The ink is measured two ways, as the eye does: its box
-// (every pixel with a thirty-second of full alpha or more) and its mass (the pixels' alpha-weighted centre), in device pixels
-// against the ring's centre. With a folder given, the enlarged pictures are saved there too.
+// (every pixel with a thirty-second of full alpha or more), its seen box (the outermost columns and rows counted as far in as they
+// are faint, as RingLetter places it) and its mass (the pixels' alpha-weighted centre), in device pixels against the ring's centre. With a folder given, the enlarged pictures are saved there too.
 internal static class RingLetterChecks
 {
     private static readonly FontFamily Font = new("Segoe UI Variable Text, Segoe UI, Microsoft YaHei UI");
@@ -57,22 +57,30 @@ internal static class RingLetterChecks
         return (data, pixels);
     }
 
-    // The ink's box centre and its mass centre against the ring's centre, device pixels (x, y of each); NaN with no ink.
-    private static (double BoxX, double BoxY, double MassX, double MassY) Deviation(int cell, int thick, string letter, double ppd, bool now)
+    // The ink's box centre, its seen centre and its mass centre against the ring's centre, device pixels (x, y of each); NaN with no ink.
+    private static (double BoxX, double BoxY, double SeenX, double SeenY, double MassX, double MassY) Deviation(int cell, int thick, string letter, double ppd, bool now)
     {
         var (data, n) = Render(cell, thick, letter, ppd, now, drawn: false, dark: false);
         int x0 = n, y0 = n, x1 = -1, y1 = -1;
         double sum = 0, sx = 0, sy = 0;
+        double[] across = new double[n], down = new double[n];
         for (int y = 0; y < n; y++)
             for (int x = 0; x < n; x++)
             {
                 int alpha = data[(y * n + x) * 4 + 3];
                 if (alpha >= 8) { x0 = Math.Min(x0, x); x1 = Math.Max(x1, x); y0 = Math.Min(y0, y); y1 = Math.Max(y1, y); }
                 sum += alpha; sx += alpha * (x + .5); sy += alpha * (y + .5);
+                across[x] = Math.Max(across[x], alpha); down[y] = Math.Max(down[y], alpha);
             }
-        if (x1 < 0) return (double.NaN, double.NaN, double.NaN, double.NaN);
+        if (x1 < 0) return (double.NaN, double.NaN, double.NaN, double.NaN, double.NaN, double.NaN);
+        static double Seen(double[] line)
+        {
+            double strongest = line.Max();
+            int first = Array.FindIndex(line, value => value / strongest > .05), last = Array.FindLastIndex(line, value => value / strongest > .05);
+            return (first + 1 - line[first] / strongest + last + line[last] / strongest) / 2;
+        }
         double centre = Pad + cell / 2.0;
-        return ((x0 + x1 + 1) / 2.0 - centre, (y0 + y1 + 1) / 2.0 - centre, sx / sum - centre, sy / sum - centre);
+        return ((x0 + x1 + 1) / 2.0 - centre, (y0 + y1 + 1) / 2.0 - centre, Seen(across) - centre, Seen(down) - centre, sx / sum - centre, sy / sum - centre);
     }
 
     public static void Run(Action<string, bool> check, string? folder = null)
@@ -81,18 +89,18 @@ internal static class RingLetterChecks
         int[] cells = [10, 12, 14, 16, 20];
         string[] checked_ = ["A", "C", "K", "O", "1", "文"], heavy = ["V", "W", "T", "Y", "L", "7"];
         int thick(int cell) => Math.Max(1, (int)Math.Round(cell / 6.0));
-        double worstBox = 0, worstMass = 0, worstSmall = 0;
+        double worstSeen = 0, worstMass = 0, worstSmall = 0;
         string worstWhere = "";
         foreach (double ppd in scales)
             foreach (int cell in cells)
                 foreach (string letter in checked_)
                 {
                     var now = Deviation(cell, thick(cell), letter, ppd, now: true);
-                    double box = Math.Max(Math.Abs(now.BoxX), Math.Abs(now.BoxY)), mass = Math.Max(Math.Abs(now.MassX), Math.Abs(now.MassY));
-                    worstBox = Math.Max(worstBox, box);
+                    double seen = Math.Max(Math.Abs(now.SeenX), Math.Abs(now.SeenY)), mass = Math.Max(Math.Abs(now.MassX), Math.Abs(now.MassY));
+                    worstSeen = Math.Max(worstSeen, seen);
                     if (cell <= 14) worstSmall = Math.Max(worstSmall, mass);
                     if (mass > worstMass) { worstMass = mass; worstWhere = $"{letter} in {cell} px at {ppd * 100:0}%"; }
-                    if (box > 1e-9) Console.WriteLine($"  box off: {letter} in {cell} px at {ppd * 100:0}%: dx={now.BoxX:+0.00;-0.00} dy={now.BoxY:+0.00;-0.00}");
+                    if (seen > .2) Console.WriteLine($"  seen off: {letter} in {cell} px at {ppd * 100:0}%: dx={now.SeenX:+0.00;-0.00} dy={now.SeenY:+0.00;-0.00}");
                     if (mass > .4 && ppd is 1.0 or 1.5) Console.WriteLine($"  mass off: {letter} in {cell} px at {ppd * 100:0}%: dx={now.MassX:+0.00;-0.00} dy={now.MassY:+0.00;-0.00}");
                 }
         // The row's own ring (12 px at its scale 1, with a 2 px track): what the maintainer saw before and what is drawn now.
@@ -107,8 +115,8 @@ internal static class RingLetterChecks
                     Console.WriteLine($"ring letter {letter}, 12 px ring at {ppd * 100:0}%: box dx/dy before {then.BoxX:+0.00;-0.00}/{then.BoxY:+0.00;-0.00} now {now.BoxX:+0.00;-0.00}/{now.BoxY:+0.00;-0.00}; mass before {then.MassX:+0.00;-0.00}/{then.MassY:+0.00;-0.00} now {now.MassX:+0.00;-0.00}/{now.MassY:+0.00;-0.00}");
             }
         Console.WriteLine($"ring letter, 12 px ring, 12 letters, 5 scales, worst device px: box before {beforeBox:0.00} now {nowBox:0.00}; mass before {beforeMass:0.00} now {nowMass:0.00}");
-        Console.WriteLine($"ring letter, rings 10 to 20 px, A C K O 1 and a CJK character: worst box {worstBox:0.00}, worst mass {worstMass:0.00} ({worstWhere})");
-        check("Ring letter, rendered: the ink box's centre is the ring's centre exactly (rings 10 to 20 px, 100 to 200 %, A C K O 1 and a CJK character)", worstBox < 1e-9);
+        Console.WriteLine($"ring letter, rings 10 to 20 px, A C K O 1 and a CJK character: worst seen {worstSeen:0.00}, worst mass {worstMass:0.00} ({worstWhere})");
+        check("Ring letter, rendered: the drawn letter, a faint edge counted for what it shows, is within 0.25 device pixel of the ring's centre (rings 10 to 20 px, 100 to 200 %, A C K O 1 and a CJK character)", worstSeen <= .25);
         // Beyond 14 px the box and the mass cannot both be nearer: moving the box a whole pixel toward the mass would put the box a
         // pixel off to bring the mass in by less than that (the rule in RingLetterBox), so the mass keeps up to 0.7 there.
         check("Ring letter, rendered: the ink's mass is within 0.4 device pixel of the ring's centre in rings of 10 to 14 px, within 0.7 in 16 and 20 px", worstSmall <= .4 && worstMass <= .7);

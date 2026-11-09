@@ -6,9 +6,9 @@ using BrimDeck.Core;
 static class StripAdmissionTests
 {
     private const CompactMonitorItems Cpu = CompactMonitorItems.Cpu, Gpu = CompactMonitorItems.Gpu, Storage_ = CompactMonitorItems.Storage,
-        // The machine's power and battery and the frame rate join by their own sensors (PowerTests, FrameRateTests); these runs leave
-        // them aside.
-        Later = StripAdmission.Later & ~CompactMonitorItems.Power & ~CompactMonitorItems.Charge & ~CompactMonitorItems.Frames;
+        // The machine's power and battery and the frame rate join by their own sensors (PowerTests, FrameRateTests), the devices'
+        // battery by the devices, not by the system readings (DevicesPageTests); these runs leave them aside.
+        Later = StripAdmission.Later & ~CompactMonitorItems.Power & ~CompactMonitorItems.Charge & ~CompactMonitorItems.Battery & ~CompactMonitorItems.Frames;
     private const CompactMonitorItems EveryReading = CompactMonitor.Every & ~CompactMonitorItems.Power & ~CompactMonitorItems.Charge & ~CompactMonitorItems.Frames;
     private const SensorState Unknown = SensorState.Unknown, Found = SensorState.Found, None = SensorState.None;
     private const string Heat = StripAdmission.Heat;
@@ -53,7 +53,7 @@ static class StripAdmissionTests
         foreach (var (snapshot, states) in ticks)
         {
             var (all, arriving) = admission.Update(snapshot, readings, states);
-            var hidden = all & Later;
+            var hidden = all & Later; arriving &= Later;
             if (hidden == built && admission.Layout == layout) continue;
             rebuilds++; arrivals.Add(arriving); (built, layout) = (hidden, admission.Layout);
         }

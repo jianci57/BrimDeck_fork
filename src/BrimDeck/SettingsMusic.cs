@@ -13,9 +13,9 @@ public sealed partial class SettingsWindow
 {
     private DeckPage _previewPage;
     // keepPreview marks the segments alone as preview controls, so a press on the rest of the row still ends the preview.
-    private FrameworkElement MusicChoice<T>(string title, T selected, (T Value, string Label)[] options, Action<T> change, bool enabled = true, bool keepPreview = false, string? help = null) where T : notnull
+    private FrameworkElement MusicChoice<T>(string title, T selected, (T Value, string Label)[] options, Action<T> change, bool enabled = true, bool keepPreview = false, string? help = null, double width = 292) where T : notnull
     {
-        var strip = new UniformGrid { Columns = options.Length, Width = 292, IsEnabled = enabled };
+        var strip = new UniformGrid { Columns = options.Length, Width = width, IsEnabled = enabled };
         if (keepPreview) KeepPreview(strip);
         foreach (var option in options)
         {
@@ -77,6 +77,10 @@ public sealed partial class SettingsWindow
             CompactPart.Equalizer => (Loc.T("律动条", "Equalizer"), S.ShowsEqualizer(style), null),
             CompactPart.Music => (Loc.T("正在播放的音乐", "Music now playing"), S.ShowsMusic(style),
                 Loc.T("拖动只改变歌名或歌词的位置。封面始终在最左侧。", "Dragging moves only the title or lyric. The cover stays at the left.")),
+            CompactPart.Transfer => (Loc.T("文件中转", "File transfer"), style == CompactStyle.Notch ? S.NotchTransfer : S.CapsuleTransfer,
+                Loc.T("显示文件中转里的文件数量，没有文件时不显示。单击直接展开到剪贴板与文件中转页。", "Shows how many files the file transfer holds, and nothing while it is empty. Clicking it opens the clipboard and file transfer page.")),
+            CompactPart.Devices => (Loc.T("设备电量", "Device batteries"), S.ShowsDevices(style),
+                Loc.T("显示哪些设备、是否显示数字，在“设备电量”设置页中选择。", "Which devices show, and whether with figures, is chosen on the device batteries settings page.")),
             _ => (Loc.T("系统监控", "System monitor"), S.ShowsMonitor(style), null)
         };
         void Show(bool on) => Change(s =>
@@ -86,6 +90,8 @@ public sealed partial class SettingsWindow
                 case CompactPart.Rings: if (notch) s.NotchSummary = on; else s.CapsuleSummary = on; break;
                 case CompactPart.Music: if (notch) s.NotchMusic = on; else s.CapsuleMusic = on; break;
                 case CompactPart.Equalizer: if (notch) s.NotchEqualizer = on; else s.CapsuleEqualizer = on; break;
+                case CompactPart.Transfer: if (notch) s.NotchTransfer = on; else s.CapsuleTransfer = on; break;
+                case CompactPart.Devices: if (notch) s.NotchDevices = on; else s.CapsuleDevices = on; break;
                 default: if (notch) s.NotchMonitor = on; else s.CapsuleMonitor = on; break;
             }
         });

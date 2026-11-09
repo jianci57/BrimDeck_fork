@@ -54,11 +54,16 @@ static class CursorUsageTests
         check("An older Cursor plan keeps its two billing-period quotas and adds the Grok Bot weekly allowance",
             switched.Quotas.Select(q => q.Label).SequenceEqual(["Cursor 模型", "其他模型", "Grok Bot"]) && switched.Plan == "ultra");
 
-        handler.Unified = true;
+        handler.Unified = true; handler.Calls.Clear();
+        handler.Billing.AddRange([BillingItem("g-1", today.AddHours(9)), BillingItem("g-2", today.AddHours(10)), BillingItem("g-3", today.AddHours(11)),
+            BillingItem("g-old", today.AddDays(-2).AddHours(9))]);
         var merged = await Refresh();
         check("A plan merged with Grok shows one weekly allowance, its plan name and no separate Grok Bot row",
             merged.Quotas.Count == 1 && merged.Quotas[0] is { Label: "每周额度", UsedPercent: 12.5, Minutes: 10080 } &&
             merged.Quotas[0].ResetAt == DateTimeOffset.FromUnixTimeMilliseconds(1794193934270) && merged.Plan == "Premium");
+        check("A merged plan reads its token details from the billing items, every page of a day, and not the usage event list",
+            merged.UsageComplete && handler.Calls.Count == 0 && merged.Entries.Select(entry => entry.Key).SequenceEqual(["cursor:g-old", "cursor:g-1", "cursor:g-2", "cursor:g-3"]) &&
+            handler.BillingCalls.Count(call => call.Day == today) == 2 && handler.BillingCalls.Count == 31 && merged.Entries.All(entry => entry is { Model: "Grok Bot", Total: 1050 }));
     }
 
     private static string Token(string subject) =>
@@ -69,6 +74,9 @@ static class CursorUsageTests
 
     private static string Record(string id, DateTime time) =>
         $$"""{"timestamp":"{{new DateTimeOffset(time).ToUnixTimeMilliseconds()}}","model":"composer-2.5","tokenUsage":{"inputTokens":10,"outputTokens":5,"totalCents":0.5},"usageEventId":"{{id}}"}""";
+
+    private static (DateTimeOffset Time, string Json) BillingItem(string id, DateTime time) => (new DateTimeOffset(time),
+        $$"""{"billingItemId":"{{id}}","eventTime":"{{new DateTimeOffset(time).UtcDateTime:yyyy-MM-ddTHH:mm:ss.fffZ}}","product":"grok-bot","chargeCategory":"usage","usageType":"included","usage":{"prompt-text-tokens":"100","cached-prompt-text-tokens":"900","cache-write-text-tokens":"20","completion-text-tokens":"30"},"pricing":{"currency":"USD","contracted":"0.0000000000"},"totalTokens":"1050"}""");
 
     private sealed class Desktop : IDesktopSources
     {
@@ -83,6 +91,8 @@ static class CursorUsageTests
         public List<(DateTime Day, int Page)> Calls { get; } = [];
         public int? FailAfter { get; set; }
         public bool Unified { get; set; }
+        public List<(DateTimeOffset Time, string Json)> Billing { get; } = [];
+        public List<(DateTime Day, string Cursor)> BillingCalls { get; } = [];
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
@@ -95,6 +105,19 @@ static class CursorUsageTests
                 return Reply(Unified
                     ? """{"nextResetTimestampUtc":"2026-11-09T03:12:14.270Z","usagePercent":12.5,"cursorPlanName":"Premium","isUnified":true}"""
                     : """{"nextResetTimestampUtc":"2026-10-30T03:12:14.270Z","usagePercent":3}""");
+            if (path == "/api/dashboard/v2/usage-status") return Reply("{}");
+            if (path == "/api/dashboard/v2/query-billing-items")
+            {
+                // Two items a page, newest first, continued by the cursor the page gives.
+                var query = System.Web.HttpUtility.ParseQueryString(request.RequestUri!.Query);
+                DateTimeOffset from = DateTimeOffset.Parse(query["startTime"]!), to = DateTimeOffset.Parse(query["endTime"]!);
+                int skip = int.Parse(query["cursor"] ?? "0");
+                BillingCalls.Add((from.LocalDateTime.Date, query["cursor"] ?? ""));
+                var items = Billing.Where(item => item.Time >= from && item.Time < to).OrderByDescending(item => item.Time).Skip(skip).ToList();
+                bool more = items.Count > 2;
+                var pagination = more ? $"{{\"hasMore\":true,\"nextCursor\":\"{skip + 2}\"}}" : "{\"hasMore\":false}";
+                return Reply("{\"data\":[" + string.Join(",", items.Take(2).Select(item => item.Json)) + "],\"pagination\":" + pagination + "}");
+            }
             if (!path.EndsWith("/GetFilteredUsageEvents", StringComparison.Ordinal)) throw new InvalidOperationException("Unexpected Cursor destination " + path);
             using var body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(cancellationToken));
             long start = long.Parse(body.RootElement.GetProperty("startDate").GetString()!), end = long.Parse(body.RootElement.GetProperty("endDate").GetString()!);

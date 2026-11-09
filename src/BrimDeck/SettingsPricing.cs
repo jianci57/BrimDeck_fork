@@ -47,7 +47,7 @@ public sealed partial class SettingsWindow
         _priceSearch=new TextBox {Style=(Style)FindResource("SettingsField"),MaxLength=200,Margin=new Thickness(0,0,0,16)};
         AutomationProperties.SetName(_priceSearch,Loc.T("搜索模型", "Search models"));_priceSearch.ToolTip=Loc.T("按模型 ID 搜索", "Search by model ID");
         var search=new DockPanel();var searchLabel=TextLine(Loc.T("搜索模型", "Search models"),12,TextSecondary);searchLabel.Margin=new Thickness(0,8,16,0);DockPanel.SetDock(searchLabel,Dock.Left);search.Children.Add(searchLabel);search.Children.Add(_priceSearch);_content.Children.Add(search);
-        _priceTable=new DataGrid {Style=(Style)FindResource("SettingsPriceTable"),Height=Math.Max(220,ActualHeight-PriceTableReserve),FontSize=12,FontFamily=UI.PanelFont};
+        _priceTable=new DataGrid {Style=(Style)FindResource("SettingsPriceTable"),Height=Math.Max(220,ActualHeight-PriceTableReserve),FontSize=12,FontFamily=Fonts.PlainOf(UiFontRole.Panel)};
         _priceTable.Resources[typeof(ScrollViewer)]=new Style(typeof(ScrollViewer));
         AutomationProperties.SetName(_priceTable,Loc.T("模型单价", "Model unit prices"));
         var numericHeader=new Style(typeof(DataGridColumnHeader),_priceTable.ColumnHeaderStyle);
@@ -117,7 +117,7 @@ public sealed partial class SettingsWindow
     {
         bool adding=model is null;
         var dialog=new Window {Title=adding?Loc.T("添加模型", "Add model"):Loc.T("编辑模型价格", "Edit model price"),Owner=this,Width=500,SizeToContent=SizeToContent.Height,ResizeMode=ResizeMode.NoResize,
-            WindowStartupLocation=WindowStartupLocation.CenterOwner,Background=UI.Brush(Surface),Foreground=UI.Brush(TextPrimary),FontFamily=UI.PanelFont,ShowInTaskbar=false};
+            WindowStartupLocation=WindowStartupLocation.CenterOwner,Background=UI.Brush(Surface),Foreground=UI.Brush(TextPrimary),FontFamily=Fonts.PlainOf(UiFontRole.Panel),ShowInTaskbar=false};
         dialog.Resources.MergedDictionaries.Add(new ResourceDictionary {Source=new Uri("/BrimDeck;component/SettingsResources.xaml",UriKind.Relative)});_palette.Apply(dialog.Resources);
         void UpdateDialogTheme()
         {

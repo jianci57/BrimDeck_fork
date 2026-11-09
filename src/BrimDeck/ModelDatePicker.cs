@@ -237,7 +237,7 @@ internal sealed class ModelDatePicker : Border
 
     private Button MonthButton(bool next)
     {
-        var icon = UI.Centered(next ? "" : "", 10, Hex("textPrimary"), font: new FontFamily("Segoe MDL2 Assets"));
+        var icon = UI.Centered(next ? "" : "", 10, Hex("textPrimary"), font: Fonts.IconMdl2);
         icon.ClearValue(TextBlock.ForegroundProperty);
         return Control(icon, next ? Loc.T("下个月", "Next month") : Loc.T("上个月", "Previous month"), () => ShowMonth(_month.AddMonths(next ? 1 : -1), true));
     }

@@ -32,12 +32,16 @@ internal static class MonitorDraw
 
     // Text set once per string, size, weight and color: the same figures come back every second, so they are not laid out again.
     private static readonly Dictionary<(string, double, bool, bool, string, double), FormattedText> Texts = [];
-    private static readonly Typeface Regular = new(UI.PanelFont, FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
-    private static readonly Typeface Strong = new(UI.PanelFont, FontStyles.Normal, FontWeights.SemiBold, FontStretches.Normal);
-    private static readonly Typeface Display = new(UI.DisplayFont, FontStyles.Normal, FontWeights.SemiBold, FontStretches.Normal);
+    // Looked up per use: the user's font may change (Fonts.Version), and the texts and letters kept here were set in the old one.
+    private static Typeface Regular => Fonts.Face(UiFontRole.Panel);
+    private static Typeface Strong => Fonts.Face(UiFontRole.Panel, FontWeights.SemiBold);
+    private static Typeface Display => Fonts.Face(UiFontRole.Display, FontWeights.SemiBold);
+    private static int _fontSeen = -1;
+    private static void KeepFresh() { if (_fontSeen == Fonts.Version) return; _fontSeen = Fonts.Version; Texts.Clear(); Letters.Clear(); }
 
     public static FormattedText Text(string text, double size, string color, double pixelsPerDip, bool strong = false, bool display = false)
     {
+        KeepFresh();
         var key = (text, size, strong, display, color, pixelsPerDip);
         if (Texts.TryGetValue(key, out var known)) return known;
         if (Texts.Count > 768) Texts.Clear();
@@ -208,10 +212,13 @@ internal sealed class DrawingCache<TKey> where TKey : struct, IEquatable<TKey>
 {
     private TKey _key;
     private DrawingGroup? _drawing;
+    // The text in it was laid out in the font of its day: another font draws it again.
+    private int _font = -1;
 
     public Drawing Get(TKey key, Action<DrawingContext> draw)
     {
-        if (_drawing is not null && key.Equals(_key)) return _drawing;
+        if (_drawing is not null && key.Equals(_key) && _font == Fonts.Version) return _drawing;
+        _font = Fonts.Version;
         var group = new DrawingGroup();
         using (var context = group.Open()) draw(context);
         group.Freeze();

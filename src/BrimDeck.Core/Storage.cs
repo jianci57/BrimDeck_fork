@@ -56,6 +56,24 @@ public static class Storage
     // temperature for such a drive either. Its space is listed as any other drive's.
     public static bool AsksTemperature(StorageDisk disk) => disk.Bus != BusRaid;
 
+    // An NVMe drive, whose SMART / health information log is asked when its temperature property gives none.
+    public const int BusNvme = 17;
+
+    // The composite temperature of an NVMe drive's SMART / health information log, as the device's protocol-specific property
+    // returns it: a STORAGE_PROTOCOL_DATA_DESCRIPTOR (Version and Size both 48, then the STORAGE_PROTOCOL_SPECIFIC_DATA from 8, whose
+    // ProtocolDataOffset at 24 and ProtocolDataLength at 28 place the log from 8), the temperature at bytes 1 and 2 of the log, in
+    // kelvin, less 273 as Windows' own temperature property gives it. Zero is a drive that reports none; null where the reply is not
+    // such a log.
+    public static double? HealthLogCelsius(ReadOnlySpan<byte> reply)
+    {
+        const int Descriptor = 48, SpecificData = 40, Log = 512;
+        if (reply.Length < Descriptor || BitConverter.ToInt32(reply) != Descriptor || BitConverter.ToInt32(reply[4..]) != Descriptor) return null;
+        int offset = BitConverter.ToInt32(reply[24..]), length = BitConverter.ToInt32(reply[28..]);
+        if (offset < SpecificData || length < Log || 8L + offset + Log > reply.Length) return null;
+        int kelvin = reply[8 + offset + 1] | reply[8 + offset + 2] << 8;
+        return kelvin == 0 ? null : Temperatures.Plausible(kelvin - 273);
+    }
+
     // The drives from the volumes and the physical drive each lies on (null when it spans drives or its drive is unknown), the
     // drives Windows describes, the temperatures by drive number and the solid-state drives' numbers. A volume on a drive that is
     // not internal is left out, as is one that is too small; a volume without a known drive is a drive of its own. Drives in the

@@ -171,9 +171,7 @@ public partial class App
             case HotkeyKind.Move: DeckUnderPointer().MoveFromKeyboard(slot); break;
             case HotkeyKind.ClickThrough: ToggleClickThrough(); break;
             case HotkeyKind.OpenSettings: ToggleSettingsFromHotkey(); break;
-            case HotkeyKind.Page1: OpenPageFromHotkey(0); break;
-            case HotkeyKind.Page2: OpenPageFromHotkey(1); break;
-            case HotkeyKind.Page3: OpenPageFromHotkey(2); break;
+            case >= HotkeyKind.Page1 and <= HotkeyKind.Page10: OpenPageFromHotkey(kind - HotkeyKind.Page1); break;
             case HotkeyKind.Refresh: Deck.SyncNow(); break;
         }
     }

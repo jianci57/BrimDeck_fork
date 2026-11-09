@@ -35,7 +35,7 @@ public partial class MainWindow
     // which RefreshStatus runs before ApplyHeader, would otherwise leave it at the size tier left behind until the next refresh.
     private void FitPageButtons(PanelHeader header)
     {
-        foreach (var button in new[] { AIUsageButton, MonitorPageButton, MusicPageButton }) button.Height = header.ButtonHeight;
+        foreach (var button in new[] { AIUsageButton, MonitorPageButton, MusicPageButton, ShelfPageButton, DevicesPageButton }) button.Height = header.ButtonHeight;
         PageCapsule.Height = header.ButtonHeight;
     }
     // The buttons stand in the order chosen in the settings; the first has no gap before it.
@@ -50,5 +50,5 @@ public partial class MainWindow
         }
         for (int i = 0; i < order.Count; i++) order[i].Margin = new Thickness(i == 0 ? 0 : 1, 0, 0, 0);
     }
-    private Button PageButton(DeckPage page) => page switch { DeckPage.Music => MusicPageButton, DeckPage.Monitor => MonitorPageButton, _ => AIUsageButton };
+    private Button PageButton(DeckPage page) => page switch { DeckPage.Music => MusicPageButton, DeckPage.Monitor => MonitorPageButton, DeckPage.Clipboard => ShelfPageButton, DeckPage.Devices => DevicesPageButton, _ => AIUsageButton };
 }

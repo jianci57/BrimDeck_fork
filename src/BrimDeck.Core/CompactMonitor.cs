@@ -25,8 +25,11 @@ public enum CompactMonitorItems
     // joined CPU, GPU and the drives (CompactFigures); never released, it is dropped from saved tables and its number not reused.
     All = Columns | Cpu | Memory | Gpu | Download | Upload,
     Temperature = 64, Storage = 128,
+    // Was the lowest battery among the wireless devices; the devices are a part of the row of their own since 1.3.0
+    // (CompactPart.Devices), so it is dropped from saved tables and its number not reused.
+    Battery = 256,
     // The whole machine's power draw in watts (PowerResolver) and the machine's own battery (BatteryModel): outside the presets like
-    // Storage. 256 is left unused.
+    // Storage.
     Power = 512, Charge = 1024,
     // The frame rate of the program in front (FrameRates): one figure for every panel. Outside the presets too.
     Frames = 2048
@@ -202,7 +205,8 @@ public static class CompactMonitor
     }
 
     // The width of each reading: a ring with its figure (the ring and the room after it) or alone, the core columns, a rate, the
-    // drives, power, the battery, the frame rate. figure: the room after a ring, by ring (a ring showing its temperature too takes more).
+    // drives, power, the machine's battery, the frame rate. figure: the room after a ring, by ring (a ring
+    // showing its temperature too takes more).
     public static Func<CompactMonitorItems, double> Widths(CompactMonitorItems values, double ring, Func<CompactMonitorItems, double> figure, double bareRing, double columns, double rate, double storage = 0, double power = 0, double charge = 0, double frames = 0) => item => item switch
     {
         CompactMonitorItems.Columns => columns,
