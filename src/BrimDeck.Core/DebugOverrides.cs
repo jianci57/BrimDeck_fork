@@ -30,11 +30,13 @@ public static class DebugOverrides
             ? new MemorySample(known.Total, (ulong)(known.Total * memory), (ulong)(known.CommitLimit * memory), known.CommitLimit, known.Cached)
             : new MemorySample((ulong)FallbackMemory, (ulong)(FallbackMemory * memory), (ulong)(FallbackCommit * memory), (ulong)FallbackCommit);
         var gpuSample = real?.Gpu.OrDefault is { } adapter ? adapter with { Usage = gpu } : new GpuSample(gpu, Reading<ulong>.Unavailable("debug"));
-        // The frame rate takes its values literally: the figure 0 with a low of 45 shows "0 FPS 1% 45", as the sliders say.
+        // The frame rate takes its values literally: the figure 0 with a low of 45 shows "0 FPS 1% 45", as the sliders say. The
+        // GPU frame time follows the figure's slider (1000 over it), since a layout needs the pair to move together.
         var frames = new FrameSample(Clamp(s.DebugFrames, 999), Loc.T("调试", "Debug"))
         {
             Path = real?.Frames.OrDefault?.Path, Refresh = real?.Frames.OrDefault?.Refresh,
             Low1 = Clamp(s.DebugLow1, 999), Low01 = Clamp(s.DebugLow01, 999),
+            GpuMs = s.DebugFrames > 0 ? Math.Min(1000.0 / Clamp(s.DebugFrames, 999), 999.9) : null,
         };
         var result = real ?? new MonitorSnapshot(DateTimeOffset.Now, Environment.ProcessorCount,
             Reading<CpuSample>.Unavailable("debug"), Reading<MemorySample>.Unavailable("debug"),

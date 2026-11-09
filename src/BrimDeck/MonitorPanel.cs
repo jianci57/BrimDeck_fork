@@ -110,6 +110,8 @@ public partial class MainWindow
         }
         _monitorView.Fps1Low = Settings.MonitorFps1Low;
         _monitorView.Fps01Low = Settings.MonitorFps01Low;
+        _monitorView.FpsFrameTime = Settings.MonitorFpsFrameTime;
+        _monitorView.FpsGpuTime = Settings.MonitorFpsGpuTime;
         _monitorView.Update(snapshot, MonitorMotion);
     }
 
@@ -186,6 +188,8 @@ public partial class MainWindow
             Settings.MonitorTemperatures, _monitorSensors.Small, PowerBlockFor(old is null && MonitorMotion && !Resizing), Settings.MonitorFrames);
         _monitorView.Fps1Low = Settings.MonitorFps1Low;
         _monitorView.Fps01Low = Settings.MonitorFps01Low;
+        _monitorView.FpsFrameTime = Settings.MonitorFpsFrameTime;
+        _monitorView.FpsGpuTime = Settings.MonitorFpsGpuTime;
         _monitorView.Update(_app.Monitor?.Latest ?? WaitingSnapshot, motion: false);
         // The new page may show the power line where the old one did not, or the other way round: what is read follows.
         if (_monitorShowing && _monitorView.ShowsPower != _powerPage) UpdateMonitorDemand();
