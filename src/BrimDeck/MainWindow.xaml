@@ -3,7 +3,7 @@
         AllowsTransparency="True" Background="Transparent" ResizeMode="NoResize" Topmost="True"
         ShowActivated="False" ShowInTaskbar="False" Width="760" Height="256" Style="{StaticResource {x:Type Window}}">
   <Window.Resources>
-    <ResourceDictionary><ResourceDictionary.MergedDictionaries><ResourceDictionary Source="ModelDetailsResources.xaml"/><ResourceDictionary Source="ToolbarResources.xaml"/><ResourceDictionary Source="MusicResources.xaml"/></ResourceDictionary.MergedDictionaries></ResourceDictionary>
+    <ResourceDictionary><ResourceDictionary.MergedDictionaries><ResourceDictionary Source="ModelDetailsResources.xaml"/><ResourceDictionary Source="ToolbarResources.xaml"/><ResourceDictionary Source="MusicResources.xaml"/><ResourceDictionary Source="ShelfResources.xaml"/></ResourceDictionary.MergedDictionaries></ResourceDictionary>
   </Window.Resources>
   <Grid x:Name="Stage" Background="{x:Null}">
     <!-- Hover state belongs to the zone, so moving between the panel and the strip above it never counts as leaving.
@@ -57,6 +57,9 @@
               <Grid Grid.Row="1" x:Name="UsageContent" Margin="6,0,6,10"/>
               <Grid Grid.Row="1" x:Name="MonitorContent" Visibility="Collapsed"/>
               <Grid Grid.Row="1" x:Name="MusicContent" Visibility="Collapsed"/>
+              <!-- The clipboard and file transfer page (MainWindow.Shelf.cs); its full-content view spans the header row too. -->
+              <Grid Grid.Row="1" x:Name="ShelfContent" Visibility="Collapsed"/>
+              <Grid Grid.Row="1" x:Name="DevicesContent" Visibility="Collapsed"/>
               <!-- What a rebuilt usage or media page replaced, while it leaves (PageHandover). It spans the header row too and is
                    placed where the old content was: the next page's header row may be taller or shorter. -->
               <Grid Grid.Row="0" Grid.RowSpan="2" x:Name="LeavingContent"/>
@@ -64,7 +67,7 @@
               <!-- Keep the toolbar outside the fixed page layout so neither resize direction clips its controls. -->
               <Grid x:Name="Toolbar" Height="{Binding Height.Value, ElementName=ToolbarRow}" VerticalAlignment="Top">
                 <!-- The clock is centered on the whole panel; the switches and the settings button sit inside their own insets. -->
-                <TextBlock x:Name="ClockLabel" FontFamily="Segoe UI Variable Text, Segoe UI, Microsoft YaHei UI" FontSize="12" Foreground="{DynamicResource PanelTertiary}" HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False"/>
+                <TextBlock x:Name="ClockLabel" FontFamily="{DynamicResource FontPanel}" FontSize="12" Foreground="{DynamicResource PanelTertiary}" HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False"/>
                 <Border x:Name="PageSwitch" Background="{DynamicResource PanelSwitchFill}" CornerRadius="{DynamicResource PanelR8}" Padding="2" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="10,0,0,0">
                  <Grid>
                  <!-- The chosen page's fill glides between the buttons, as the monitor page's sort pill does (MainWindow.PlacePageCapsule). -->
@@ -86,11 +89,20 @@
                 <Button x:Name="MonitorPageButton" Style="{StaticResource PanelIconButton}" Width="28" Height="24" Margin="1,0,0,0" Click="MonitorPage_Click">
                   <Viewbox Width="16" Height="16"><Canvas Width="24" Height="24"><Path Data="M 2,12.5 H 6.5 L 9.5,5 L 14.5,19 L 17.5,12.5 H 22" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" StrokeThickness="1.65" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/></Canvas></Viewbox>
                 </Button>
+                <Button x:Name="ShelfPageButton" Style="{StaticResource PanelIconButton}" Width="28" Height="24" Margin="1,0,0,0" Click="ShelfPage_Click">
+                  <Viewbox Width="16" Height="16"><Canvas Width="24" Height="24"><Path Data="M 8.5,4.5 H 6.5 A 2,2 0 0 0 4.5,6.5 V 19.5 A 2,2 0 0 0 6.5,21.5 H 17.5 A 2,2 0 0 0 19.5,19.5 V 6.5 A 2,2 0 0 0 17.5,4.5 H 15.5 M 9.5,2.5 H 14.5 A 1,1 0 0 1 15.5,3.5 V 5.5 A 1,1 0 0 1 14.5,6.5 H 9.5 A 1,1 0 0 1 8.5,5.5 V 3.5 A 1,1 0 0 1 9.5,2.5 Z M 8.5,11.5 H 15.5 M 8.5,15.5 H 13" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" StrokeThickness="1.65" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/></Canvas></Viewbox>
+                </Button>
+                <!-- The wireless devices' batteries (DevicesPanel.cs). -->
+                <Button x:Name="DevicesPageButton" Style="{StaticResource PanelIconButton}" Width="28" Height="24" Margin="1,0,0,0" Click="DevicesPage_Click">
+                  <Viewbox Width="16" Height="16"><Canvas Width="24" Height="24"><Path Data="M 4.5,7 H 17 A 2,2 0 0 1 19,9 V 15 A 2,2 0 0 1 17,17 H 4.5 A 2,2 0 0 1 2.5,15 V 9 A 2,2 0 0 1 4.5,7 Z M 21.5,10.5 V 13.5 M 6.5,10.5 V 13.5 M 10,10.5 V 13.5" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" StrokeThickness="1.65" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/></Canvas></Viewbox>
+                </Button>
                  </StackPanel>
                  </Grid>
                 </Border>
                 <StackPanel x:Name="ApplicationPages" Margin="82,0,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" Visibility="Collapsed"/>
                 <Grid x:Name="ModelToolbar" Margin="10,0,96,0" Visibility="Collapsed" VerticalAlignment="Center"/>
+                <!-- The clipboard page's own header parts: the full-content view's back, title and arrows, and the open search box. -->
+                <Grid x:Name="ShelfToolbar" Visibility="Collapsed" VerticalAlignment="Stretch"/>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,20,0">
                   <Button x:Name="MediaSourceButton" Style="{StaticResource PanelSourceButton}" Width="Auto" MaxWidth="150" Padding="8,0" Margin="0,0,2,0" Click="MediaSource_Click" Visibility="Collapsed">
                     <Grid>
@@ -104,10 +116,10 @@
                           <Path Data="M5.1,10.9 L1.6,14.4" StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Stroke="{Binding Foreground, ElementName=MediaSourceButton}"/>
                         </Canvas>
                       </Viewbox>
-                      <TextBlock x:Name="MediaSourceLabel" Grid.Column="1" FontFamily="Segoe UI Variable Text, Segoe UI, Microsoft YaHei UI" FontSize="12"
+                      <TextBlock x:Name="MediaSourceLabel" Grid.Column="1" FontFamily="{DynamicResource FontPanel}" FontSize="12"
                                  Foreground="{Binding Foreground, ElementName=MediaSourceButton}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
                       <!-- The settings window's chevron: the icon font's small chevron, dropped 1 DIP to meet the label's glyphs. -->
-                      <TextBlock x:Name="MediaSourceChevron" Grid.Column="2" Text="&#xE96E;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="12" Margin="5,1,0,-1"
+                      <TextBlock x:Name="MediaSourceChevron" Grid.Column="2" Text="&#xE96E;" FontFamily="{StaticResource FontIcon}" FontSize="12" Margin="5,1,0,-1"
                                  Foreground="{Binding Foreground, ElementName=MediaSourceButton}" VerticalAlignment="Center" Visibility="Collapsed"/>
                     </Grid>
                   </Button>
@@ -129,7 +141,10 @@
                     </Grid></Viewbox>
                     </Grid>
                   </Button>
-                  <Button x:Name="SettingsButton" Style="{StaticResource PanelSettingsButton}" Content="&#xE713;" FontFamily="Segoe MDL2 Assets" FontSize="16" Click="Settings_Click"/>
+                  <Button x:Name="ShelfSearchButton" Style="{StaticResource PanelGlyphButton}" Margin="0,0,4,0" VerticalAlignment="Center" Click="ShelfSearch_Click" Visibility="Collapsed">
+                    <Viewbox Width="15" Height="15"><Canvas Width="24" Height="24"><Path Data="M 10.5,3.5 A 7,7 0 1 1 10.5,17.5 A 7,7 0 1 1 10.5,3.5 Z M 15.6,15.6 L 21,21" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/></Canvas></Viewbox>
+                  </Button>
+                  <Button x:Name="SettingsButton" Style="{StaticResource PanelSettingsButton}" Content="&#xE713;" FontFamily="{StaticResource FontIconMdl2}" FontSize="16" Click="Settings_Click"/>
                 </StackPanel>
               </Grid>
           </Grid>

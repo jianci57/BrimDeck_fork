@@ -111,7 +111,7 @@ internal sealed class OffPeakBar : FrameworkElement
         if (Wrapped) { Piece(0, _end); Piece(_start, Day); } else Piece(_start, _end);
 
         double dip = VisualTreeHelper.GetDpi(this).PixelsPerDip;
-        var typeface = new Typeface(new FontFamily("Segoe UI"), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
+        var typeface = new Typeface(Fonts.PlainOf(BrimDeck.Core.UiFontRole.Label), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
         foreach (var (position, label) in new[] { (0, "12:00"), (Day / 4, "18:00"), (Day / 2, "00:00"), (Day * 3 / 4, "06:00"), (Day, "12:00") })
         {
             var text = new FormattedText(label, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, typeface, 10.5, Scale, dip);

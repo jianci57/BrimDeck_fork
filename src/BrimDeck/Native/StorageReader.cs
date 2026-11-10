@@ -7,7 +7,8 @@ namespace BrimDeck.Native;
 
 // The internal drives for the system monitor (Storage): every fixed volume with a letter, its size and free space from the file
 // system, the physical drive it lies on from the volume's disk extents, and what Windows says of that drive (model, bus,
-// removable media). Optionally each solid-state drive's own temperature through the storage stack's temperature property. Each
+// removable media). Optionally each solid-state drive's own temperature through the storage stack's temperature property, or an
+// NVMe drive's health log where that gives none. Each
 // volume and drive is opened without read or write access, which a normal user may do; nothing here needs administrator rights.
 // Asking a drive for its temperature sends it a command (a few to over a hundred milliseconds, and it leaves its deepest power
 // state), and listing the volumes can wait on a slow drive, so everything is read on the thread pool: the volumes every 10
@@ -115,7 +116,7 @@ internal sealed class StorageReader
                     try
                     {
                         // Given up on, the next reading starts without waiting for this one, and skips the drive.
-                        var heat = SensorGuard.Ask(guarded, () => Temperature(device, query, output, disk.Model), () => GiveUp(generation));
+                        var heat = SensorGuard.Ask(guarded, () => Temperature(device, query, output, disk), () => GiveUp(generation));
                         if (heat is not null) known[number] = heat with { Number = number };
                     }
                     finally { CloseHandle(device); }
@@ -206,11 +207,41 @@ internal sealed class StorageReader
         Property(device, query, output, SeekPenaltyProperty, out int length) && length >= 9 && Marshal.ReadByte(output, 8) == 0;
 
     // STORAGE_TEMPERATURE_DATA_DESCRIPTOR: CriticalTemperature at 8, WarningTemperature at 10, InfoCount at 12, then the
-    // STORAGE_TEMPERATURE_INFO entries from 24, 16 bytes each, Temperature at 2. The first is the drive's own.
-    private static DiskTemperature? Temperature(IntPtr device, IntPtr query, IntPtr output, string model)
+    // STORAGE_TEMPERATURE_INFO entries from 24, 16 bytes each, Temperature at 2. The first is the drive's own. An NVMe drive whose
+    // temperature property gives none (a Kingston KC3000 answers it with an I/O device error) gives its temperature from its health
+    // log, without thresholds.
+    private static DiskTemperature? Temperature(IntPtr device, IntPtr query, IntPtr output, StorageDisk disk)
     {
-        if (!Property(device, query, output, TemperatureProperty, out int length) || length < 40 || Marshal.ReadInt16(output, 12) < 1) return null;
-        return Core.Temperatures.Disk(model.Length > 0 ? model : "SSD", Marshal.ReadInt16(output, 26), Marshal.ReadInt16(output, 10), Marshal.ReadInt16(output, 8));
+        string name = disk.Model.Length > 0 ? disk.Model : "SSD";
+        if (Property(device, query, output, TemperatureProperty, out int length) && length >= 40 && Marshal.ReadInt16(output, 12) >= 1
+            && Core.Temperatures.Disk(name, Marshal.ReadInt16(output, 26), Marshal.ReadInt16(output, 10), Marshal.ReadInt16(output, 8)) is { } heat)
+            return heat;
+        return disk.Bus == Core.Storage.BusNvme && HealthLog(device, output) is { } celsius ? Core.Temperatures.Disk(name, celsius, double.NaN, double.NaN) : null;
+    }
+
+    // The device's protocol-specific property (StorageDeviceProtocolSpecificProperty), asked in the output buffer itself as Windows'
+    // own example asks it: a STORAGE_PROPERTY_QUERY whose parameters are a STORAGE_PROTOCOL_SPECIFIC_DATA from 8, for NVMe (3), a log
+    // page (2), the SMART / health information log (2), placed after the structure (40), 512 bytes. Its temperature, in °C.
+    private static double? HealthLog(IntPtr device, IntPtr output)
+    {
+        for (int i = 0; i < OutputSize; i += 4) Marshal.WriteInt32(output, i, 0);
+        Marshal.WriteInt32(output, 0, ProtocolProperty);
+        Marshal.WriteInt32(output, 8, 3); Marshal.WriteInt32(output, 12, 2); Marshal.WriteInt32(output, 16, 2);
+        Marshal.WriteInt32(output, 24, 40); Marshal.WriteInt32(output, 28, 512);
+        if (!DeviceIoControl(device, QueryProperty, output, OutputSize, output, OutputSize, out _, IntPtr.Zero)) return null;
+        var reply = new byte[OutputSize];
+        Marshal.Copy(output, reply, 0, OutputSize);
+        return Core.Storage.HealthLogCelsius(reply);
+    }
+
+    // A drive's temperature from its health log alone, for the checks.
+    internal static double? HealthLog(int number)
+    {
+        var device = Open($@"\\.\PhysicalDrive{number}");
+        if (device == InvalidHandle) return null;
+        var output = Marshal.AllocHGlobal(OutputSize);
+        try { return HealthLog(device, output); }
+        finally { Marshal.FreeHGlobal(output); CloseHandle(device); }
     }
 
     // STORAGE_PROPERTY_QUERY: PropertyId, QueryType (0, the standard query), one byte of parameters.
@@ -223,7 +254,7 @@ internal sealed class StorageReader
     private static IntPtr Open(string path) => CreateFileW(path, 0, ShareReadWrite, IntPtr.Zero, OpenExisting, 0, IntPtr.Zero);
 
     private const int QuerySize = 12, OutputSize = 1024, ExtentsSize = 8 + 24 * 32;
-    private const int DeviceProperty = 0, SeekPenaltyProperty = 7, TemperatureProperty = 52;
+    private const int DeviceProperty = 0, SeekPenaltyProperty = 7, ProtocolProperty = 50, TemperatureProperty = 52;
     private const uint QueryProperty = 0x2D1400, VolumeDiskExtents = 0x560000, ShareReadWrite = 3, OpenExisting = 3;
     private static readonly IntPtr InvalidHandle = new(-1);
     [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]

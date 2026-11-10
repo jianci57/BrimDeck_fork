@@ -255,9 +255,12 @@ static class PowerTests
     private static void Readings(Action<string, bool> check)
     {
         var table = CompactMonitor.Normalize(null);
-        check("Readings: Power and Charge are last in the table but for the frame rate, hidden",
-            table.Select(reading => reading.Item).TakeLast(3).SequenceEqual([CompactMonitorItems.Power, CompactMonitorItems.Charge, CompactMonitorItems.Frames]) && table.Where(reading => reading.Item is CompactMonitorItems.Power or CompactMonitorItems.Charge).All(reading => !reading.Visible));
-        check("Readings: they leave a short row early, after the frame rate, the machine's battery after the drives", CompactMonitor.LeaveOrder.Take(4).SequenceEqual([CompactMonitorItems.Frames, CompactMonitorItems.Power, CompactMonitorItems.Storage, CompactMonitorItems.Charge]) && CompactMonitor.LeaveOrder.Count == CompactMonitor.Order.Count);
+        // The devices' lowest battery (DevicesPageTests) and the frame rate (FrameRateTests) came after them and keep their own places, last in the table and first to leave.
+        check("Readings: Power and Charge are last in the table but for the devices' battery and the frame rate, hidden",
+            table.Select(reading => reading.Item).Where(item => item is not (CompactMonitorItems.Battery or CompactMonitorItems.Frames)).TakeLast(2).SequenceEqual([CompactMonitorItems.Power, CompactMonitorItems.Charge]) && table.Where(reading => reading.Item is CompactMonitorItems.Power or CompactMonitorItems.Charge).All(reading => !reading.Visible));
+        check("Readings: they leave a short row early, after the frame rate and the devices' battery, the machine's battery after the drives",
+            CompactMonitor.LeaveOrder.Take(1).SequenceEqual([CompactMonitorItems.Frames])
+            && CompactMonitor.LeaveOrder.Where(item => item is not CompactMonitorItems.Frames).Take(3).SequenceEqual([CompactMonitorItems.Power, CompactMonitorItems.Storage, CompactMonitorItems.Charge]) && CompactMonitor.LeaveOrder.Count == CompactMonitor.Order.Count);
 
         // Full turns the new readings on, Brief turns them off.
         var full = CompactMonitor.Normalize(null);

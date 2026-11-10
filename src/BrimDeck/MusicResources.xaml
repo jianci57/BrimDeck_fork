@@ -39,7 +39,7 @@
         </Track>
         <Canvas IsHitTestVisible="False">
           <Border x:Name="TimeBubble" Canvas.Left="{TemplateBinding BubbleX}" Canvas.Top="-27" Width="52" Height="24" Background="{DynamicResource PanelBubble}" BorderBrush="{DynamicResource PanelBubbleBorder}" BorderThickness="1" CornerRadius="{DynamicResource PanelR5}" Visibility="{TemplateBinding BubbleVisible}">
-            <TextBlock Text="{TemplateBinding BubbleText}" Foreground="{DynamicResource PanelPrimary}" FontFamily="Segoe UI" FontSize="11.5" Typography.NumeralAlignment="Tabular" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            <TextBlock Text="{TemplateBinding BubbleText}" Foreground="{DynamicResource PanelPrimary}" FontFamily="{DynamicResource FontLabel}" FontSize="11.5" Typography.NumeralAlignment="Tabular" HorizontalAlignment="Center" VerticalAlignment="Center"/>
           </Border>
         </Canvas>
       </Grid>

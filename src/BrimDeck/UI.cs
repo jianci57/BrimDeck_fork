@@ -25,10 +25,11 @@ internal static class UI
         element.LayoutTransform = scale == 1 ? Transform.Identity : new ScaleTransform(scale, scale);
         SetScale(element, scale);
     }
-    public static readonly FontFamily TextFont = new("Microsoft YaHei");
+    // The families of the interface's text are Fonts' (the one place that names a font, and where the user's own font goes in).
+    public static FontFamily TextFont => Fonts.Text;
     // The panel sets Latin text and digits in Segoe UI Variable and falls back to YaHei for Chinese.
-    public static readonly FontFamily PanelFont = new("Segoe UI Variable Text, Segoe UI, Microsoft YaHei UI");
-    public static readonly FontFamily DisplayFont = new("Segoe UI Variable Display, Segoe UI, Microsoft YaHei UI");
+    public static FontFamily PanelFont => Fonts.Panel;
+    public static FontFamily DisplayFont => Fonts.Display;
     // Text and structure on the panel's surface, from the panel theme (see PanelTheme): three label levels, hairlines and fills.
     public static string Accent => PanelTheme.Hex("accent");
     public static string Primary => PanelTheme.Hex("textPrimary");
@@ -109,16 +110,37 @@ internal static class UI
         double fraction = Math.Clamp(percent / 100, 0, 1);
         if (fraction >= .999) ring.Children.Add(new Ellipse { Stroke = Brush(color), StrokeThickness = thickness });
         else if (fraction > 0)
-        {
-            double radius = size / 2 - thickness / 2, center = size / 2;
-            double angle = fraction * Math.PI * 2;
-            var figure = new PathFigure { StartPoint = new Point(center, center - radius), IsClosed = false };
-            figure.Segments.Add(new ArcSegment(new Point(center - radius * Math.Sin(angle), center - radius * Math.Cos(angle)),
-                new Size(radius, radius), 0, fraction > .5, SweepDirection.Counterclockwise, true));
-            var geometry = new PathGeometry(); geometry.Figures.Add(figure);
-            ring.Children.Add(new Path { Data = geometry, Stroke = Brush(color), StrokeThickness = thickness, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round });
-        }
+            ring.Children.Add(new Path { Data = ShareArc(fraction, new Point(size / 2, size / 2), size / 2 - thickness / 2), Stroke = Brush(color), StrokeThickness = thickness, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round });
         return ring;
+    }
+    // Two progress rings, one inside the other, gap apart between their strokes, as Ring draws one. Both are geometry about the
+    // same centre: a ring nested by margins would have its offset rounded to device pixels apart from its size, and sit off centre.
+    public static Grid PairRing(double outer, double inner, string color, double size, double thickness, double gap)
+    {
+        var ring = new Grid { Width = size, Height = size };
+        var center = new Point(size / 2, size / 2);
+        Brush track = Brush(PanelTheme.Hex("ringTrack")), fill = Brush(color);
+        void Add(double percent, double radius)
+        {
+            if (radius <= 0) return;
+            ring.Children.Add(new Path { Data = new EllipseGeometry(center, radius, radius), Stroke = track, StrokeThickness = thickness });
+            double fraction = Math.Clamp(percent / 100, 0, 1);
+            if (fraction > 0) ring.Children.Add(new Path { Data = ShareArc(fraction, center, radius), Stroke = fill, StrokeThickness = thickness, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round });
+        }
+        double radius = size / 2 - thickness / 2;
+        Add(outer, radius); Add(inner, radius - thickness - gap);
+        return ring;
+    }
+    // A ring's colored share about center: from the top, counterclockwise; the whole circle from .999.
+    private static Geometry ShareArc(double fraction, Point center, double radius)
+    {
+        if (fraction >= .999) return new EllipseGeometry(center, radius, radius);
+        double angle = fraction * Math.PI * 2;
+        var figure = new PathFigure { StartPoint = new Point(center.X, center.Y - radius), IsClosed = false };
+        figure.Segments.Add(new ArcSegment(new Point(center.X - radius * Math.Sin(angle), center.Y - radius * Math.Cos(angle)),
+            new Size(radius, radius), 0, fraction > .5, SweepDirection.Counterclockwise, true));
+        var geometry = new PathGeometry(); geometry.Figures.Add(figure);
+        return geometry;
     }
     public static string Number(long number) => number switch
     { >= 1_000_000_000 => (number / 1_000_000_000d).ToString("0.##", CultureInfo.InvariantCulture) + "B", >= 1_000_000 => (number / 1_000_000d).ToString("0.##", CultureInfo.InvariantCulture) + "M", >= 1000 => (number / 1000d).ToString("0.#", CultureInfo.InvariantCulture) + "K", _ => number.ToString("N0") };
@@ -135,6 +157,7 @@ internal static class UI
         if (cost.IsEstimate && pricing.UpdatedAt is { } time)
             lines.Add(Loc.T($"价格更新 {time.LocalDateTime:MM-dd HH:mm}", $"Prices updated {time.LocalDateTime:MM-dd HH:mm}") +
                 (pricing.IsStale || pricing.LastError is not null ? Loc.T(" · 缓存", " · cached") : ""));
+        if (cost.Fitted > 0) lines.Add(Loc.T($"{cost.Fitted} 条记录的费用按每周已用金额分摊", Loc.Count(cost.Fitted, "record shares", "records share") + " the weekly amount used"));
         if (cost.Unpriced > 0) lines.Add(Loc.T($"{cost.Unpriced} 条记录未计价", Loc.Count(cost.Unpriced, "record has", "records have") + " no price"));
         return lines.Count == 0 ? null : string.Join("\n", lines);
     }

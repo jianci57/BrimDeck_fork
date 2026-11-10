@@ -105,7 +105,14 @@ internal static class TemperatureChecks
         check("drives: the Windows drive is among them", drives.Count == 0 || Storage.System(drives, Storage.WindowsLetter)?.Volumes.Any(volume => volume.Letter.Equals(Storage.WindowsLetter, StringComparison.OrdinalIgnoreCase)) == true);
         check("drives: temperatures plausible, in order, and their drive's own", drives.All(drive => drive.Temperature is not { } heat
             || Temperatures.Plausible(heat.Celsius) is not null && heat.Number == drive.Number && (heat.Warning is not { } w || heat.Critical is not { } c || w <= c)));
-        check("drives: temperatures known once read", reader.Temperatures == (drives.Any(drive => drive.Temperature is not null) ? SensorState.Found : SensorState.None));
+        // The health log stands in where the temperature property gives none; where both give one, they agree.
+        foreach (var drive in drives.Where(drive => drive.Number >= 0 && drive.Temperature is not null))
+        {
+            var logged = StorageReader.HealthLog(drive.Number);
+            Console.WriteLine($"  Drive {drive.Number} health log: {logged?.ToString("0") ?? "none"} °C");
+            check($"drives: drive {drive.Number}'s health log agrees with its temperature property", logged is not { } c || Math.Abs(c - drive.Temperature!.Celsius) <= 3);
+        }
+        check("drives: temperatures known once read",reader.Temperatures == (drives.Any(drive => drive.Temperature is not null) ? SensorState.Found : SensorState.None));
         if (drives.Count > 0 && !elevated) check("drives: read without administrator rights", true);
         check("drives: without temperatures asked for, the same drives without them", reader.Sample(2, false) is var plain
             && plain.Count == drives.Count && plain.All(drive => drive.Temperature is null));

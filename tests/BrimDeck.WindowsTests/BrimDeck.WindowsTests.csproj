@@ -23,6 +23,15 @@
     <Compile Include="..\..\src\BrimDeck\Native\GpuProvider.cs" Link="GpuProvider.cs" />
     <Compile Include="..\..\src\BrimDeck\Native\GpuDrivers.cs" Link="GpuDrivers.cs" />
     <Compile Include="..\..\src\BrimDeck\Native\Why.cs" Link="Why.cs" />
+    <Compile Include="..\..\src\BrimDeck\Native\Hid.cs" Link="Hid.cs" />
+    <Compile Include="..\..\src\BrimDeck\Native\HidBatteries.cs" Link="HidBatteries.cs" />
+    <Compile Include="..\..\src\BrimDeck\Native\HidppEvents.cs" Link="HidppEvents.cs" />
+    <Compile Include="..\..\src\BrimDeck\Native\PushEvents.cs" Link="PushEvents.cs" />
+    <Compile Include="..\..\src\BrimDeck\Native\CorsairReader.cs" Link="CorsairReader.cs" />
+    <Compile Include="..\..\src\BrimDeck\Native\BluetoothBatteries.cs" Link="BluetoothBatteries.cs" />
+    <Compile Include="..\..\src\BrimDeck\Native\GamingBatteries.cs" Link="GamingBatteries.cs" />
+    <Compile Include="..\..\src\BrimDeck\Native\AppleBatteries.cs" Link="AppleBatteries.cs" />
+    <Compile Include="..\..\src\BrimDeck\Native\DeviceBatteries.cs" Link="DeviceBatteries.cs" />
     <Compile Include="..\..\src\BrimDeck\Native\AppIdentity.cs" Link="AppIdentity.cs" />
     <Compile Include="..\..\src\BrimDeck\MainWindow.Shadow.cs" Link="MainWindow.Shadow.cs" />
     <Compile Include="..\..\src\BrimDeck\LayoutRetry.cs" Link="LayoutRetry.cs" />
@@ -35,6 +44,8 @@
     <Compile Include="..\..\src\BrimDeck\DrawnAutomation.cs" Link="DrawnAutomation.cs" />
     <Compile Include="..\..\src\BrimDeck\Soft.cs" Link="Soft.cs" />
     <Compile Include="..\..\src\BrimDeck\RingLetter.cs" Link="RingLetter.cs" />
+    <!-- The font entry itself: a change of the user's font is checked on real windows (FontFollowTests). -->
+    <Compile Include="..\..\src\BrimDeck\Fonts.cs" Link="Fonts.cs" />
     <!-- The island itself: the shadow observes its properties, and the settled clip is checked on its drawing. -->
     <Compile Include="..\..\src\BrimDeck\IslandBorder.cs" Link="IslandBorder.cs" />
     <Compile Include="..\..\src\BrimDeck\IslandDecor.cs" Link="IslandDecor.cs" />

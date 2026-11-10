@@ -30,7 +30,10 @@ public sealed partial class SettingsWindow
     private void HotkeysSettings()
     {
         SectionTitle(Loc.T("展开与显示", "Expand and show"));
-        Group([.. new[] { HotkeyKind.Hide, HotkeyKind.Expand, HotkeyKind.Page1, HotkeyKind.Page2, HotkeyKind.Page3 }.Select(HotkeyRow)]);
+        Group([.. new[] { HotkeyKind.Hide, HotkeyKind.Expand }.Select(HotkeyRow)]);
+        // Counted in the order of the page switch; a page that is not shown has no place, so its shortcut does nothing.
+        SectionTitle(Loc.T("切换页面", "Switch pages"));
+        Group([.. Enumerable.Range(0, 10).Select(place => HotkeyRow(HotkeyKind.Page1 + place))]);
         SectionTitle(Loc.T("位置与大小", "Position and size"));
         Group([.. new[] { HotkeyKind.Move, HotkeyKind.Resize }.Select(HotkeyRow)]);
         SectionTitle(Loc.T("其他", "Other"));

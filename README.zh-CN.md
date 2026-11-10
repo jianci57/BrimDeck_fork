@@ -66,6 +66,8 @@ BrimDeck 平时位于屏幕顶部中央，提供刘海（默认）、胶囊和�
 
 - 窗口最大化时默认切换为指示条，全屏游戏或视频播放时默认隐藏，避免误触展开。
 
+- 默认显示在其他窗口上方；也可以改为像普通窗口一样被其他窗口遮挡，展开时显示在最前面（设置 › 常规 › 窗口行为）。
+
 ### AI 用量
 
 <img src="docs/zh-CN/images/usage.png" width="100%" alt="AI 用量页：Claude、Codex、Cursor、Antigravity 四列配额">
@@ -101,12 +103,20 @@ BrimDeck 平时位于屏幕顶部中央，提供刘海（默认）、胶囊和�
 
 本页参考并改编自 Nongfsq 的 macOS 系统监控 [ftop](https://github.com/Nongfsq/ftop)（MIT 许可证）。
 
+### 设备
+
+- 显示已连接的无线键盘、鼠标、耳机、手柄和触控笔的电量；AirPods 分别显示左右耳与充电盒。电量低时变色并带标记，充电时显示闪电。
+- 支持 Windows 读取的蓝牙电量（与 Windows 设置中一致）、罗技 Unifying/Bolt/Lightspeed 接收器、雷蛇无线鼠标、赛睿与 HyperX 无线耳机、ATK/VXE/VGN/迈从等 2.4G 鼠标、Xbox 与 PlayStation 手柄。只读取，不会改动设备或系统设置。
+- 可在刘海或胶囊中显示电量最低的设备；电量不高于阈值（默认 15%）时显示为低电量。可在“设置 › 设备”中逐个关闭不想显示的设备。
+- 部分协议移植自 [device-battery-viewer](https://github.com/CharlesGool/device-battery-viewer)、[razer-battery-report](https://github.com/xzeldon/razer-battery-report)、[ATK-A9-Battery](https://github.com/Lkig/ATK-A9-Battery)、[atkctl](https://github.com/cobanov/atkctl) 与 [InphicBatteryTray](https://github.com/Tan-TanZi/InphicBatteryTray)（均为 MIT 许可证，见 ThirdPartyNotices.txt）。
+
 ### 面板主题
 
 <img src="docs/zh-CN/images/themes.png" width="100%" alt="同一个 AI 用量页在深色、浅色、Night Owl、Dracula、赛博朋克：边缘行者主题，以及一个自定义主题示例下的样子">
 
 - 内置深色、浅色、One Dark Pro、GitHub Dark、GitHub Light、Dracula、Night Owl、赛博朋克：边缘行者等主题。
 - 可以在设置的“面板主题”页修改背景、前景、强调色等颜色，并保存为自定义主题；也可以按[主题制作指南](docs/zh-CN/themes.md)编写主题文件。
+- 在“设置 › 常规 › 外观与语言 › 界面字体”可以换用系统里已安装的字体，立即生效、无需重启；选“默认”恢复原样。图标、脚本编辑器的等宽字体和自带字体的时钟样式不受影响；所选字体缺失时自动回到默认字体。字体列表只在打开下拉框时读取。
 
 ## 安装
 

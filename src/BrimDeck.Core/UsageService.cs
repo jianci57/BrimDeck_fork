@@ -17,9 +17,10 @@ public interface IDesktopSources
 }
 
 // quotaCache is the file that keeps the last Claude quota read online across restarts (ClaudeQuotaCache); null keeps none.
-// kimiQuotaCache does the same for Kimi Code (KimiQuotaCache). jitter (0 to 1) is the share of a pause after a 429 that is added to it
+// kimiQuotaCache does the same for Kimi Code (KimiQuotaCache). cursorPriceCache keeps the readings and prices of a merged Cursor
+// plan (CursorPrices); null keeps none. jitter (0 to 1) is the share of a pause after a 429 that is added to it
 // (RateLimitBackoff); a test passes a fixed one.
-public sealed class UsageService(IDesktopSources desktop, DataLocations? locations = null, HttpClient? http = null, Func<DateTimeOffset>? clock = null, IProviderSecrets? secrets = null, Func<IReadOnlyList<WslHome>>? wsl = null, TimeSpan? wslTimeout = null, string? quotaCache = null, string? kimiQuotaCache = null, Func<double>? jitter = null) : IDisposable
+public sealed class UsageService(IDesktopSources desktop, DataLocations? locations = null, HttpClient? http = null, Func<DateTimeOffset>? clock = null, IProviderSecrets? secrets = null, Func<IReadOnlyList<WslHome>>? wsl = null, TimeSpan? wslTimeout = null, string? quotaCache = null, string? kimiQuotaCache = null, Func<double>? jitter = null, string? cursorPriceCache = null) : IDisposable
 {
     // Every provider uses the panel's shared refresh cycle. Claude may display local history
     // after an unsuccessful request, but it does not delay the next scheduled refresh.
@@ -56,6 +57,7 @@ public sealed class UsageService(IDesktopSources desktop, DataLocations? locatio
     // until a full read ends an hour after the day did, so records the service adds late still count; older days are kept.
     private readonly Dictionary<DateTime, (List<TokenEntry> Entries, DateTimeOffset ReadAt)> _cursorDays = [];
     private string _cursorAccount = "";
+    private readonly CursorPrices _cursorPrices = new(cursorPriceCache);
     private readonly SemaphoreSlim _gate = new(1);
     private ClaudeQuotaSnapshot? _grokBotRetained;
     // The last Claude quota read online for each organization the account reads (by organization id, "" when the sign-in does
@@ -796,7 +798,7 @@ public sealed class UsageService(IDesktopSources desktop, DataLocations? locatio
                 var subject = CursorAccount(token);
                 if (subject.Length == 0) throw new InvalidDataException();
                 using var request = new HttpRequestMessage(HttpMethod.Get, "https://cursor.com/api/usage-summary");
-                request.Headers.TryAddWithoutValidation("Cookie", "WorkosCursorSessionToken=" + Uri.EscapeDataString(subject + "::" + token));
+                request.Headers.TryAddWithoutValidation("Cookie", CursorSession(subject, token));
                 using var doc = await SendAsync(_http, request, ct);
                 // This summary keeps the monthly billing cycle even on a merged plan, so its quotas apply only to older plans.
                 if (snapshot.Quotas.Count == 0 && !unified) snapshot.Quotas = QuotaParser.Cursor(doc.RootElement);
@@ -808,18 +810,41 @@ public sealed class UsageService(IDesktopSources desktop, DataLocations? locatio
         if (snapshot.Plan.Length > 0) snapshot.PlanSource = Loc.T("Cursor 账户", "Cursor account");
         if (snapshot.Quotas.Count == 0) throw new InvalidDataException();
         if (!unified && grokBot is not null) snapshot.Quotas.Add(grokBot);
+        if (unified) snapshot.UsageNote = Loc.T("Cursor Token 明细来自账户账单记录，包含 Grok Bot 与其他设备上的用量。", "Cursor token details come from the account billing records and include Grok Bot usage and usage on other devices.");
         Connected(snapshot, unified ? Loc.T("Cursor 账户 · 每周额度", "Cursor account · weekly allowance") : Loc.T("Cursor 当前账期", "Cursor current billing period"), now);
-        await ReadCursorEvents(snapshot, token, now, start, ct);
+        // The week's included usage in whole cents, which prices a merged plan's records (CursorPrices).
+        (DateTimeOffset Start, long Cents)? spend = null;
+        if (unified)
+            try
+            {
+                using var request = new HttpRequestMessage(HttpMethod.Get, "https://cursor.com/api/dashboard/v2/usage-status?scope=user");
+                request.Headers.TryAddWithoutValidation("Cookie", CursorSession(CursorAccount(token), token));
+                using var doc = await SendAsync(_http, request, ct);
+                var weekly = doc.RootElement.Get("weeklyIncludedUsage");
+                if (weekly.Get("usedCents").Number() is { } cents && cents >= 0 && weekly.Get("periodStart").Date() is { } begin) spend = (begin, (long)Math.Round(cents));
+            }
+            catch (Exception ex) when (ex is HttpRequestException or JsonException or InvalidDataException or TaskCanceledException && !ct.IsCancellationRequested) { }
+        await ReadCursorEvents(snapshot, token, unified, spend, now, start, ct);
     }
 
     // The account's records can run to thousands a day, more than one refresh can read, so they are read a day at a time,
     // newest first, and every day read in full is kept. The days a refresh did not reach are read by the next ones.
-    private async Task ReadCursorEvents(ProviderSnapshot snapshot, string token, DateTimeOffset now, DateTimeOffset start, CancellationToken ct)
+    // A plan merged with Grok has no records in the usage event list; its records are the account's billing items, priced
+    // from the week's amount (CursorPrices), whose readings may need days before those shown.
+    private async Task ReadCursorEvents(ProviderSnapshot snapshot, string token, bool unified, (DateTimeOffset Start, long Cents)? spend, DateTimeOffset now, DateTimeOffset start, CancellationToken ct)
     {
         var account = CursorAccount(token);
+        if (account.Length > 0 && unified) account += " unified";
         // Details are shown only for the account signed in now; a token that names no account keeps nothing between refreshes.
         if (account.Length == 0 || account != _cursorAccount) { _cursorDays.Clear(); _cursorAccount = account; }
-        DateTime first = start.LocalDateTime.Date, last = now.LocalDateTime.Date;
+        DateTime shown = start.LocalDateTime.Date, first = shown, last = now.LocalDateTime.Date;
+        if (unified)
+        {
+            _cursorPrices.Use(CursorAccount(token));
+            if (spend is { } reading) _cursorPrices.Add(reading.Start, reading.Cents, now);
+            foreach (var sample in _cursorPrices.Samples.Where(sample => !sample.Checked))
+                if (sample.PeriodStart.LocalDateTime.Date < first) first = sample.PeriodStart.LocalDateTime.Date;
+        }
         foreach (var day in _cursorDays.Keys.Where(day => day < first || day > last).ToList()) _cursorDays.Remove(day);
         using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
         budget.CancelAfter(TimeSpan.FromSeconds(20));
@@ -829,15 +854,41 @@ public sealed class UsageService(IDesktopSources desktop, DataLocations? locatio
             {
                 var end = new DateTimeOffset(day.AddDays(1));
                 if (_cursorDays.TryGetValue(day, out var kept) && kept.ReadAt >= end.AddHours(1)) continue;
-                _cursorDays[day] = (await ReadCursorDay(token, new DateTimeOffset(day), end, budget.Token), now);
+                var read = unified ? ReadCursorBillingDay(token, new DateTimeOffset(day), end, budget.Token) : ReadCursorDay(token, new DateTimeOffset(day), end, budget.Token);
+                _cursorDays[day] = (await read, now);
             }
         }
         catch (Exception ex) when (ex is HttpRequestException or JsonException or IOException or InvalidDataException ||
             ex is OperationCanceledException && !ct.IsCancellationRequested) { }
-        int days = (int)(last - first).TotalDays + 1, missing = days - _cursorDays.Count;
+        Dictionary<string, decimal>? costs = null;
+        if (unified)
+        {
+            // A reading's records are complete when every day from its week's start to it was read well after it, or, for a
+            // day that ended before, read in full an hour after it ended as the days kept are.
+            bool Covered(DateTimeOffset from, DateTimeOffset to)
+            {
+                for (var day = from.LocalDateTime.Date; day <= to.LocalDateTime.Date; day = day.AddDays(1))
+                {
+                    var settled = new DateTimeOffset(day.AddDays(1)).AddHours(1);
+                    var needed = to + CursorPrices.RecordsLate < settled ? to + CursorPrices.RecordsLate : settled;
+                    if (!_cursorDays.TryGetValue(day, out var read) || read.ReadAt < needed) return false;
+                }
+                return true;
+            }
+            var included = _cursorDays.Values.SelectMany(read => read.Entries).Where(entry => entry.ReportedCostUsd is null).ToList();
+            _cursorPrices.Update(included, Covered, now);
+            _cursorPrices.Save();
+            costs = _cursorPrices.Costs(included);
+            snapshot.WeeklyShares = true;
+            snapshot.WeeklyPrices = _cursorPrices.Prices;
+        }
+        int days = (int)(last - shown).TotalDays + 1, missing = Enumerable.Range(0, days).Count(i => !_cursorDays.ContainsKey(shown.AddDays(i)));
         if (missing == days)
         { snapshot.UsageAvailable = false; snapshot.UsageNote = Loc.T("配额已读取，账户 Token 明细暂时不可用或尚未读取完整。", "The quota was read, but the account's token details are unavailable or not fully read yet."); return; }
-        snapshot.Entries = _cursorDays.Values.SelectMany(read => read.Entries).Where(entry => entry.Time >= start && entry.Time <= now).OrderBy(entry => entry.Time).ToList();
+        snapshot.Entries = _cursorDays.Values.SelectMany(read => read.Entries).Where(entry => entry.Time >= start && entry.Time <= now).OrderBy(entry => entry.Time)
+            .Select(entry => costs is not null && entry.ReportedCostUsd is null && costs.TryGetValue(entry.Key, out var cost) ? entry with { ReportedCostUsd = cost, FittedCost = true } : entry).ToList();
+        if (unified) snapshot.UsageNote += Loc.T("费用按每周已用金额分摊到各条记录；最新的用量在下次读到金额后计入。",
+            " Costs share out the weekly amount used among the records; the latest usage counts once the next amount is read.");
         snapshot.UsageAvailable = true;
         snapshot.UsageComplete = missing == 0;
         if (missing > 0) snapshot.UsageNote += Loc.T($"其中 {missing} 天的明细尚未读取，将在之后的刷新中补全。", " " + Loc.Count(missing, "day", "days") + " not read yet; later refreshes fill them in.");
@@ -867,6 +918,35 @@ public sealed class UsageService(IDesktopSources desktop, DataLocations? locatio
         throw new InvalidDataException();
     }
 
+    // One local day's billing items, [from, to), read a page at a time by the cursor each page gives for the next.
+    private async Task<List<TokenEntry>> ReadCursorBillingDay(string token, DateTimeOffset from, DateTimeOffset to, CancellationToken ct)
+    {
+        var subject = CursorAccount(token);
+        if (subject.Length == 0) throw new InvalidDataException();
+        var entries = new Dictionary<string, TokenEntry>();
+        var next = "";
+        static string Time(DateTimeOffset time) => Uri.EscapeDataString(time.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", System.Globalization.CultureInfo.InvariantCulture));
+        for (int page = 1; page <= 100; page++)
+        {
+            var uri = $"https://cursor.com/api/dashboard/v2/query-billing-items?scope=user&startTime={Time(from)}&endTime={Time(to)}&pageSize=500";
+            if (next.Length > 0) uri += "&cursor=" + Uri.EscapeDataString(next);
+            using var request = new HttpRequestMessage(HttpMethod.Get, uri);
+            request.Headers.TryAddWithoutValidation("Cookie", CursorSession(subject, token));
+            using var response = await SendAsync(_http, request, ct);
+            var items = response.RootElement.Get("data");
+            if (items.ValueKind != JsonValueKind.Array) throw new InvalidDataException();
+            foreach (var item in items.EnumerateArray())
+                if (ParseCursorBillingItem(item) is { } entry && entry.Time >= from && entry.Time < to) entries.TryAdd(entry.Key, entry);
+            var pagination = response.RootElement.Get("pagination");
+            if (pagination.Get("hasMore").ValueKind != JsonValueKind.True) return entries.Values.ToList();
+            next = pagination.Get("nextCursor").Text();
+            if (next.Length == 0) throw new InvalidDataException();
+        }
+        throw new InvalidDataException();
+    }
+
+    private static string CursorSession(string subject, string token) => "WorkosCursorSessionToken=" + Uri.EscapeDataString(subject + "::" + token);
+
     // The account a Cursor sign-in belongs to: the sub claim of its token, read without checking the signature, since it
     // only tells accounts apart. "" when the token names none.
     private static string CursorAccount(string token)
@@ -890,6 +970,34 @@ public sealed class UsageService(IDesktopSources desktop, DataLocations? locatio
         decimal? cost = usage.Get("totalCents").Number() is { } cents && cents >= 0 ? (decimal)cents / 100m : null;
         return new("cursor:" + identity, time, model, usage.Get("inputTokens").Count(), usage.Get("cacheReadTokens").Count(),
             usage.Get("cacheWriteTokens").Count(), 0, usage.Get("outputTokens").Count(), cost);
+    }
+
+    // A billing item of a merged plan. Its meters are named by token kind ("prompt-text-tokens", "cached-prompt-text-tokens",
+    // "cache-write-text-tokens", "completion-text-tokens"); other meters are not tokens. Items without a model, such as
+    // Grok Bot's, are named by their product. Included usage is priced at zero, so only other usage keeps its amount;
+    // included usage is estimated from its model like other records without one.
+    public static TokenEntry? ParseCursorBillingItem(JsonElement item)
+    {
+        if (item.Get("chargeCategory").Text() != "usage" || item.Get("eventTime").Date() is not { } time) return null;
+        var identity = item.Get("billingItemId").Text();
+        var product = item.Get("product").Text();
+        var model = item.Get("displayExtras").Get("model").Text();
+        if (model.Length == 0) model = string.Join(' ', product.Split('-', StringSplitOptions.RemoveEmptyEntries).Select(word => word == "api" ? "API" : char.ToUpperInvariant(word[0]) + word[1..]));
+        long input = 0, cacheRead = 0, cacheWrite = 0, output = 0;
+        var usage = item.Get("usage");
+        if (usage.ValueKind == JsonValueKind.Object)
+            foreach (var meter in usage.EnumerateObject())
+            {
+                if (!meter.Name.EndsWith("-tokens", StringComparison.Ordinal)) continue;
+                var count = meter.Value.Count();
+                if (meter.Name.StartsWith("cached-", StringComparison.Ordinal)) cacheRead += count;
+                else if (meter.Name.StartsWith("cache-write", StringComparison.Ordinal)) cacheWrite += count;
+                else if (meter.Name.StartsWith("completion", StringComparison.Ordinal) || meter.Name.StartsWith("reasoning", StringComparison.Ordinal)) output += count;
+                else input += count;
+            }
+        if (identity.Length == 0) identity = time.ToString("O") + ":" + product + ":" + usage.GetRawText();
+        decimal? cost = item.Get("usageType").Text() != "included" && item.Get("pricing").Get("contracted").Number() is { } usd && usd >= 0 ? (decimal)usd : null;
+        return new("cursor:" + identity, time, model.Length > 0 ? model : "Cursor", input, cacheRead, cacheWrite, 0, output, cost);
     }
 
     private async Task ReadAntigravityAsync(ProviderSnapshot snapshot, DateTimeOffset now, DateTimeOffset start, CancellationToken ct)

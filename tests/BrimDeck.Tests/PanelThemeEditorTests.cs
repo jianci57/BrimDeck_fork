@@ -91,6 +91,10 @@ internal static class PanelThemeEditorTests
         var navy = PanelThemes.Derive(darkPalette, PanelThemes.BackgroundKey, C("#0B1530"));
         check("A dark background keeps the foreground and mixes the pop-ups toward it",
             !navy.ContainsKey("textPrimary") && navy["popup"] == ThemeColor.Mix(C("#0B1530"), C("#F5F5F7"), .10) && navy["hairline"] == C("#F5F5F7").WithAlpha(0x17) && !navy.ContainsKey("onAccent"));
+        var lightTheme = PanelThemes.Resolve(PanelThemes.BuiltIn(PanelThemes.Light)!);
+        check("Derived tracks are as strong as the dark and light themes' own",
+            navy["track"].A == darkPalette["track"].A && navy["ringTrack"].A == darkPalette["ringTrack"].A
+            && light["track"].A == lightTheme["track"].A && light["ringTrack"].A == lightTheme["ringTrack"].A);
         var warm = PanelThemes.Derive(darkPalette, PanelThemes.ForegroundKey, C("#FFE8C0"));
         check("A new foreground brings the text, clock and lines in its color",
             warm["clock"] == C("#FFE8C0") && warm["textTertiary"] == C("#FFE8C0").WithAlpha(0x8C) && !warm.ContainsKey("surface") && !warm.ContainsKey("accent"));

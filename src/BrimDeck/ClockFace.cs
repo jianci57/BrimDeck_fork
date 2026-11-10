@@ -13,8 +13,10 @@ internal sealed class ClockFace : FrameworkElement
     public const double FaceHeight = 24;
     public static readonly Color White = Color.FromRgb(0xF5, 0xF5, 0xF7);
     private static readonly FontFamily Orbitron = Bundled("Orbitron"), InstrumentSerif = Bundled("Instrument Serif"), Unbounded = Bundled("Unbounded"), BebasNeue = Bundled("Bebas Neue"), Fredoka = Bundled("Fredoka");
-    private static FontFamily Bundled(string name) => new(new Uri("pack://application:,,,/BrimDeck;component/"), "./Assets/Fonts/#" + name);
-    private static readonly Typeface Plain = Face(UI.PanelFont), Bold = Face(UI.PanelFont, FontWeights.SemiBold);
+    private static FontFamily Bundled(string name) => Fonts.Bundled(name);
+    // The plain styles are set in the panel's font (the user's own when one is chosen); the styles with their own face keep it.
+    private static Typeface Plain => Fonts.Face(UiFontRole.Panel);
+    private static Typeface Bold => Fonts.Face(UiFontRole.Panel, FontWeights.SemiBold);
     private static Typeface Face(FontFamily family, FontWeight? weight = null, bool italic = false)
         => new(family, italic ? FontStyles.Italic : FontStyles.Normal, weight ?? FontWeights.Normal, FontStretches.Normal);
 
@@ -23,6 +25,8 @@ internal sealed class ClockFace : FrameworkElement
     private readonly Color[] _colors;
     private DateTime _time;
     private double? _reserved;
+    // The font the reserved width was measured in: another font measures it again.
+    private int _reservedFont = -1;
     // The collapsed row's height scale. The face is laid out at 1 and its outlines are drawn scaled: every glyph is filled as
     // geometry, so a scaled outline is the same as one built at the larger size.
     private readonly double _scale;
@@ -83,7 +87,16 @@ internal sealed class ClockFace : FrameworkElement
     // In DIPs at the face's scale. A scaled face is rounded up to a whole DIP so the regions beside it stay on whole DIPs;
     // the default face keeps its measured width, as in the settings preview.
     public double ReservedWidth => _scale == 1 ? UnitReserved : Math.Ceiling(UnitReserved * _scale - .001);
-    private double UnitReserved => _reserved ??= Enumerable.Range(22, 7).SelectMany(day => new[] { 10, 22 }.Select(hour => new DateTime(2025, 12, day, hour, 0, 0)))
+    private double UnitReserved
+    {
+        get
+        {
+            if (_reserved is null || _reservedFont != Fonts.Version) { _reservedFont = Fonts.Version; _reserved = MeasureReserved(); }
+            return _reserved.Value;
+        }
+    }
+    private double MeasureReserved() =>
+        Enumerable.Range(22, 7).SelectMany(day => new[] { 10, 22 }.Select(hour => new DateTime(2025, 12, day, hour, 0, 0)))
         .Max(time => Layout(null, time, 0, Brushes.White));
 
     protected override Size MeasureOverride(Size availableSize) => new(ReservedWidth, FaceHeight * _scale);

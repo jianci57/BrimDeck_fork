@@ -197,8 +197,8 @@ internal sealed class MusicEqualizer : FrameworkElement
 
 internal sealed class MusicMarquee : FrameworkElement
 {
-    private static readonly Typeface Plain = new(UI.PanelFont, FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
-    private Typeface _typeface = Plain;
+    private FontWeight _weight = FontWeights.Normal;
+    private Typeface _typeface => Fonts.Face(UiFontRole.Panel, _weight);
     // Width of the edge fade, and the scroll speed in DIP per second.
     internal const double Edge = 6, Speed = 24;
     private readonly TranslateTransform _shift = new();
@@ -255,7 +255,7 @@ internal sealed class MusicMarquee : FrameworkElement
         set { if (_fontSize == value) return; _fontSize = value; ResetText(); }
     }
     // The open page's title is semibold; the collapsed row and the lyrics are regular.
-    public FontWeight FontWeight { init => _typeface = new Typeface(UI.PanelFont, FontStyles.Normal, value, FontStretches.Normal); }
+    public FontWeight FontWeight { init => _weight = value; }
     // A second run after the text in its own size and color: the merged title of a short page ("title · artist"). It scrolls with
     // the text as one line. Over a gradient or scan lines (InkFade) it fades at its ends like the text, in its own color, so it
     // is the same color whether the line fits or scrolls.
@@ -313,7 +313,16 @@ internal sealed class MusicMarquee : FrameworkElement
     protected override Size MeasureOverride(Size availableSize) { _glyphs?.Measure(availableSize); return default; }
     protected override Size ArrangeOverride(Size finalSize) { _glyphs?.Arrange(new Rect(finalSize)); return finalSize; }
     private Brush? _tailInk;
-    private FormattedText Formatted => _formatted ??= Format();
+    private FormattedText Formatted
+    {
+        get
+        {
+            // Laid out in the font of its day: another font sets it again.
+            if (_formattedFont != Fonts.Version) { _formatted = null; _formattedFont = Fonts.Version; }
+            return _formatted ??= Format();
+        }
+    }
+    private int _formattedFont = -1;
     private FormattedText Format()
     {
         var text = new FormattedText(Text + Tail, CultureInfo.CurrentUICulture, FlowDirection.LeftToRight,
@@ -677,12 +686,15 @@ internal sealed class QuotaCarousel : GlideCarousel
     // For screen readers: its name, every ring's tooltip line, rotating or not.
     protected override AutomationPeer OnCreateAutomationPeer() => new DrawnPeer(this, AutomationControlType.Text, () => AutomationProperties.GetName(this).Replace("\n", Loc.T("；", "; ")));
     // One ring with its application's letter inside, at the size the system readings' dials carry theirs for this height, in the secondary text color.
-    internal static Grid Ring((double Used, string Color, string Tip, string Letter) item, double size, double thickness, double scale)
+    // With a second share (QuotaRing.Inner) it is two rings of the same stroke about one centre, and the letter goes inside the inner one.
+    internal static Grid Ring((double Used, double? Inner, string Color, string Tip, string Letter) item, double size, double thickness, double scale)
     {
-        var ring = UI.Ring(item.Used, item.Color, size, thickness);
+        double pairGap = Math.Max(.5, BrimDeck.Core.CompactMusicLayout.Half(2 * scale));
+        var ring = item.Inner is { } inner ? UI.PairRing(item.Used, inner, item.Color, size, thickness, pairGap) : UI.Ring(item.Used, item.Color, size, thickness);
+        double hole = item.Inner is null ? size - 2 * thickness : size - 2 * (2 * thickness + pairGap);
         // Empty without the setting (DeckSettings.QuotaRingLetters): the ring is then as it was without letters.
         if (item.Letter.Length > 0
-            && RingLetter.Create(item.Letter, Math.Max(1, BrimDeck.Core.CompactMusicLayout.Half(7 * scale)), size, Math.Max(1, size - 2 * thickness),
+            && RingLetter.Create(item.Letter, Math.Max(1, BrimDeck.Core.CompactMusicLayout.Half(7 * scale)), size, Math.Max(1, hole),
                 Application.Current?.MainWindow is { } window ? VisualTreeHelper.GetDpi(window).PixelsPerDip : 1, UI.PanelFont, UI.Brush(UI.Secondary)) is { } letter)
             ring.Children.Add(letter);
         return ring;
@@ -692,7 +704,7 @@ internal sealed class QuotaCarousel : GlideCarousel
     // count: the whole rings the window holds (CompactSpacing.Window); gap: the row's gap, which the rings keep between them too.
     // flowing: the window as wide as the room gives it, not whole rings (the surface is being dragged; CompactSpacing.ShareFlowing),
     // with the ring it cuts faded over cut DIPs; nothing glides then.
-    public QuotaCarousel(IReadOnlyList<(double Used, string Color, string Tip, string Letter)> items, double size, double thickness, double rowScale, double gap, int count, double edge,
+    public QuotaCarousel(IReadOnlyList<(double Used, double? Inner, string Color, string Tip, string Letter)> items, double size, double thickness, double rowScale, double gap, int count, double edge,
         TimeSpan elapsed = default, bool animate = true, double? flowing = null, double cut = 0)
     {
         // Ring positions, the window and the travel all use whole device pixels. Layout rounding would otherwise widen each gap
@@ -752,12 +764,17 @@ internal sealed class ReadingsCarousel : GlideCarousel
     // cut: while the surface is dragged the window is not whole readings and nothing glides (travel 0); the reading it cuts fades over
     // this many DIPs inside it (CompactSpacing.CutFade). A window narrower than the readings that cuts none still clips them.
     public ReadingsCarousel(MonitorStrip strip, double window, double travel, double edge, TimeSpan elapsed, bool animate, double cut = 0)
+        : this(strip, strip.PreferredWidth, window, travel, edge, elapsed, animate, cut) { }
+    // The devices' batteries on a column line too wide for it scroll the same way.
+    public ReadingsCarousel(DeviceStrip strip, double window, double travel, double edge, TimeSpan elapsed, bool animate)
+        : this(strip, strip.PreferredWidth, window, travel, edge, elapsed, animate, 0) { }
+    private ReadingsCarousel(FrameworkElement strip, double width, double window, double travel, double edge, TimeSpan elapsed, bool animate, double cut)
     {
         window = Math.Max(0, window); travel = Math.Max(0, travel); cut = Math.Max(0, cut);
         Rotates = travel > 0;
         edge = Rotates || cut > 0 ? Math.Max(0, edge) : 0;
         Width = edge + window + edge; Height = strip.Height; ClipToBounds = true;
-        strip.Width = strip.PreferredWidth; strip.HorizontalAlignment = HorizontalAlignment.Left; strip.VerticalAlignment = VerticalAlignment.Top; strip.Margin = new Thickness(0);
+        strip.Width = width; strip.HorizontalAlignment = HorizontalAlignment.Left; strip.VerticalAlignment = VerticalAlignment.Top; strip.Margin = new Thickness(0);
         strip.RenderTransform = new TranslateTransform();
         Canvas.SetLeft(strip, edge);
         // A Canvas measures the strip at its full width, as for the rings.

@@ -38,7 +38,7 @@ public sealed partial class SettingsWindow
     internal static readonly Thickness ChevronDrop = new(0, 1, 0, -1);
     internal static TextBlock Chevron() => new()
     {
-        Text = "", FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"), FontSize = 12, Margin = ChevronDrop,
+        Text = "", FontFamily = Fonts.Icon, FontSize = 12, Margin = ChevronDrop,
         RenderTransformOrigin = new Point(.5, .4688), VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center
     };
     // The chevron follows the button's foreground, so hover brightens it.

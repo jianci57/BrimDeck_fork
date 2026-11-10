@@ -56,7 +56,7 @@ public sealed partial class SettingsWindow
     {
         if (_updateDialog is not null || !_app.Updates.HasUpdate || !IsVisible) return;
         var dialog = new Window { Title = Loc.T("BrimDeck 更新", "BrimDeck Update"), Owner = this, Width = 510, SizeToContent = SizeToContent.Height,
-            WindowStartupLocation = WindowStartupLocation.CenterOwner, ShowInTaskbar = false, FontFamily = UI.PanelFont,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner, ShowInTaskbar = false, FontFamily = Fonts.PlainOf(UiFontRole.Panel),
             Background = UI.Brush(Surface), Foreground = UI.Brush(TextPrimary) };
         dialog.Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("/BrimDeck;component/SettingsResources.xaml", UriKind.Relative) });
         _palette.Apply(dialog.Resources); Native.SettingsChrome.Apply(dialog); dialog.ResizeMode = ResizeMode.NoResize;

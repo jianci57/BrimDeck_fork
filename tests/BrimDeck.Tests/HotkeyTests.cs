@@ -45,7 +45,7 @@ internal static class HotkeyTests
         foreach (var kind in Enum.GetValues<HotkeyKind>()) all.SetHotkey(kind, kind.ToString());
         check("Every hotkey has its own setting, unset by default, and a missing one reads as unset",
             Enum.GetValues<HotkeyKind>().All(kind => all.Hotkey(kind) == kind.ToString() && new DeckSettings().Hotkey(kind) == "")
-            && Normalized(new DeckSettings { Page3Hotkey = null!, MoveHotkey = null! }).Page3Hotkey == ""
+            && Normalized(new DeckSettings { Page10Hotkey = null!, MoveHotkey = null! }).Page10Hotkey == ""
             && Normalized(new DeckSettings { MoveHotkey = null! }).MoveHotkey == "");
     }
 

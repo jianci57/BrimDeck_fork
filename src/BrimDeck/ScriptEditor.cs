@@ -19,23 +19,12 @@ internal static class ScriptEditor
         "this", "true", "false", "null", "undefined"
     ];
 
-    // Consolas has no Chinese glyphs. Chinese and full-width punctuation come from Microsoft YaHei UI, whose glyphs are
-    // 1 em wide, scaled so each takes exactly two Consolas columns (2 × 0.5498 em); trailing comments then line up.
-    private static readonly Lazy<FontFamily> CodeFont = new(() =>
-    {
-        var consolas = new FontFamily("Consolas");
-        var family = new FontFamily { Baseline = consolas.Baseline, LineSpacing = consolas.LineSpacing };
-        family.FamilyNames[System.Windows.Markup.XmlLanguage.GetLanguage("en-us")] = "BrimDeck Code";
-        family.FamilyMaps.Add(new FontFamilyMap { Unicode = "2E80-9FFF,F900-FAFF,FE30-FE4F,FF00-FF60,FFE0-FFE6", Target = "Microsoft YaHei UI", Scale = 2 * 0.5498046875 });
-        family.FamilyMaps.Add(new FontFamilyMap { Unicode = "0000-10FFFF", Target = "Consolas" });
-        return family;
-    });
-
+    // The editor's face is Fonts.Code (Consolas, with Chinese from YaHei UI scaled to two columns).
     public static (Border Frame, TextEditor Editor) Create(string text, SettingsPalette palette)
     {
         var editor = new TextEditor
         {
-            Text = text, FontFamily = CodeFont.Value, FontSize = 12, Foreground = UI.Brush(palette.Primary), Background = Brushes.Transparent,
+            Text = text, FontFamily = Fonts.Code, FontSize = 12, Foreground = UI.Brush(palette.Primary), Background = Brushes.Transparent,
             WordWrap = false, ShowLineNumbers = false, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             SyntaxHighlighting = Highlighting(palette.Dark)
         };

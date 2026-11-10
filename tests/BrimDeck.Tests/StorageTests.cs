@@ -133,7 +133,21 @@ static class StorageTests
             Enumerable.Range(10, 3).ToDictionary(i => i, i => new StorageDisk("", 17, false)), hot);
         var folded = Storage.Rows(five, 2);
         check("Storage temperatures: the others' line takes the highest level, then the hottest", folded[1] is { Others: true, Celsius: 82, Level: MemoryLevel.Elevated });
-        check("Storage temperatures: a line's level is its drive's", Storage.Rows(five, 3).Select(row => row.Level).SequenceEqual([MemoryLevel.Normal, MemoryLevel.Elevated, MemoryLevel.Elevated]));
+        // An NVMe health log as the protocol-specific property returns it: the descriptor, then the log from 48.
+        byte[] Log(int kelvin, int version = 48, int offset = 40, int length = 512)
+        {
+            var reply = new byte[1024];
+            BitConverter.TryWriteBytes(reply.AsSpan(0), version); BitConverter.TryWriteBytes(reply.AsSpan(4), version);
+            BitConverter.TryWriteBytes(reply.AsSpan(24), offset); BitConverter.TryWriteBytes(reply.AsSpan(28), length);
+            if (8 + offset + 2 < reply.Length) BitConverter.TryWriteBytes(reply.AsSpan(8 + offset + 1), (ushort)kelvin);
+            return reply;
+        }
+        check("Storage temperatures: an NVMe health log gives its temperature in °C", Storage.HealthLogCelsius(Log(309)) == 36);
+        check("Storage temperatures: a health log without a temperature gives none", Storage.HealthLogCelsius(Log(0)) is null);
+        check("Storage temperatures: a reply that is not a health log gives none", Storage.HealthLogCelsius(Log(309, version: 40)) is null
+            && Storage.HealthLogCelsius(Log(309, length: 256)) is null && Storage.HealthLogCelsius(Log(309, offset: 600)) is null && Storage.HealthLogCelsius(new byte[20]) is null);
+        check("Storage temperatures: an implausible health log temperature is dropped", Storage.HealthLogCelsius(Log(1000)) is null);
+        check("Storage temperatures: a line's level is its drive's",Storage.Rows(five, 3).Select(row => row.Level).SequenceEqual([MemoryLevel.Normal, MemoryLevel.Elevated, MemoryLevel.Elevated]));
     }
 
     // Every combination of the processor's, the graphics adapter's and the drives' temperatures: what is missing leaves nothing
@@ -183,8 +197,8 @@ static class StorageTests
         CompactMonitor.Apply(readings, CompactMonitorMode.Brief);
         check("Compact drive: Brief hides it", !readings.Single(r => r.Item == Storage_).Visible);
         var width = CompactMonitor.Widths(CompactMonitor.Rings, 12, _ => 30, 14, 20, 50, 40);
-        // The machine's power and battery and the frame rate are left out: they leave before both.
-        var every = CompactMonitor.Every & ~CompactMonitorItems.Power & ~CompactMonitorItems.Charge & ~CompactMonitorItems.Frames;
+        // The machine's power and battery, the devices' battery and the frame rate are left out: they leave before both.
+        var every = CompactMonitor.Every & ~CompactMonitorItems.Power & ~CompactMonitorItems.Charge & ~CompactMonitorItems.Battery & ~CompactMonitorItems.Frames;
         double full = CompactMonitor.Width(every, width, 10);
         check("Compact drive: its own width; it leaves first when the row is short", width(Storage_) == 40 && CompactMonitor.Fit(every, width, 10, full) == every
             && CompactMonitor.Fit(every, width, 10, full - 1) == CompactMonitorItems.All && CompactMonitor.Fit(every, width, 10, full - 55) == (CompactMonitorItems.All & ~CompactMonitorItems.Upload));

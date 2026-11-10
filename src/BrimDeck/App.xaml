@@ -38,10 +38,20 @@
         <CornerRadius x:Key="PanelR16">16</CornerRadius>
       </ResourceDictionary>
     </ResourceDictionary.MergedDictionaries>
+    <!-- The families of the interface's text. These are the defaults; Fonts (Fonts.cs) publishes them again under the same keys with the
+         user's own font in front, so every use is a DynamicResource. UiFonts holds the same chains (a test compares them). The icon
+         and code families are fixed and are referenced with StaticResource. -->
     <FontFamily x:Key="AppTextFont">Microsoft YaHei</FontFamily>
+    <FontFamily x:Key="FontPanel">Segoe UI Variable Text, Segoe UI, Microsoft YaHei UI</FontFamily>
+    <FontFamily x:Key="FontDisplay">Segoe UI Variable Display, Segoe UI, Microsoft YaHei UI</FontFamily>
+    <FontFamily x:Key="FontMenu">Microsoft YaHei UI, Segoe UI Variable Text, Segoe UI</FontFamily>
+    <FontFamily x:Key="FontLabel">Segoe UI</FontFamily>
+    <FontFamily x:Key="FontIcon">Segoe Fluent Icons, Segoe MDL2 Assets</FontFamily>
+    <FontFamily x:Key="FontIconMdl2">Segoe MDL2 Assets</FontFamily>
+    <FontFamily x:Key="FontMono">Cascadia Mono, Consolas</FontFamily>
     <SolidColorBrush x:Key="BackgroundBrush" Color="#141416"/>
     <Style TargetType="Window">
-      <Setter Property="FontFamily" Value="{StaticResource AppTextFont}"/>
+      <Setter Property="FontFamily" Value="{DynamicResource AppTextFont}"/>
       <Setter Property="FontSize" Value="13"/><Setter Property="Foreground" Value="#EFF0F5"/>
       <Setter Property="Background" Value="{StaticResource BackgroundBrush}"/>
       <Setter Property="UseLayoutRounding" Value="True"/>
@@ -63,7 +73,7 @@
     <Style x:Key="SegmentButton" TargetType="Button">
       <Setter Property="Foreground" Value="{DynamicResource PanelSecondary}"/>
       <Setter Property="Background" Value="Transparent"/>
-      <Setter Property="FontFamily" Value="{StaticResource AppTextFont}"/>
+      <Setter Property="FontFamily" Value="{DynamicResource AppTextFont}"/>
       <Setter Property="Padding" Value="10,0"/>
       <Setter Property="Cursor" Value="Hand"/>
       <Setter Property="Focusable" Value="True"/>
@@ -191,7 +201,7 @@
       </Setter.Value></Setter>
     </Style>
     <Style x:Key="BrimDeckToolTip" TargetType="ToolTip">
-      <Setter Property="FontFamily" Value="Segoe UI Variable Text, Segoe UI, Microsoft YaHei UI"/>
+      <Setter Property="FontFamily" Value="{DynamicResource FontPanel}"/>
       <Setter Property="FontSize" Value="11.5"/>
       <Setter Property="Foreground" Value="{DynamicResource PanelPrimary}"/>
       <Setter Property="Background" Value="{DynamicResource PanelToolTip}"/>
@@ -220,7 +230,7 @@
     <SolidColorBrush x:Key="MenuHover" Color="#3A3A3A"/>
     <SolidColorBrush x:Key="MenuRule" Color="#3F3F3F"/>
     <Style TargetType="ContextMenu">
-      <Setter Property="FontFamily" Value="Microsoft YaHei UI, Segoe UI Variable Text, Segoe UI"/><Setter Property="FontSize" Value="13"/>
+      <Setter Property="FontFamily" Value="{DynamicResource FontMenu}"/><Setter Property="FontSize" Value="13"/>
       <Setter Property="Foreground" Value="{DynamicResource MenuInk}"/>
       <Setter Property="HasDropShadow" Value="False"/><Setter Property="OverridesDefaultStyle" Value="True"/>
       <Setter Property="Template"><Setter.Value>

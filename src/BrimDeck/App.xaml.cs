@@ -34,6 +34,8 @@ public partial class App : Application
     internal MediaSessions? Media { get; private set; }
     internal event Action? MediaChanged;
     internal LyricsService Lyrics { get; private set; } = null!;
+    // The clipboard history and the file transfer, shared by every panel (ShelfService).
+    internal ShelfService Shelf { get; private set; } = null!;
     // A window being dragged by its title bar or edge; the panels do not open on it (see MainWindow.TrackPointer).
     internal WindowDrags WindowDrags { get; private set; } = null!;
     private readonly HashSet<MainWindow> _presentingMedia = [], _presentingSystemAudio = [];
@@ -43,6 +45,10 @@ public partial class App : Application
     private readonly HashSet<MainWindow> _presentingMonitor = [], _stripMonitor = [];
     // The panels whose open monitor page shows the power line (PresentMonitor): the power is read for those, and for a row that chose it.
     private readonly HashSet<MainWindow> _presentingPower = [];
+    // The wireless devices' batteries, shared by every panel; created when first wanted (UpdateDeviceDemand).
+    internal DeviceBatteries? Devices { get; private set; }
+    internal event Action? DevicesChanged;
+    private readonly HashSet<MainWindow> _devicePages = [], _deviceStrips = [];
     // The panels whose collapsed row shows readings or is only hidden for now (the panel open, a notice in it, PresentMonitor): the
     // temperatures the row shows are read for these, so a row shown again has them in its first readings and not a dash.
     private readonly HashSet<MainWindow> _heldStrip = [];
@@ -89,7 +95,7 @@ public partial class App : Application
         Store = new SettingsStore(folder); Settings = Store.Load();
         // Before anything is read: a reading left unanswered when the last run ended stops now (SensorGuard).
         SensorGuard.Start(folder);
-        UseLanguage();
+        UseLanguage(); UseFont();
         PanelTheme.Use(Settings);
         ScheduleDaylight();
         // "跟随系统" follows the Windows app theme while BrimDeck runs.
@@ -108,8 +114,9 @@ public partial class App : Application
         Secrets = new ProviderSecrets(folder);
         Lyrics = new LyricsService(appleLyricsFile: Path.Combine(folder, "apple-music-lyrics.json"));
         Usage = new UsageService(new DesktopSources(), secrets: Secrets, quotaCache: Path.Combine(folder, ClaudeQuotaCache.FileName),
-            kimiQuotaCache: Path.Combine(folder, KimiQuotaCache.FileName));
+            kimiQuotaCache: Path.Combine(folder, KimiQuotaCache.FileName), cursorPriceCache: Path.Combine(folder, CursorPrices.FileName));
         WindowDrags = new WindowDrags();
+        Shelf = new ShelfService(folder, Dispatcher); Shelf.Apply(Settings);
         Deck = new MainWindow(this); MainWindow = Deck;
         Displays = Native.Displays.Current(); AssignDisplays();
         Deck.Show();
@@ -119,6 +126,7 @@ public partial class App : Application
         if (Settings.MonitorPage && Settings.MonitorPower) PowerWarm.Start(Dispatcher);
         WarmSettingsWriter();
         DisplayPower.Install(Dispatcher);
+        DisplayPower.Changed += UpdateDeviceDemand;
         _save.Tick += (_, _) => FlushSettings();
         ApplyTray();
         _settingsEvent = new EventWaitHandle(false, EventResetMode.AutoReset, eventName);
@@ -147,6 +155,10 @@ public partial class App : Application
         AppDomain.CurrentDomain.UnhandledException += (_, args) => Write(args.ExceptionObject);
         TaskScheduler.UnobservedTaskException += (_, args) => { Write(args.Exception); args.SetObserved(); };
     }
+    // The user's own font goes in front of the interface's families (Fonts); false when it is the one already in use.
+    // The families are published at the start whatever is chosen, so the XAML defaults are never what the text is drawn in by accident.
+    private bool UseFont() { bool changed = Fonts.Use(Settings.UiFont); if (!_fontsPublished) { _fontsPublished = true; Fonts.Publish(Resources); } return changed; }
+    private bool _fontsPublished;
     // Names used by XAML templates follow the language through these resources.
     private void UseLanguage()
     {
@@ -155,6 +167,8 @@ public partial class App : Application
         Resources["UnpinSourceName"] = Loc.T("取消固定", "Unpin");
     }
     public void OpenSettings() => ShowSettings(false);
+    // The clipboard page's menus open the settings at its own pages (SettingsWindow.ClipboardSettingsPage, TransferSettingsPage).
+    internal void OpenSettingsPage(int page) { ShowSettings(false); _settingsWindow?.ShowPage(page); }
     // Starting BrimDeck while it runs shows the hidden panels as well as the settings, so the panels come back even without
     // the tray icon.
     private void ShowFromRelaunch()
@@ -211,10 +225,14 @@ public partial class App : Application
         // A new collapsed style morphs every panel's surface into its form (MainWindow.MorphShape).
         bool styleChanged = settings.Style != Settings.Style;
         settings.Normalize(); Settings = settings;
+        // A different interface font is published at once and reaches every window already made (Fonts.Use); the panels below lay out again with it.
+        UseFont();
+        Shelf.Apply(settings);
         ApplyHotkeys();
         ApplyTray();
         // A panel whose collapsed row changes asks again as it is built (PresentMonitor).
         UpdateMonitorExtras();
+        UpdateDeviceDemand();
         // Statuses and notes are worded when the data is read, so a new language reads the data again.
         bool languageChanged = Loc.Normalize(settings.Language) != Loc.Language;
         if (languageChanged) UseLanguage();
@@ -344,6 +362,26 @@ public partial class App : Application
         UpdateMonitorExtras();
         Monitor.SetDemand(wanted, Settings.MonitorInterval, _presentingMonitor.Count > 0);
     }
+    // The devices are read while any panel shows the devices page or the collapsed battery reading, or the settings list them;
+    // otherwise nothing runs (DeviceBatteries lets every source go after a short linger).
+    internal void PresentDevices(MainWindow deck, bool page, bool strip)
+    {
+        if (page) _devicePages.Add(deck); else _devicePages.Remove(deck);
+        if (strip) _deviceStrips.Add(deck); else _deviceStrips.Remove(deck);
+        UpdateDeviceDemand();
+    }
+    private void UpdateDeviceDemand()
+    {
+        // The settings page is not read for with the display off, as a panel is not (its own demand drops then).
+        var demand = _devicePages.Count + _deviceStrips.Count > 0 || _deviceSettings && !DisplayPower.Off ? DeviceDemand.Watch : DeviceDemand.None;
+        if (Exiting || Devices is null && demand == DeviceDemand.None) return;
+        if (Devices is null) { Devices = new DeviceBatteries(Dispatcher); Devices.Changed += DeviceBatteriesChanged; }
+        Devices.SetDemand(demand);
+    }
+    // The settings' devices page lists what is connected, so it reads the devices while it is open.
+    private bool _deviceSettings;
+    internal void WatchDevicesForSettings(bool open) { _deviceSettings = open; UpdateDeviceDemand(); }
+    private void DeviceBatteriesChanged() => DevicesChanged?.Invoke();
     // Temperatures and drives are read for an open page with them on; also for a collapsed row showing them: the processor's and
     // the graphics adapter's temperatures for a ring showing its own, the drives for the drive reading, and their temperatures when
     // it shows those. The processor's and the adapter's temperatures also while the row is only hidden for now, as long as the sampler
@@ -430,7 +468,8 @@ public partial class App : Application
     protected override void OnExit(ExitEventArgs e)
     {
         Exiting = true; Lifetime.Cancel(); _save.Stop(); FinishWriting(); StopBackgroundUpdates(); DisplayPower.Uninstall(); Microsoft.Win32.SystemEvents.UserPreferenceChanged -= SystemThemeChanged; _tray?.Dispose(); DisposeHotkeys(); WindowDrags?.Dispose(); _listener?.Unregister(null); _settingsEvent?.Dispose();
-        Media?.Dispose(); Monitor?.Dispose(); SensorGuard.Finish(); Lyrics?.Dispose(); Prices?.Dispose(); _mutex?.Dispose(); base.OnExit(e);
+        if (Shelf is not null) { Shelf.Exit(); Shelf.Dispose(); }
+        Media?.Dispose(); Monitor?.Dispose(); SensorGuard.Finish(); Devices?.Dispose(); Lyrics?.Dispose(); Prices?.Dispose(); _mutex?.Dispose(); base.OnExit(e);
     }
     [DllImport("shell32", CharSet = CharSet.Unicode)] private static extern int SetCurrentProcessExplicitAppUserModelID(string id);
 }

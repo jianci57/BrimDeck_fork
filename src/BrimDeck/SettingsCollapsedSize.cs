@@ -195,10 +195,12 @@ public sealed partial class SettingsWindow
 
     // What a double click on the resize handle at an end of the collapsed panel does (MainWindow.Move.cs), for every style.
     private FrameworkElement GripDoubleClickRow() => MusicChoice(Loc.T("双击调整把手", "Double-click a resize handle"), S.GripDoubleClick,
-        [(GripDoubleClick.AutoWidth, Loc.T("切换自适应宽度", "Toggle auto width")), (GripDoubleClick.Move, Loc.T("移动位置", "Move"))],
+        [(GripDoubleClick.AutoWidth, Loc.T("切换自适应宽度", "Toggle auto width")), (GripDoubleClick.Move, Loc.T("移动位置", "Move")), (GripDoubleClick.Off, Loc.T("不显示把手", "Hide handles"))],
         value => Change(s => s.GripDoubleClick = value),
-        help: Loc.T("鼠标移到刘海、胶囊或指示条的两端时，旁边会出现调整把手。移动位置：双击把手，边缘亮起后，可拖动整个区域调整位置。切换自适应宽度：双击把手，宽度在“跟随内容”和“固定”之间切换。",
-            "Pointing at either end of the notch, capsule or indicator shows a resize handle beside it. Move: double-click the handle, and once the edge lights up, drag the whole area to a new place. Toggle auto width: double-click the handle to switch the width between following the content and staying fixed."));
+        help: Loc.T("鼠标移到刘海、胶囊或指示条的两端时，旁边会出现调整把手。移动位置：双击把手，边缘亮起后，可拖动整个区域调整位置。切换自适应宽度：双击把手，宽度在“跟随内容”和“固定”之间切换。不显示把手：鼠标移到两端时不出现把手，也不能拖动两端调整宽度。",
+            "Pointing at either end of the notch, capsule or indicator shows a resize handle beside it. Move: double-click the handle, and once the edge lights up, drag the whole area to a new place. Toggle auto width: double-click the handle to switch the width between following the content and staying fixed. Hide handles: no handle shows at the ends, and the ends cannot be dragged to change the width."),
+        // Three options; the longest label ("切换自适应宽度", "Toggle auto width") fits its third on one line.
+        width: Loc.IsEnglish ? 360 : 324);
 
     private void ChangeCollapsed(Action<DeckSettings> edit)
     {
