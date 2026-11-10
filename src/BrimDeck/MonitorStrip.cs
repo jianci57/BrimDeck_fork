@@ -23,6 +23,9 @@ internal sealed class MonitorStrip : FrameworkElement
     // The parts of the drive reading a strip draws: the glyph and the letters as in the row, or the letters alone.
     internal enum DriveParts { All, Letters }
     private readonly DriveParts _driveParts;
+    // Whether the low percentiles show next to a frame reading, taken from the settings when the row was built (a flip of
+    // either toggle builds it again).
+    private readonly bool _fps1Low, _fps01Low, _fpsFrameTime, _fpsGpuTime;
     private readonly StripPresence _presence;
     private readonly CompactMonitorItems _shown, _values;
     private readonly IReadOnlyList<CompactMonitorItems> _order;
@@ -55,9 +58,11 @@ internal sealed class MonitorStrip : FrameworkElement
     // parts: what the drive reading draws. The collapsed column (MainWindow.CompactColumn.cs) gives each drive a line without the
     // glyph, its letter shown even when it is the only one.
     public MonitorStrip(IReadOnlyList<CompactReading> readings, StripColors colors, double scale, bool centered, StripPresence presence, double dpi,
-        CompactMonitorItems unavailable = CompactMonitorItems.None, StripAdmission? admission = null, DriveParts parts = DriveParts.All)
+        CompactMonitorItems unavailable = CompactMonitorItems.None, StripAdmission? admission = null, DriveParts parts = DriveParts.All,
+        bool fps1Low = false, bool fps01Low = false, bool fpsFrameTime = false, bool fpsGpuTime = false)
     {
         _driveParts = parts;
+        _fps1Low = fps1Low; _fps01Low = fps01Low; _fpsFrameTime = fpsFrameTime; _fpsGpuTime = fpsGpuTime;
         _easing = new PromptTimer(Dispatcher, EaseStep);
         _presence = presence; _dpi = dpi; _colors = colors; _centered = centered; _powerStyle = PowerStyle.For(colors.Palette);
         _order = [.. readings.Select(reading => reading.Item)];
@@ -104,13 +109,35 @@ internal sealed class MonitorStrip : FrameworkElement
         _width = CompactMonitor.Widths(_values, _dial, _ringFigure, _dial, ColumnsWidth(Environment.ProcessorCount),
             Math.Round(9 * _scale) + Math.Round(3 * _scale) + Math.Ceiling(Math.Max(text("99.9M"), text("99.9G"))), DrivesWidth(),
             Math.Round(9 * _scale) + Math.Round(3 * _scale) + FigureWidth("999W"), BatteryWidth + Math.Round(3 * _scale) + FigureWidth(WidestPercent),
-            FramesSlot + Math.Round(3 * _scale) + FigureWidth(WidestFrames) + Math.Round(2 * _scale) + SmallWidth(FramesUnit));
+            FramesSlot + Math.Round(3 * _scale) + FigureWidth(WidestFrames) + Math.Round(2 * _scale) + SmallWidth(FramesUnit) + FrameTimeRoom() + GpuRoom() + LowRoom());
     }
 
     private const string WidestDegrees = "125°", WidestPercent = "100%";
     // Monitors run up to 500 Hz and more, so three digits; the unit follows in the smaller type.
     private const string WidestFrames = "999", FramesUnit = "FPS";
+    // The frame time: 1000 over the rate, in milliseconds, one decimal, at the widest "999.9ms"; a dash while there is no
+    // reading (no frames, no time).
+    private const string WidestFrameTime = "999.9ms";
+    private static string FrameTime(double? perSecond) => perSecond is { } rate && double.IsFinite(rate) && rate > 0
+        ? Math.Clamp(1000.0 / rate, 0, 999.9).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + "ms" : "—";
     private double FramesSlot => _framesIcon ? Math.Round(14 * _scale) : Glyph;
+    // The low percentiles' room when the settings page's toggles ask for them: drawn in the row's own type, so each one is
+    // reserved at the widest frames a reading can show ("1% 999", "0.1% 999") and the row's layout holds while a reading
+    // comes and goes.
+    private double LowRoom()
+    {
+        double room = 0;
+        if (_fps1Low) room += Math.Round(3 * _scale) + FigureWidth("1% " + WidestFrames);
+        if (_fps01Low) room += Math.Round(3 * _scale) + FigureWidth("0.1% " + WidestFrames);
+        return room;
+    }
+    // The frame time's room when the settings page's toggle asks for it: at the widest "999.9ms", so the row's layout holds
+    // whatever the rate turns it into.
+    private double FrameTimeRoom() => _fpsFrameTime ? Math.Round(3 * _scale) + FigureWidth(WidestFrameTime) : 0;
+    // The GPU frame time's room: the same figure at the widest ("999.9ms"), a dash while Windows' counters say nothing.
+    private double GpuRoom() => _fpsGpuTime ? Math.Round(3 * _scale) + FigureWidth(WidestFrameTime) : 0;
+    private static string GpuMs(double? gpuMs) => gpuMs is { } value && double.IsFinite(value)
+        ? Math.Clamp(value, 0, 999.9).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + "ms" : "—";
     // The figures after a ring or a drive letter: the share alone, the temperature alone, or both stacked in the smaller type or
     // side by side in the row's type, at the widest each can show.
     private double Column(CompactMonitorItems item, bool usage, bool heat)
@@ -415,7 +442,7 @@ internal sealed class MonitorStrip : FrameworkElement
     }
 
     // The frame rate: the program's icon (when chosen and it has one) or a screen glyph in the reading's color, then the whole frames
-    // a second and "FPS" in the smaller type, "60 FPS"; a dash while there is no reading.
+    // a second and "FPS" in the smaller type, "60 FPS", and the low percentiles the settings ask for, "60 FPS 1% 45"; a dash while there is no reading.
     private void Frames(DrawingContext drawing, double x, double center, FrameSample? frames, string color, double ppd)
     {
         double slot = FramesSlot, baseline = Math.Round(center + _font * .36);
@@ -429,7 +456,35 @@ internal sealed class MonitorStrip : FrameworkElement
         double at = x + slot + Math.Round(3 * _scale);
         var figure = MonitorDraw.Text(FramesFigure(frames?.PerSecond), _font, UI.Primary, ppd);
         MonitorDraw.Baseline(drawing, figure, at, baseline);
-        MonitorDraw.Baseline(drawing, MonitorDraw.Text(FramesUnit, _small, UI.Tertiary, ppd), at + Math.Ceiling(figure.WidthIncludingTrailingWhitespace) + Math.Round(2 * _scale), baseline);
+        var unit = MonitorDraw.Text(FramesUnit, _small, UI.Tertiary, ppd);
+        MonitorDraw.Baseline(drawing, unit, at + Math.Ceiling(figure.WidthIncludingTrailingWhitespace) + Math.Round(2 * _scale), baseline);
+        // The low percentiles after the unit, in the figure's own type and color, wherever the settings page's toggles ask for
+        // them: each stands in the room the widest figure reserves ("1% 999", "0.1% 999") — always filled, with the figures
+        // when the frame gaps say them and a dash while there is no reading, and never moved by the figure's digits
+        // ("60 FPS 1% 45 0.1% 38").
+        double low = at + FigureWidth(WidestFrames) + Math.Round(2 * _scale) + Math.Ceiling(unit.WidthIncludingTrailingWhitespace) + Math.Round(3 * _scale);
+        // The frame time first (when the settings page's toggle asks for it), then the low percentiles: each in the room the
+        // widest of its kind reserves ("999.9ms", "1% 999", "0.1% 999"), so none of them moves with the figure's digits.
+        if (_fpsFrameTime)
+        {
+            var time = MonitorDraw.Text(FrameTime(frames?.PerSecond), _font, UI.Primary, ppd);
+            MonitorDraw.Baseline(drawing, time, low, baseline);
+            low += FigureWidth(WidestFrameTime) + Math.Round(3 * _scale);
+        }
+        if (_fpsGpuTime)
+        {
+            var gpu = MonitorDraw.Text(GpuMs(frames?.GpuMs), _font, UI.Primary, ppd);
+            MonitorDraw.Baseline(drawing, gpu, low, baseline);
+            low += FigureWidth(WidestFrameTime) + Math.Round(3 * _scale);
+        }
+        if (_fps1Low)
+        {
+            var rate = MonitorDraw.Text("1% " + FramesFigure(frames?.Low1), _font, UI.Primary, ppd);
+            MonitorDraw.Baseline(drawing, rate, low, baseline);
+            low += FigureWidth("1% " + WidestFrames) + Math.Round(3 * _scale);
+        }
+        if (_fps01Low)
+            MonitorDraw.Baseline(drawing, MonitorDraw.Text("0.1% " + FramesFigure(frames?.Low01), _font, UI.Primary, ppd), low, baseline);
     }
     private static FrameSample? FrameOf(MonitorSnapshot? s) => s?.Frames.OrDefault;
     private static readonly string[] FrameFigures = [.. Enumerable.Range(0, 1000).Select(count => count.ToString(System.Globalization.CultureInfo.InvariantCulture))];

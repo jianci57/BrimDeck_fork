@@ -60,7 +60,8 @@ public partial class MainWindow
             _stripUnavailable = _stripAdmission.Hidden;
             void Line(CompactReading reading, MonitorStrip.DriveParts drives = MonitorStrip.DriveParts.All)
             {
-                var strip = new MonitorStrip([reading], colors, scale, true, _stripPresence, dpi, _stripUnavailable, _stripAdmission, drives);
+                var strip = new MonitorStrip([reading], colors, scale, true, _stripPresence, dpi, _stripUnavailable, _stripAdmission, drives,
+                    fps1Low: Settings.MonitorFps1Low, fps01Low: Settings.MonitorFps01Low, fpsFrameTime: Settings.MonitorFpsFrameTime, fpsGpuTime: Settings.MonitorFpsGpuTime);
                 if (strip.PreferredWidth > 0) strips.Add(strip);
             }
             foreach (var reading in Settings.CompactReadings)
@@ -182,9 +183,11 @@ public partial class MainWindow
         return canvas;
     }
 
-    // Every strip of the collapsed readings takes the new reading: the row's one, or the column's (one per reading).
+    // Every strip of the collapsed readings takes the new reading: the row's one, or the column's (one per reading). The debug
+    // page's overrides stand in for the real readings here alone (DebugOverrides); the open pages keep their own path.
     private void UpdateCompactStrips(MonitorSnapshot? snapshot, bool motion)
     {
+        snapshot = DebugOverrides.Apply(snapshot, Settings);
         _compactStrip?.Update(snapshot, motion, (int)Settings.CompactSmoothing);
         foreach (var strip in _columnStrips) if (!ReferenceEquals(strip, _compactStrip)) strip.Update(snapshot, motion, (int)Settings.CompactSmoothing);
     }
