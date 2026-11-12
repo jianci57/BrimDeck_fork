@@ -28,12 +28,14 @@ public sealed partial class SettingsWindow : Window, IKeepsAppFonts
     private readonly StackPanel _content = new();
     private readonly TextBlock _status = new() { Visibility = Visibility.Collapsed, TextWrapping = TextWrapping.Wrap };
     private ScrollViewer _scroll = null!;
+    // The notifications page is an empty placeholder for now.
+    private const int NotificationsPage = 16;
     private static string[] _pages => [Loc.T("常规", "General"), Loc.T("收起外观", "Collapsed view"), Loc.T("展开外观", "Expanded view"),
         Loc.T("配额与统计", "Quotas and usage"), Loc.T("模型价格", "Model prices"), Loc.T("样式", "Style"), Loc.T("播放器", "Players"), Loc.T("关于 BrimDeck", "About BrimDeck"), Loc.T("面板主题", "Panel theme"), Loc.T("显示与读数", "Display and readings"), Loc.T("增强传感器", "Enhanced sensors"), Loc.T("快捷键", "Shortcuts"),
-        Loc.T("显示与设备", "Display and devices"), Loc.T("剪贴板", "Clipboard"), Loc.T("文件中转", "File transfer"), Loc.T("调试", "Debug")];
+        Loc.T("显示与设备", "Display and devices"), Loc.T("剪贴板", "Clipboard"), Loc.T("文件中转", "File transfer"), Loc.T("调试", "Debug"), Loc.T("通知", "Notifications")];
     // The order of the pages in the navigation; the theme page (ThemePage) and the shortcuts (HotkeysPage) are listed with the
     // basic pages, while system monitor, shelf, devices and debug pages follow music in their own groups before About.
-    private static readonly int[] PageOrder = [0, 1, 2, ThemePage, HotkeysPage, 3, 4, 5, 6, MonitorSettingsPage, SensorsPage, ClipboardSettingsPage, TransferSettingsPage, DevicesSettingsPage, DebugPage, 7];
+    private static readonly int[] PageOrder = [0, 1, 2, ThemePage, HotkeysPage, NotificationsPage, 3, 4, 5, 6, MonitorSettingsPage, SensorsPage, ClipboardSettingsPage, TransferSettingsPage, DevicesSettingsPage, DebugPage, 7];
     private int _page;
     private bool _preview;
     private StackPanel? _appRows;
@@ -325,9 +327,9 @@ public sealed partial class SettingsWindow : Window, IKeepsAppFonts
         _page = page; _navigation.Children.Clear(); _content.Children.Clear(); _aboutUpdateView = null; _scroll.ScrollToTop();
         foreach (int i in PageOrder)
         {
-            if (i is 0 or 3 or 5 or 7 or MonitorSettingsPage or ClipboardSettingsPage or DevicesSettingsPage or DebugPage)
+            if (i is 0 or 3 or 5 or 7 or NotificationsPage or MonitorSettingsPage or ClipboardSettingsPage or DevicesSettingsPage or DebugPage)
             {
-                var group = TextLine(i switch { 0 => Loc.T("基础设置", "Basics"), 3 => Loc.T("AI 用量", "AI usage"), MonitorSettingsPage => Loc.T("系统监控", "System monitor"), ClipboardSettingsPage => Loc.T("中转站", "Shelf"), DevicesSettingsPage => Loc.T("设备电量", "Device batteries"), DebugPage => Loc.T("调试", "Debug"), 5 => Loc.T("音乐", "Music"), _ => Loc.T("关于", "About") },10.5,TextTertiary);
+                var group = TextLine(i switch { 0 => Loc.T("基础设置", "Basics"), NotificationsPage => Loc.T("通知", "Notifications"), 3 => Loc.T("AI 用量", "AI usage"), MonitorSettingsPage => Loc.T("系统监控", "System monitor"), ClipboardSettingsPage => Loc.T("中转站", "Shelf"), DevicesSettingsPage => Loc.T("设备电量", "Device batteries"), DebugPage => Loc.T("调试", "Debug"), 5 => Loc.T("音乐", "Music"), _ => Loc.T("关于", "About") },10.5,TextTertiary);
                 group.Margin = new Thickness(12, i == 0 ? 0 : 24, 0, 8); _navigation.Children.Add(group);
             }
             int target=i; bool selected=page==i;
@@ -368,6 +370,7 @@ public sealed partial class SettingsWindow : Window, IKeepsAppFonts
         DevicesSettingsPage => "M 3,4.5 H 11.5 A 1.5,1.5 0 0 1 13,6 V 10 A 1.5,1.5 0 0 1 11.5,11.5 H 3 A 1.5,1.5 0 0 1 1.5,10 V 6 A 1.5,1.5 0 0 1 3,4.5 Z M 14.8,7 V 9 M 4.5,7 V 9 M 7,7 V 9",
         SensorsPage => "M 4,4 H 12 V 12 H 4 Z M 6,1 V 4 M 10,1 V 4 M 6,12 V 15 M 10,12 V 15 M 1,6 H 4 M 1,10 H 4 M 12,6 H 15 M 12,10 H 15",
         HotkeysPage => "M 1,3 H 15 V 13 H 1 Z M 4,6 V 6.1 M 7,6 V 6.1 M 10,6 V 6.1 M 13,6 V 6.1 M 4,10 H 12",
+        NotificationsPage => "M 8,1.5 C 5,1.5 3.5,4 3.5,6.5 L 3.5,10 L 2,12 H 14 L 12.5,10 L 12.5,6.5 C 12.5,4 11,1.5 8,1.5 Z M 6.7,14 A 1.3,1.3 0 0 0 9.3,14",
         ClipboardSettingsPage => "M 3,2.5 H 13 V 15 H 3 Z M 6,1 H 10 V 4 H 6 Z M 5.5,8 H 10.5 M 5.5,11 H 10.5",
         TransferSettingsPage => "M 1.5,9 L 3.5,3 H 12.5 L 14.5,9 V 13 A 1,1 0 0 1 13.5,14 H 2.5 A 1,1 0 0 1 1.5,13 Z M 1.5,9 H 5.5 L 6.5,10.5 H 9.5 L 10.5,9 H 14.5",
         DebugPage => "M 6,1 H 10 M 7,1 V 6 L 3,13 A 1.5,1.5 0 0 0 4.5,15 H 11.5 A 1.5,1.5 0 0 0 13.5,13 L 9,6 V 1 M 4.6,9.5 H 11.4",
