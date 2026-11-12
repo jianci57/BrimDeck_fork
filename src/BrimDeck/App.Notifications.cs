@@ -4,13 +4,12 @@ using BrimDeck.Native;
 namespace BrimDeck;
 
 // The system notification feature's app-level wiring: one service for the whole application, raised and stopped by
-// the settings switch, its arrivals played once and shown on every panel's island. The service also serves the
-// settings page's reader needs (the access state, the consent dialog) with the same one reader, so a consent dialog
-// and a poll never overlap. The test notification goes through the same broadcast without touching the reader.
+// the settings switch, its arrivals shown on every panel's island. The service also serves the settings page's
+// reader needs (the access state, the consent dialog) with the same one reader, so a consent dialog and a poll
+// never overlap. The test notification goes through the same broadcast without touching the reader.
 public partial class App
 {
     private NotificationService? _notifications;
-    private NotificationSoundPlayer? _notificationSound;
     // The service exists from the first need on and stays, with its events wired once: the settings page reaches it
     // for the access state and the consent dialog even while the feature is off, and switching the feature on only
     // starts its timer.
@@ -28,37 +27,25 @@ public partial class App
         return service;
     }
 
-    // Reads the feature's switch (once at startup, and at every settings change). Off, the polling stops, a sound
-    // still playing stops, and every island drops what it shows — even when no service ever ran, so a test
-    // notification goes too. The sound also stops when the sound's own switch is off, whatever the monitor does.
-    // On, the timer starts; a switch that was already on keeps its baseline.
+    // Reads the feature's switch (once at startup, and at every settings change). Off, the polling stops and every
+    // island drops what it shows — even when no service ever ran, so a test notification goes too. On, the timer
+    // starts; a switch that was already on keeps its baseline.
     internal void ApplyNotificationSettings()
     {
         if (Exiting) return;
         if (!Settings.NotificationsEnabled)
         {
             _notifications?.Reconfigure(false);
-            _notificationSound?.Stop();
             foreach (var deck in Decks.ToList()) deck.ClearSystemNotification();
             return;
         }
-        if (!Settings.NotificationSoundEnabled) _notificationSound?.Stop();
         Notifications.Reconfigure(true);
     }
 
     private void NotificationArrived(NotificationItem item)
     {
-        try
-        {
-            if (Settings.NotificationSoundEnabled) NotificationSound().Play(Settings.NotificationSoundPath, Settings.NotificationSoundVolume);
-        }
-        catch { /* A sound that cannot play must not cost the notification itself. */ }
         foreach (var deck in Decks.ToList()) deck.ShowSystemNotification(item);
     }
-
-    // The one sound player for arrivals, the settings page's preview and its test; a new play replaces the last.
-    // The chime file lives beside the settings (Store's directory), wherever the installation keeps them.
-    internal NotificationSoundPlayer NotificationSound() => _notificationSound ??= new NotificationSoundPlayer(Store.DirectoryPath, Dispatcher);
 
     // The settings page's test button: a clearly synthetic item through the same show chain — no reader, no
     // permission, and the feature's switch is not required.
@@ -68,11 +55,6 @@ public partial class App
             Loc.T("测试通知", "Test notification"),
             Loc.T("这是 BrimDeck 合成的测试内容，不是系统消息。", "This is a synthetic BrimDeck test item, not a system message."),
             DateTimeOffset.Now, true);
-        try
-        {
-            if (Settings.NotificationSoundEnabled) NotificationSound().Play(Settings.NotificationSoundPath, Settings.NotificationSoundVolume);
-        }
-        catch { }
         foreach (var deck in Decks.ToList()) deck.ShowSystemNotification(item);
     }
 }

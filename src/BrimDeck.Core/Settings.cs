@@ -647,12 +647,6 @@ public sealed class DeckSettings
     // How much of a new notification the island shows: Brief the title and the body, Compact the time and the app
     // name, Full the app name, the title and the body.
     public NotificationContentMode NotificationContentMode { get; set; } = NotificationContentMode.Compact;
-    // A sound played once when a new notification arrives; off by default.
-    public bool NotificationSoundEnabled { get; set; }
-    // The sound's file; empty is the built-in chime (NotificationSound.ChimeWave).
-    public string NotificationSoundPath { get; set; } = "";
-    // The sound's loudness in percent; a quiet default, 0 is silence.
-    public int NotificationSoundVolume { get; set; } = NotificationSound.DefaultVolume;
     // Also reads the Claude Code and Codex CLI session records inside WSL distributions. Off by default: it starts stopped distributions.
     public bool IncludeWsl { get; set; }
     // The ordered application list; the order is the column order of the expanded panel. Claude and Codex are shown
@@ -824,11 +818,6 @@ public sealed class DeckSettings
         CompactMonitorItems = Core.CompactMonitor.Shown(CompactReadings);
         if (!Enum.IsDefined(MusicText)) MusicText = CompactMusicText.None;
         if (!Enum.IsDefined(NotificationContentMode)) NotificationContentMode = NotificationContentMode.Compact;
-        NotificationSoundVolume = Math.Clamp(NotificationSoundVolume, 0, NotificationSound.MaximumVolume);
-        NotificationSoundPath = (NotificationSoundPath ?? "").Trim();
-        // A path past the cap is not shortened — a shortened path would name a file that does not exist and would
-        // still be handed to the player; it reads as empty, which is the built-in chime.
-        if (NotificationSoundPath.Length > 512) NotificationSoundPath = "";
         if (!Enum.IsDefined(ClockStyle)) ClockStyle = ClockStyle.Minimal;
         if (!Enum.IsDefined(ClockColor)) ClockColor = ClockColor.White;
         ClockCustomColor = AppPresets.NormalizeColor(ClockCustomColor) is { Length: > 0 } custom ? custom : ClockColors.DefaultCustom;

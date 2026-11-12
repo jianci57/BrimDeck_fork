@@ -80,25 +80,20 @@ internal static class NotificationMonitorTests
         monitor.Reset();
         check("After access returns, nothing replays", monitor.Diff(seed).Count == 0);
 
-        // The settings' own fields normalize: an unknown mode falls back to Compact, the volume is clamped, the path
-        // trimmed — and a path past its cap reads as empty rather than as a shortened file name that cannot exist.
-        var settings = new DeckSettings { NotificationContentMode = (NotificationContentMode)99, NotificationSoundVolume = 500, NotificationSoundPath = "  x.wav  " };
+        // The settings' own fields normalize: an unknown mode falls back to Compact.
+        var settings = new DeckSettings { NotificationContentMode = (NotificationContentMode)99 };
         settings.Normalize();
         check("An unknown content mode reads as Compact", settings.NotificationContentMode == NotificationContentMode.Compact);
-        check("The sound volume is clamped to 0..100", settings.NotificationSoundVolume is > 0 and <= NotificationSound.MaximumVolume && settings.NotificationSoundVolume != 500);
-        check("The sound path is trimmed", settings.NotificationSoundPath == "x.wav");
-        var longPath = new DeckSettings { NotificationSoundPath = "/" + new string('x', 600) };
-        longPath.Normalize();
-        check("A too long sound path reads as empty", longPath.NotificationSoundPath.Length == 0);
 
-        // The built-in chime is a real, small WAV file: right header, 16-bit mono PCM, well under the duration limit.
-        var wave = NotificationSound.ChimeWave();
-        check("The built-in chime carries a WAV header",
-            System.Text.Encoding.ASCII.GetString(wave, 0, 4) == "RIFF" && System.Text.Encoding.ASCII.GetString(wave, 8, 4) == "WAVE");
-        int rate = wave[24] | wave[25] << 8 | wave[26] << 16 | wave[27] << 24;
-        int dataLength = wave[40] | wave[41] << 8 | wave[42] << 16 | wave[43] << 24;
-        double seconds = dataLength / 2.0 / rate;
-        check("The built-in chime is short and mono 16-bit", rate == 44100 && wave[22] == 1 && wave[34] == 16
-            && seconds > 0.3 && seconds < NotificationSound.MaximumDuration.TotalSeconds);
+        // Backward compatibility: a file saved by a build that still had the sound fields carries them as members
+        // this build does not know. The real read entry skips them and keeps the notification settings around them.
+        // AppVersion 1.3.0 is the file's own version, so no migration step runs; nothing touches a file on disk.
+        var legacy = SettingsMigrations.Read(
+            """{"AppVersion":"1.3.0","NotificationsEnabled":true,"NotificationContentMode":2,"NotificationSoundEnabled":true,"NotificationSoundPath":"C:\\old\\chime.wav","NotificationSoundVolume":80}""",
+            new Version(1, 3, 0), out var saved);
+        check("Old sound fields are ignored and the notification settings survive",
+            saved == new Version(1, 3, 0) && legacy.NotificationsEnabled && legacy.NotificationContentMode == NotificationContentMode.Full);
+        check("A freshly written settings file carries no sound fields",
+            !System.Text.Json.JsonSerializer.Serialize(new DeckSettings()).Contains("NotificationSound"));
     }
 }

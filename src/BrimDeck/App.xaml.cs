@@ -471,7 +471,7 @@ public partial class App : Application
     {
         Exiting = true; Lifetime.Cancel(); _save.Stop(); FinishWriting(); StopBackgroundUpdates(); DisplayPower.Uninstall(); Microsoft.Win32.SystemEvents.UserPreferenceChanged -= SystemThemeChanged; _tray?.Dispose(); DisposeHotkeys(); WindowDrags?.Dispose(); _listener?.Unregister(null); _settingsEvent?.Dispose();
         if (Shelf is not null) { Shelf.Exit(); Shelf.Dispose(); }
-        _notifications?.Dispose(); _notificationSound?.Dispose();
+        _notifications?.Dispose();
         Media?.Dispose(); Monitor?.Dispose(); SensorGuard.Finish(); Devices?.Dispose(); Lyrics?.Dispose(); Prices?.Dispose(); _mutex?.Dispose(); base.OnExit(e);
     }
     [DllImport("shell32", CharSet = CharSet.Unicode)] private static extern int SetCurrentProcessExplicitAppUserModelID(string id);

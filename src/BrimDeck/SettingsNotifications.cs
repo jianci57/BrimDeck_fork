@@ -2,31 +2,27 @@ using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
-using System.Windows.Media;
 using BrimDeck.Core;
 using BrimDeck.Native;
 
 namespace BrimDeck;
 
 // The notifications page (page 16): the switch for the island's system notifications, the reader's authorization and
-// access state, what the island shows, and the chime. It is a settings page, not a mirror of the notification
+// access state, and what the island shows. It is a settings page, not a mirror of the notification
 // center — the reader (the application's one, App.Notifications) is asked only for the access state and, by the
 // button, for consent; the page shows no notification content and keeps none. The background reading and the display
 // live in NotificationService and the panels.
 public sealed partial class SettingsWindow
 {
     // Set up with the page and invoked by ShowPageCore (page switch, theme rebuild) and when the window closes:
-    // cancels the access request and the audio probe's awaited answer and invalidates their results. Runs at most
-    // once — it takes itself out first.
+    // cancels the access request's awaited answer and invalidates its result. Runs at most once — it takes itself
+    // out first.
     private Action? _notificationsCleanup;
     private CancellationTokenSource? _notificationCancelling;
     private int _notificationGeneration;
-    // One access request at a time; the audio probes count themselves, so only the newest pick may write its path.
+    // One access request at a time.
     private int _notificationBusy;
-    private int _notificationSoundPick;
     private TextBlock _notificationStatus = null!;
-    private TextBlock _notificationSoundStatus = null!;
-    private TextBlock _notificationSoundSource = null!;
     private Button _notificationAuthorizeButton = null!;
 
     private void NotificationsSettings()
@@ -73,55 +69,12 @@ public sealed partial class SettingsWindow
             "缩略显示标题与正文；紧凑显示时间与应用名；完整显示应用名、标题与正文（正文过长时截断）。",
             "Brief shows the title and the body; Compact the time and the app name; Full the app name, the title and the body (a long body is cut).")));
 
-        SectionTitle(Loc.T("消息提示音", "Notification sound"));
-        bool soundOn = S.NotificationSoundEnabled;
-        _notificationSoundStatus = new TextBlock { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0) };
-        _notificationSoundSource = TextLine(NotificationSoundSourceText(), 12, TextSecondary);
-        var soundToggle = Toggle(Loc.T("新通知时播放提示音", "Play a sound on new notifications"), soundOn,
-            v => { Change(s => s.NotificationSoundEnabled = v); if (!v) _app.NotificationSound().Stop(); ShowPage(NotificationsPage); },
-            help: Loc.T("关闭时音源、音量与试听一并停用；正在播放的声音立即停止。", "Off, the source, the volume and the preview are out of use as well; a sound playing stops at once."));
-        var builtin = ActionButton(Loc.T("内置提示音", "Built-in chime"), () =>
-        {
-            Change(s => s.NotificationSoundPath = "");
-            _notificationSoundSource.Text = NotificationSoundSourceText();
-        });
-        builtin.IsEnabled = soundOn;
-        var custom = ActionButton(Loc.T("自定义音频…", "Custom audio…"), PickNotificationSound);
-        custom.IsEnabled = soundOn;
-        builtin.Margin = new Thickness(0, 0, 10, 0);
-        var sourceButtons = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-        sourceButtons.Children.Add(builtin); sourceButtons.Children.Add(custom);
-        var volume = SliderRow(Loc.T("提示音音量", "Sound volume"), S.NotificationSoundVolume, 0, 100, 10, "%",
-            value => Change(s => s.NotificationSoundVolume = (int)Math.Round(value)));
-        volume.IsEnabled = soundOn;
-        var preview = ActionButton(Loc.T("试听", "Preview"), () =>
-        {
-            try { _app.NotificationSound().Play(S.NotificationSoundPath, S.NotificationSoundVolume, failure => ShowNotificationSoundStatus(failure, error: true)); }
-            catch (Exception exception) { ShowNotificationSoundStatus(exception.Message, error: true); }
-        });
-        preview.IsEnabled = soundOn;
-        var reset = ActionButton(Loc.T("重置", "Reset"), () =>
-        {
-            Change(s => { s.NotificationSoundPath = ""; s.NotificationSoundVolume = NotificationSound.DefaultVolume; });
-            // The volume's slider does not follow a saved change by itself; the page is rebuilt with the new values.
-            ShowPage(NotificationsPage);
-        });
         var test = ActionButton(Loc.T("测试通知", "Test notification"), () => _app.ShowTestNotification());
-        preview.Margin = new Thickness(0, 0, 10, 4); reset.Margin = new Thickness(0, 0, 10, 4);
-        var actions = new WrapPanel { Orientation = Orientation.Horizontal };
-        actions.Children.Add(preview); actions.Children.Add(reset); actions.Children.Add(test);
-        var play = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-        play.Children.Add(_notificationSoundStatus); play.Children.Add(actions);
-        Group(soundToggle,
-            Row(Loc.T("音源", "Sound source"), sourceButtons, _notificationSoundSource, help: () => Loc.T(
-                "内置提示音是 BrimDeck 自己生成的一段短音，不使用任何外部音频；自定义音频支持常见的音频文件，最大 2 MB、最长 5 秒。",
-                "The built-in chime is a short sound BrimDeck generates itself and uses no external audio; a custom audio can be any common audio file, at most 2 MB and 5 seconds long.")),
-            volume,
-            Row(Loc.T("试听与测试", "Preview and test"), play, help: () => Loc.T(
-                "试听按当前音源和音量播放一次；“测试通知”在灵动岛显示一条标注为合成的测试内容，不读取真实通知，也不需要先开启本页开关。",
-                "Preview plays the current source at the current volume once; “Test notification” shows an item marked as synthetic on the island — it reads no real notifications and needs no switch.")));
+        Group(Row(Loc.T("测试通知", "Test notification"), test, help: () => Loc.T(
+            "“测试通知”在灵动岛显示一条标注为合成的测试内容，不读取真实通知，也不需要先开启本页开关。",
+            "“Test notification” shows an item marked as synthetic on the island — it reads no real notifications and needs no switch.")));
 
-        // The page's own answers die with the page: the token the access request and the audio probe carry is
+        // The page's own answers die with the page: the token the access request carries is
         // cancelled and the generation moves, so a result that lands after the page is gone writes nothing.
         var cancelling = new CancellationTokenSource();
         _notificationCancelling = cancelling;
@@ -134,42 +87,6 @@ public sealed partial class SettingsWindow
             _notificationCancelling = null;
         };
         RefreshNotificationAccess();
-    }
-
-    private string NotificationSoundSourceText()
-    {
-        var path = S.NotificationSoundPath;
-        if (path.Length == 0) return Loc.T("当前：内置提示音", "Current: the built-in chime");
-        return Loc.T("当前：", "Current: ") + path;
-    }
-
-    private async void PickNotificationSound()
-    {
-        var dialog = new Microsoft.Win32.OpenFileDialog
-        {
-            Title = Loc.T("选择提示音音频", "Choose a sound file"),
-            Filter = Loc.T("音频文件 (*.wav;*.mp3;*.m4a;*.aac;*.wma;*.flac)|*.wav;*.mp3;*.m4a;*.aac;*.wma;*.flac|所有文件 (*.*)|*.*",
-                "Audio files (*.wav;*.mp3;*.m4a;*.aac;*.wma;*.flac)|*.wav;*.mp3;*.m4a;*.aac;*.wma;*.flac|All files (*.*)|*.*")
-        };
-        if (dialog.ShowDialog(this) is not true) return;
-        int generation = _notificationGeneration, pick = ++_notificationSoundPick;
-        ShowNotificationSoundStatus(Loc.T("正在检查音频文件…", "Checking the audio file…"), error: false);
-        bool usable = false;
-        var completed = new TaskCompletionSource();
-        _app.NotificationSound().Probe(dialog.FileName, (ok, error) =>
-        {
-            // Only the newest pick's answer may speak: an earlier probe that lands late (or after the page is gone)
-            // writes nothing, so a slow check can never overwrite a file chosen after it.
-            if (generation != _notificationGeneration || pick != _notificationSoundPick) { completed.TrySetResult(); return; }
-            usable = ok;
-            ShowNotificationSoundStatus(error ?? "", error: !ok);
-            completed.TrySetResult();
-        });
-        await completed.Task;
-        if (!usable || generation != _notificationGeneration || pick != _notificationSoundPick) return;
-        Change(s => s.NotificationSoundPath = dialog.FileName);
-        _notificationSoundSource.Text = NotificationSoundSourceText();
-        ShowNotificationSoundStatus("", error: false);
     }
 
     // Where access stands at this moment; the same reader the background service uses, so a consent dialog asked
@@ -273,12 +190,5 @@ public sealed partial class SettingsWindow
         _notificationStatus.Text = text;
         _notificationStatus.Visibility = text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
         _notificationStatus.SetResourceReference(TextBlock.ForegroundProperty, error ? "SettingsError" : "SettingsTextSecondary");
-    }
-
-    private void ShowNotificationSoundStatus(string text, bool error)
-    {
-        _notificationSoundStatus.Text = text;
-        _notificationSoundStatus.Visibility = text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
-        _notificationSoundStatus.SetResourceReference(TextBlock.ForegroundProperty, error ? "SettingsError" : "SettingsTextSecondary");
     }
 }
