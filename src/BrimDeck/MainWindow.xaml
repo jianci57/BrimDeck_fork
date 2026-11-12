@@ -36,10 +36,10 @@
       <Border x:Name="HoverExtension" Background="#01000000" Height="0" VerticalAlignment="Top" HorizontalAlignment="Stretch"/>
       <local:IslandBorder x:Name="Island" HorizontalAlignment="Left" VerticalAlignment="Top" Width="238" Height="32"
               Background="Black" BorderThickness="0" CornerRadius="0,0,12,12" ShoulderRadius="16" MaterialOpacity="1" ClipToBounds="True">
-        <!-- The layered window and the island's rounded clip would leave text in grayscale; the surface beneath is always opaque,
-             so ClearType is safe here. Text under a fade, a mask or another clip falls back to grayscale until that ends. -->
+        <!-- ClearType is enabled for opaque surfaces; fades, masks and transparent backgrounds may use grayscale rendering. -->
         <!-- Turned back upright when the panel hangs from another edge than the top (MainWindow.Edge.cs). -->
         <Grid x:Name="IslandContent" RenderOptions.ClearTypeHint="Enabled">
+          <Grid x:Name="IslandBaseContent">
           <Border x:Name="MusicIndicator" Height="4" HorizontalAlignment="Left" VerticalAlignment="Center" Background="#FF55555A" CornerRadius="2" Visibility="Collapsed" IsHitTestVisible="False"/>
           <!-- Compact music, quotas and the clock share the fixed content area; quota alerts take precedence. -->
           <Grid x:Name="Compact" HorizontalAlignment="Center" VerticalAlignment="Center" RenderTransformOrigin="0.5,0.5">
@@ -148,9 +148,8 @@
                 </StackPanel>
               </Grid>
           </Grid>
-          <!-- A system notification shown on the island itself (MainWindow.Notice.cs): an opaque card in the panel theme,
-               last so it draws over the compact row and the open panel and takes their clicks while it shows. Its size and
-               the island's are laid out by SetExpanded's interception; nothing here changes the user's own content. -->
+          </Grid>
+          <!-- Notifications share the island background; the ordinary content is hidden while this foreground is visible. -->
           <Grid x:Name="NotificationOverlay" Visibility="Collapsed" Background="{x:Null}"/>
         </Grid>
       </local:IslandBorder>

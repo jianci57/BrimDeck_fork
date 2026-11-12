@@ -10,16 +10,16 @@ using BrimDeck.Native;
 
 namespace BrimDeck;
 
-// A system notification shown on the island itself (MainWindow.xaml's NotificationOverlay): an opaque card in the
-// panel theme that covers the collapsed row or the open panel for five seconds, then gives the surface back exactly
+// A system notification shown on the island itself (MainWindow.xaml's NotificationOverlay): foreground sharing the
+// island's background opacity, replacing the collapsed row or open panel for five seconds, then giving the surface back exactly
 // as it was. No new window, no desktop toast, no focus, no launch: the card draws over the island's own content and
 // its close button or the Escape hotkey ends it early.
 //
 // The card owns the surface while it shows. SetExpanded is intercepted (its first line) and calls LayoutSystemNotice
 // instead, so the hover timers, a screen-context change and ApplySettings re-lay the card and never fight its layout;
 // _expanded, the host's fronting, the user's page and the Escape hotkey state are left exactly as they were. While the
-// card shows, the compact row and the open page keep living underneath it (their own animations finish unseen), because
-// the overlay is the last child of IslandContent and paints an opaque theme surface over them.
+// card shows, the compact row and open page retain their state and animations in the hidden IslandBaseContent wrapper.
+// The overlay draws foreground only; IslandBorder remains the sole background painter.
 //
 // External symbols this file reads from Core (implemented with the settings side; see the Planner's call notes):
 //   enum NotificationContentMode { Brief, Compact, Full }  — BrimDeck.Core
@@ -78,6 +78,7 @@ public partial class MainWindow
         _noticeSurface = default; _noticeCardW = 0; _noticeCardH = 0;
         NotificationOverlay.Visibility = Visibility.Collapsed;
         NotificationOverlay.Children.Clear();
+        IslandBaseContent.Visibility = Visibility.Visible;
         // The Escape hotkey belonged to the card while it showed; give it back to the panel's own state at once, so
         // a stop without a following layout (the switch going off) does not leave Esc captured.
         _escapeDismissal?.SetEnabled(_expanded && !_preview || _moveArmed);
@@ -193,6 +194,7 @@ public partial class MainWindow
         x = CollapsedGeometry.SnapToDevicePixels(x, dpi);
         double y = shape.Surface.Y;
         _noticeSurface = new DipRect(x, y, islandAlong, islandAcross);
+        IslandBaseContent.Visibility = Visibility.Hidden;
         NotificationOverlay.Visibility = Visibility.Visible;
         SetImmediate(HoverZone, MarginProperty, new Thickness(x - _windowOffset, 0, 0, 0));
         SetImmediate(Island, MarginProperty, new Thickness(0, y, 0, 0));
@@ -340,8 +342,7 @@ public partial class MainWindow
             if (body is not null) Add(body, 1, 1);
         }
 
-        var surface = new SolidColorBrush(PanelTheme.ColorOf("surface")); surface.Freeze();
-        return new Border { Background = surface, Padding = new Thickness(padH, padTop, padH, padBottom), Child = grid, SnapsToDevicePixels = true };
+        return new Border { Background = Brushes.Transparent, Padding = new Thickness(padH, padTop, padH, padBottom), Child = grid, SnapsToDevicePixels = true };
     }
 
     // The local bell: the toolbar icons' stroke style, no real app icon (the reader's AppInfo cannot always give one).
