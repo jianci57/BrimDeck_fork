@@ -18,7 +18,45 @@ internal static class ShelfFiles
     private static readonly ConcurrentDictionary<string, FolderStats> Folders = new(StringComparer.OrdinalIgnoreCase);
     public static event Action? Changed;
 
-    public sealed class FolderStats { public int? Items; public long? Size; public bool Counting; }
+    public sealed class FolderStats
+    {
+        private readonly object _gate = new();
+        private int? _items; private long? _size; private bool _counting;
+        public int? Items { get { lock (_gate) return _items; } set { lock (_gate) _items = value; } }
+        public long? Size { get { lock (_gate) return _size; } set { lock (_gate) _size = value; } }
+        public bool Counting { get { lock (_gate) return _counting; } set { lock (_gate) _counting = value; } }
+    }
+    private static readonly object FolderGate = new();
+    private static int _probingMoved;
+    internal enum PathState { Present, ConfirmedMissing, Unavailable }
+
+    // Exists suppresses access/network errors. Only a completed, accessible parent listing establishes absence.
+    internal static PathState ProbePath(string path)
+    {
+        try
+        {
+            try { _ = File.GetAttributes(path); return PathState.Present; }
+            catch (FileNotFoundException) { }
+            catch (DirectoryNotFoundException) { }
+            string full = Path.GetFullPath(path), parent = Path.GetDirectoryName(full) ?? "";
+            if (parent.Length == 0) return PathState.Unavailable;
+            foreach (string entry in Directory.EnumerateFileSystemEntries(parent))
+                if (string.Equals(entry, full, StringComparison.OrdinalIgnoreCase)) return PathState.Present;
+            return PathState.ConfirmedMissing;
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException or System.Security.SecurityException)
+        { return PathState.Unavailable; }
+    }
+
+    internal static Task<PathState[]>? TryProbeMoved(string[] paths)
+    {
+        if (Interlocked.CompareExchange(ref _probingMoved, 1, 0) != 0) return null;
+        return Task.Run(() =>
+        {
+            try { return paths.Select(ProbePath).ToArray(); }
+            finally { Volatile.Write(ref _probingMoved, 0); }
+        });
+    }
 
     public static bool Exists(string path) => File.Exists(path) || Directory.Exists(path);
     public static bool IsFolder(string path) => Directory.Exists(path);
@@ -37,11 +75,14 @@ internal static class ShelfFiles
     // The folder's figures so far; the first ask starts counting: the items in the folder itself first, then the total size.
     public static FolderStats Folder(string path)
     {
-        var stats = Folders.GetOrAdd(path, _ => new FolderStats());
-        if (stats.Items is null && !stats.Counting)
+        FolderStats stats;
+        lock (FolderGate)
         {
+            stats = Folders.GetOrAdd(path, _ => new FolderStats());
+            if (stats.Items is not null || stats.Counting) return stats;
             stats.Counting = true;
-            Task.Run(() =>
+        }
+        Task.Run(() =>
             {
                 try { stats.Items = Directory.EnumerateFileSystemEntries(path).Count(); }
                 catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException) { stats.Items = 0; }
@@ -54,21 +95,27 @@ internal static class ShelfFiles
                     stats.Size = total;
                 }
                 catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException) { }
-                stats.Counting = false;
+                lock (FolderGate) stats.Counting = false;
                 Raise();
             });
-        }
         return stats;
     }
-    // A folder dropped again is counted again: its contents may have changed.
-    public static void Forget(string path) => Folders.TryRemove(path, out _);
+    // A running traversal keeps ownership until completion; another drop must not start a duplicate traversal.
+    public static void Forget(string path)
+    {
+        lock (FolderGate)
+            if (Folders.TryGetValue(path, out var stats) && !stats.Counting) Folders.TryRemove(path, out _);
+    }
     private static void Raise() => Application.Current?.Dispatcher.BeginInvoke(() => Changed?.Invoke());
 
     // Lets go of the icons, type names and folder figures read so far (the page is switched off); false when there were none.
     public static bool Rest()
     {
-        bool held = !Icons.IsEmpty || !Types.IsEmpty || !Folders.IsEmpty;
-        Icons.Clear(); Types.Clear(); Folders.Clear();
+        bool held = !Icons.IsEmpty || !Types.IsEmpty;
+        Icons.Clear(); Types.Clear();
+        lock (FolderGate)
+            foreach (var (path, stats) in Folders)
+                if (!stats.Counting) held |= Folders.TryRemove(path, out _);
         return held;
     }
 

@@ -55,7 +55,7 @@ public partial class MainWindow
         Action changed = ShelfChanged;
         _app.Shelf.Changed += changed;
         ShelfFiles.Changed += changed;
-        Closed += (_, _) => { _app.Shelf.Changed -= changed; ShelfFiles.Changed -= changed; _movingTimer?.Stop(); };
+        Closed += (_, _) => { _shelfClosed = true; _movingOut.Clear(); _app.Shelf.Changed -= changed; ShelfFiles.Changed -= changed; _movingTimer?.Stop(); };
         HoverZone.AllowDrop = true;
         HoverZone.PreviewDragEnter += ShelfDragEnter;
         HoverZone.PreviewDragOver += ShelfDragOver;
@@ -913,54 +913,83 @@ public partial class MainWindow
             var data = ShelfService.FileData(list.Select(file => file.Path), move);
             data.SetData(ShelfFormat, ShelfSide.Files + "|" + string.Join(",", list.Select(file => file.Id)));
             if (source is Border row) row.Background = _picked.Count > 0 && list.Count > 1 ? UI.Brush(UI.FillSelected) : Brushes.Transparent;
-            DragOut(source, data, move ? DragDropEffects.Copy | DragDropEffects.Move : DragDropEffects.Copy);
-            if (move) WatchMoved(list);
+            var effect = DragOut(source, data, move ? DragDropEffects.Copy | DragDropEffects.Move : DragDropEffects.Copy);
+            if (move && effect == DragDropEffects.Move) WatchMoved(list);
             e.Handled = true;
         };
     }
     // Dragged out of the panel, clipboard entries are copied; files are copied, or, when the drag is set to move, moved where the
     // target takes moves (a chat window or a browser takes only copies).
-    private void DragOut(DependencyObject source, DataObject data, DragDropEffects allowed = DragDropEffects.Copy)
+    private DragDropEffects DragOut(DependencyObject source, DataObject data, DragDropEffects allowed = DragDropEffects.Copy)
     {
         _draggingOut = true;
-        try { DragDrop.DoDragDrop(source, data, allowed); }
-        catch (Exception error) when (error is System.Runtime.InteropServices.COMException or InvalidOperationException) { }
+        try { return DragDrop.DoDragDrop(source, data, allowed); }
+        catch (Exception error) when (error is System.Runtime.InteropServices.COMException or InvalidOperationException) { return DragDropEffects.None; }
         finally
         {
             _draggingOut = false;
             if (_expanded && !_pointerInside) PointerChanged(false);
         }
     }
-    // Files dragged out to be moved leave the list once they are gone from where they were. The drag's result does not tell: the
-    // Explorer moves files itself and reports no move, and it may still be moving them after the drag ends (a large file to another
-    // drive takes a while). So they are looked for every second for five minutes; a file still there was copied, or not dropped.
-    private readonly Dictionary<Guid, long> _movingOut = [];
+    // Missing is not evidence of a move by itself. Only an explicit Move result is watched; targets such as Explorer that
+    // report no result keep their records. A disconnected share or unreadable parent also keeps its record and categories.
+    private sealed record MovingFile(string Path, long Until, DateTimeOffset Added);
+    private readonly Dictionary<Guid, MovingFile> _movingOut = [];
     private DispatcherTimer? _movingTimer;
+    private bool _shelfClosed, _checkingMoved;
+    private int _movingCursor;
     private void WatchMoved(IReadOnlyList<TransferFile> files)
     {
+        if (_shelfClosed) return;
         long until = Environment.TickCount64 + 5 * 60_000;
-        foreach (var file in files) _movingOut[file.Id] = until;
+        foreach (var file in files) _movingOut[file.Id] = new(file.Path, until, file.Added);
         CheckMoved(null, EventArgs.Empty);
         if (_movingOut.Count == 0) return;
         _movingTimer ??= new DispatcherTimer(DispatcherPriority.Background, Dispatcher) { Interval = TimeSpan.FromSeconds(1) };
         _movingTimer.Tick -= CheckMoved; _movingTimer.Tick += CheckMoved;
         _movingTimer.Start();
     }
-    private void CheckMoved(object? sender, EventArgs e)
+    private async void CheckMoved(object? sender, EventArgs e)
     {
+        if (_shelfClosed) return;
         long now = Environment.TickCount64;
-        var gone = new List<TransferFile>();
-        foreach (var (id, until) in _movingOut.ToList())
+        var current = ShelfData.Files.ToDictionary(file => file.Id);
+        foreach (var (id, watch) in _movingOut.ToArray())
+            if (now >= watch.Until || !current.TryGetValue(id, out var file) || file.Path != watch.Path || file.Added != watch.Added)
+                _movingOut.Remove(id);
+        if (_movingOut.Count == 0) { _movingTimer?.Stop(); return; }
+        // One batch per window and one filesystem operation process-wide. A blocked network call keeps its slot, so later
+        // ticks (and other panels) never queue more tasks behind it. Batches are bounded and rotated for fairness.
+        if (_checkingMoved) return;
+        var pending = _movingOut.ToArray();
+        int start = _movingCursor % pending.Length, count = Math.Min(32, pending.Length);
+        var batch = Enumerable.Range(0, count).Select(i => pending[(start + i) % pending.Length]).ToArray();
+        var probe = ShelfFiles.TryProbeMoved(batch.Select(pair => pair.Value.Path).ToArray());
+        if (probe is null) return;
+        _movingCursor = (start + count) % pending.Length;
+        _checkingMoved = true;
+        try
         {
-            var file = ShelfData.Files.FirstOrDefault(f => f.Id == id);
-            if (file is null || now > until) { _movingOut.Remove(id); continue; }
-            if (ShelfFiles.Exists(file.Path)) continue;
-            _movingOut.Remove(id);
-            ShelfFiles.Forget(file.Path);
-            gone.Add(file);
+            var states = await probe;
+            if (_shelfClosed || Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished) return;
+            now = Environment.TickCount64;
+            current = ShelfData.Files.ToDictionary(file => file.Id);
+            var gone = new List<TransferFile>();
+            for (int i = 0; i < batch.Length; i++)
+            {
+                var (id, watch) = batch[i];
+                if (!_movingOut.TryGetValue(id, out var live) || !ReferenceEquals(live, watch) || now >= watch.Until
+                    || !current.TryGetValue(id, out var file) || file.Path != watch.Path || file.Added != watch.Added) continue;
+                if (states[i] != ShelfFiles.PathState.ConfirmedMissing) continue;
+                _movingOut.Remove(id);
+                ShelfFiles.Forget(file.Path);
+                gone.Add(file);
+            }
+            if (gone.Count > 0) RemoveFiles(gone);
+            if (_movingOut.Count == 0) _movingTimer?.Stop();
         }
-        if (gone.Count > 0) RemoveFiles(gone);
-        if (_movingOut.Count == 0) _movingTimer?.Stop();
+        catch (Exception) { /* A failed probe retains its records; async timer callbacks must not fault the dispatcher. */ }
+        finally { _checkingMoved = false; }
     }
     // A picture is dragged as a file as well (ShelfService.PictureFile), which is how browsers and Electron applications take one.
     private DataObject ClipDrag(ClipEntry clip)

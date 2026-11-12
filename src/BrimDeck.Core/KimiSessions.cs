@@ -22,10 +22,9 @@ public sealed class KimiSessions
         public int Errors;
     }
     private readonly Dictionary<string, CacheItem> _cache = new(StringComparer.OrdinalIgnoreCase);
-    // The merged entries of the latest read and how many sessions they came from, kept while no file changed and the start date
-    // stayed, as LogReader keeps its own: most refreshes find nothing new, and merging and sorting every entry again each minute
-    // only made the same list.
-    private (DateTimeOffset Start, List<TokenEntry> Entries, int Sessions)? _merged;
+    // No file or start-date change needs another merge while now stays between the latest included record (inclusive)
+    // and the earliest future record (exclusive). Both bounds matter when the clock moves backwards; sessions follow the same bounds.
+    private (DateTimeOffset Start, DateTimeOffset From, DateTimeOffset? Until, List<TokenEntry> Entries, int Sessions)? _merged;
     // Requests and the system prompt can make a line very long; a line over this length is skipped without being parsed.
     // A usage record is far shorter, so a skipped line that held one counts as unreadable.
     public const int DefaultMaxLine = 1 << 20;
@@ -45,7 +44,7 @@ public sealed class KimiSessions
         var files = Directory.EnumerateFiles(root, "wire.jsonl", options)
             .Where(file => Path.GetFileName(Path.GetDirectoryName(Path.GetDirectoryName(file))) is { } agents && agents.Equals("agents", StringComparison.OrdinalIgnoreCase));
         var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        bool changed = _merged is not { } kept || kept.Start != start;
+        bool changed = _merged is not { } kept || kept.Start != start || now < kept.From || kept.Until is { } until && now >= until;
         int errors = 0;
         foreach (var file in files)
         {
@@ -67,14 +66,21 @@ public sealed class KimiSessions
         {
             var sessions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var entries = new Dictionary<string, TokenEntry>();
+            var from = DateTimeOffset.MinValue;
+            DateTimeOffset? next = null;
             foreach (var (file, cached) in _cache)
             {
                 bool any = false;
                 foreach (var entry in cached.Entries)
-                    if (entry.Time >= start && entry.Time <= now && entry.Total > 0) { entries.TryAdd(entry.Key, entry); any = true; }
+                {
+                    if (entry.Time < start || entry.Total <= 0) continue;
+                    if (entry.Time > now) { if (next is null || entry.Time < next.Value) next = entry.Time; continue; }
+                    if (entry.Time > from) from = entry.Time;
+                    entries.TryAdd(entry.Key, entry); any = true;
+                }
                 if (any) sessions.Add(Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(file)))!);
             }
-            _merged = (start, entries.Values.OrderBy(e => e.Time).ToList(), sessions.Count);
+            _merged = (start, from, next, entries.Values.OrderBy(e => e.Time).ToList(), sessions.Count);
         }
         var merged = _merged.Value;
         snapshot.Entries = merged.Entries;

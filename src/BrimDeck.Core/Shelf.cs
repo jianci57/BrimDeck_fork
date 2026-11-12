@@ -26,7 +26,10 @@ public sealed class ClipEntry
     // The application that copied it (process name), shown in the details; empty for a phrase.
     public string Source { get; set; } = "";
     // The categories it is in, "常用" among them; an entry can be in several.
-    public List<Guid> Categories { get; set; } = [];
+    private List<Guid> _categories = [];
+    public List<Guid> Categories { get => _categories; set { _categories = value; CategoriesSpecified = true; } }
+    // An explicit list, including [], is a choice. Older single-category histories omitted it.
+    [JsonIgnore] public bool CategoriesSpecified { get; private set; }
     // The first of them, also written for the versions up to 1.3.0-alpha.2, which knew one category per entry and read only this.
     [JsonPropertyName("Category")] public Guid? LegacyCategory { get => Shelf.First(Categories); set => Shelf.AddLegacy(Categories, value); }
     // A phrase the user wrote here instead of copying it.
@@ -95,8 +98,12 @@ public sealed class ShelfData
         data.ClipCategories.Insert(0, new ShelfCategory { Id = Favorites, Name = "常用" });
         // A category that is gone is dropped from the entries in it; an entry left in none goes back to the whole list.
         var clips = data.ClipCategories.Select(category => category.Id).ToHashSet();
-        foreach (var clip in data.Clips) clip.Categories = [.. (clip.Categories ?? []).Where(clips.Contains).Distinct()];
-        foreach (var clip in data.Clips) if (clip.Manual && clip.Categories.Count == 0) clip.Categories.Add(Favorites);
+        foreach (var clip in data.Clips)
+        {
+            bool legacyPhrase = clip.Manual && !clip.CategoriesSpecified && (clip.Categories?.Count ?? 0) == 0;
+            clip.Categories = [.. (clip.Categories ?? []).Where(clips.Contains).Distinct()];
+            if (legacyPhrase) clip.Categories.Add(Favorites);
+        }
         var files = data.FileCategories.Select(category => category.Id).ToHashSet();
         foreach (var file in data.Files) file.Categories = [.. (file.Categories ?? []).Where(files.Contains).Distinct()];
         return data;

@@ -33,13 +33,13 @@ A phrase is text you write directly, without copying it first: choose "New phras
 
 ## File transfer
 
-The file transfer holds files you will need shortly. It keeps only where each file is, never a copy, and the original files are not touched.
+The file transfer holds files you will need shortly. It keeps only where each file is, never a copy. Adding a file does not change the original. "Delete the original" sends it to the Recycle Bin; with "Move" selected for dragging files out, the drop target can move the original.
 
 - **Put in**: drag files or folders onto the notch, the capsule or the open panel. Dragged onto the collapsed panel, it opens on this page; move away without dropping and the panel goes back to how it was. You can also drop onto a category's name.
 - **Click**: pastes the file into the current window. It becomes an attachment in a chat window, and a copy in the current folder in File Explorer.
 - **Select several**: hold Ctrl or Shift and click to select several files, then paste, drag out or remove them together.
 - **Right-click**: Paste, Open, Show in folder, Copy path, Details, Add to category, Remove from the file transfer, Delete the original.
-- **Drag out**: drag a file to where you need it; a button in the column's title row drags out all files at once. Files are copied by default; with "Move" chosen under Settings › File transfer › Drag files out, files moved to a new place leave the list, while chat apps, browsers and other places that only take copies still get copies.
+- **Drag out**: drag a file to where you need it; a button in the column's title row drags out all files at once. Files are copied by default; with "Move" chosen under Settings › File transfer › Drag files out, the target can move the originals, while chat apps, browsers and other places that only take copies still get copies. An entry is removed automatically only when the target reports a move and a background check confirms the original is missing. If the target reports no result or the original location is temporarily unavailable, the entry stays and can be removed manually.
 - A file whose original has been moved or deleted is marked "Missing".
 - The notch and capsule can show how many files the file transfer holds.
 

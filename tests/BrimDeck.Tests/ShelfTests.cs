@@ -141,6 +141,32 @@ internal static class ShelfTests
         check("Shelf data: a history saved with one category per entry reads into the list",
             legacy.Clips.Single().Categories.SequenceEqual([category.Id]) && legacy.Files.Single().Categories.SequenceEqual([category.Id]) && legacy.Kept(legacy.Clips.Single()));
 
+        // Explicit empty lists survive saving, including phrases edited in settings with category None.
+        var choices = new ShelfData();
+        var unfiled = Shelf.AddPhrase(choices, "none", now);
+        unfiled.Categories.Clear();
+        var removedFavorite = Shelf.AddPhrase(choices, "removed", now);
+        Shelf.SetCategory([removedFavorite.Categories], ShelfData.Favorites, add: false);
+        var choicesRead = ShelfData.Deserialize(choices.Serialize());
+        check("Shelf phrases: None and removing the last favorite survive repeated roundtrips and stay kept",
+            choicesRead.Clips.All(c => c.Categories.Count == 0 && choicesRead.Kept(c))
+            && ShelfData.Deserialize(choicesRead.Serialize()).Clips.All(c => c.Categories.Count == 0));
+        var explicitOldEmpty = ShelfData.Deserialize(System.Text.Encoding.UTF8.GetBytes(
+            "{\"Clips\":[{\"Text\":\"empty\",\"Manual\":true,\"Categories\":[],\"Category\":null}]}"));
+        var oldManual = ShelfData.Deserialize(System.Text.Encoding.UTF8.GetBytes(
+            "{\"Clips\":[{\"Text\":\"legacy\",\"Manual\":true,\"Category\":null}]}"));
+        var oldFiled = ShelfData.Deserialize(System.Text.Encoding.UTF8.GetBytes(
+            "{\"Clips\":[{\"Text\":\"legacy filed\",\"Manual\":true,\"Category\":\"" + category.Id + "\"}],"
+            + "\"ClipCategories\":[{\"Id\":\"" + category.Id + "\",\"Name\":\"work\"}]}"));
+        check("Shelf phrases: legacy omitted categories gain Favorites; explicit [] and legacy filed choices stay intact",
+            explicitOldEmpty.Clips.Single().Categories.Count == 0
+            && oldManual.Clips.Single().Categories.SequenceEqual([ShelfData.Favorites])
+            && oldFiled.Clips.Single().Categories.SequenceEqual([category.Id]));
+        var deletedCategory = ShelfData.Deserialize(System.Text.Encoding.UTF8.GetBytes(
+            "{\"Clips\":[{\"Text\":\"orphan\",\"Manual\":true,\"Category\":\"" + Guid.NewGuid() + "\"}]}"));
+        check("Shelf phrases: an obsolete explicit category returns to All instead of gaining Favorites",
+            deletedCategory.Clips.Single().Categories.Count == 0);
+
         Rules(check, now);
 
         check("Shelf sizes: file sizes as the Explorer writes them",

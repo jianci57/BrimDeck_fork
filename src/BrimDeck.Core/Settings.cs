@@ -199,8 +199,9 @@ public sealed class AppEntry
         SingleRingQuota = (SingleRingQuota ?? "").Trim();
         if (SingleRingQuota.Length > 500) SingleRingQuota = "";
         RingQuotas = QuotaRing.Slots(RingQuotas);
-        QuotaTargets = (QuotaTargets ?? []).Where(pair => pair.Key.Length is > 0 and <= 500 && pair.Value > 0 && pair.Value <= AppPresets.MaximumBalanceTarget).Take(32)
-            .ToDictionary(pair => pair.Key, pair => decimal.Round(pair.Value, 2, MidpointRounding.AwayFromZero));
+        QuotaTargets = (QuotaTargets ?? []).Select(pair => (pair.Key, Value: decimal.Round(pair.Value, 2, MidpointRounding.AwayFromZero)))
+            .Where(pair => pair.Key.Length is > 0 and <= 500 && pair.Value > 0 && pair.Value <= AppPresets.MaximumBalanceTarget).Take(32)
+            .ToDictionary(pair => pair.Key, pair => pair.Value);
     }
 }
 

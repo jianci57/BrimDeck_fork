@@ -13,9 +13,22 @@ internal sealed class SystemVolume : IDisposable
     // Null when there is no playback device or it cannot be read.
     public static SystemVolume? Open()
     {
-        var enumerator = new MMDeviceEnumerator();
-        try { var volume = new SystemVolume(enumerator, enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia)); _ = volume.Level; return volume; }
-        catch { enumerator.Dispose(); return null; }
+        MMDeviceEnumerator? enumerator = null;
+        MMDevice? device = null;
+        try
+        {
+            enumerator = new MMDeviceEnumerator();
+            device = enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
+            var volume = new SystemVolume(enumerator, device);
+            _ = volume.Level;
+            return volume;
+        }
+        catch
+        {
+            try { device?.Dispose(); } catch { }
+            try { enumerator?.Dispose(); } catch { }
+            return null;
+        }
     }
 
     // 0 to 1. A failed write leaves the level as it was.
@@ -25,5 +38,5 @@ internal sealed class SystemVolume : IDisposable
         set { try { _device.AudioEndpointVolume.MasterVolumeLevelScalar = Math.Clamp(value, 0f, 1f); } catch { } }
     }
 
-    public void Dispose() { try { _device.Dispose(); } catch { } _enumerator.Dispose(); }
+    public void Dispose() { try { _device.Dispose(); } catch { } try { _enumerator.Dispose(); } catch { } }
 }

@@ -33,6 +33,13 @@ public partial class MainWindow
     // drawn on the frames that follow.
     private void BeginThemeFade(bool daylight)
     {
+        // A snapshot lies over, rather than replacing, the live surface. Stacking translucent copies changes its alpha.
+        // Clear any earlier snapshots too when the new theme/settings make the surface see-through.
+        if (Island.SurfaceOpacity < 1 || Island.BackgroundOpacity < 1 || Settings.SurfaceTransparency > 0 || Settings.PanelOpacity < 100)
+        {
+            EndThemeFade();
+            return;
+        }
         // Pictures still fading are left to finish on their own, under the new ones.
         _themeFade = null; _materialFade = null;
         if (!IsVisible || !Soft.Enabled || _preview || Island.ActualWidth < 1 || Island.ActualHeight < 1 || PresentationSource.FromVisual(Island) is null) return;

@@ -446,7 +446,9 @@ public partial class App : Application
             _pageLinger = new DispatcherTimer(DispatcherPriority.Background, Dispatcher);
             _pageLinger.Tick += (_, _) => { _pageLinger.Stop(); _pageExtras = false; ApplyMonitorDemand(lingered: true); };
         }
-        if (!_pageLinger.IsEnabled) { _pageLinger.Interval = plan.ReadingsLinger; _pageLinger.Start(); }
+        // Updating an enabled timer also re-evaluates a linger started under the previous memory mode.
+        if (_pageLinger.Interval != plan.ReadingsLinger) _pageLinger.Interval = plan.ReadingsLinger;
+        if (!_pageLinger.IsEnabled) _pageLinger.Start();
     }
     internal void UpdateMonitorExtras()
     {

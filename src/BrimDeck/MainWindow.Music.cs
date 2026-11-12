@@ -142,8 +142,11 @@ public partial class MainWindow
         _handover.Send(picture, place, PageContent(page), back ? Handover.Back : Handover.Forward);
     }
     private FrameworkElement PageContent(DeckPage page) => page switch { DeckPage.Music => MusicContent, DeckPage.Monitor => MonitorContent, DeckPage.Clipboard => ShelfContent, DeckPage.Devices => DevicesContent, _ => UsageContent };
+    private bool _musicCommandError;
     private void ShowPage(DeckPage page, bool animatePage)
     {
+        // A command error is temporary: leaving the page ends it, so the normal lyrics/message are rebuilt on return.
+        if (_musicCommandError) { _musicCommandError = false; _musicRenderKey = ""; }
         // The music page keeps what it built while another page shows (RenderMusic's key), so switching back does not build it again.
         _detailPopup?.Close(); _details = false; _page = page; _handover.Drop();
         ApplySettings(animatePage, pageOnly: true);
@@ -466,6 +469,7 @@ public partial class MainWindow
         string key = $"{track?.Id}|{track?.SongKey}|{logMode}|{appleEntry}|{kugouEntry}|{_media?.RestartingNetease}|{_media?.RestartingKugou}|{track?.State}|{track?.CanToggle}|{track?.CanPrevious}|{track?.CanNext}|{track?.CanSeek}|{track?.CanRepeat}|{track?.CanShuffle}|{track?.Shuffle}|{track?.Repeat}|{track?.CanLike}|{track?.Liked}|{track?.HasTimeline}|{timeline}|{playerLyrics}|{hasPlayerLyric}|{w}|{h}|{_lyrics.GetHashCode()}|{_mediaCover?.GetHashCode()}|{_media?.Error}|{_media?.KugouError}|{Settings.LyricsEnabled}|{Settings.MusicPageCover}|{Settings.EqualizerColor}|{Settings.EqualizerCustomColor}|{Settings.MusicLyricColor}|{Settings.MusicLyricCustomColor}|{Settings.MusicEqualizerBars}|{Settings.UiFont}|{Loc.Language}|{animate}";
         if (_musicRenderKey == key) { UpdateMusicPosition(); return; }
         _musicRenderKey = key;
+        _musicCommandError = false;
         string song = track is null ? "" : $"{track.Id}|{track.SongKey}|{track.Title}|{track.Artist}";
         // Lyrics that arrive after the song, or come and go with the player's line, only fade in their own lines (lyricsArrive):
         // the form counts the lyric lines the room holds, not whether lyrics are there.
@@ -938,6 +942,7 @@ public partial class MainWindow
     private void ShowMusicError(string error)
     {
         if (_musicMessage is null) return;
+        _musicCommandError = true;
         _musicMessage.Text = error; _musicMessage.ToolTip = error; _musicMessage.Visibility = Visibility.Visible;
         if (_musicInfo is not null) foreach (UIElement child in _musicInfo.Children) child.Visibility = ReferenceEquals(child, _musicMessage) ? Visibility.Visible : Visibility.Collapsed;
     }

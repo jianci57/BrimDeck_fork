@@ -924,6 +924,7 @@ public sealed partial class SettingsWindow : Window, IKeepsAppFonts
         var border = new Border { Child = row, Height = AppRowHeight, BorderBrush = UI.Brush(Divider), BorderThickness = new Thickness(0), Tag = entry,
             RenderTransform = new TranslateTransform() };
         AttachSourceDetails(entry, row, border);
+        WatchQuotaRow(border);
         return border;
     }
 

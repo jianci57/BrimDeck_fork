@@ -36,9 +36,21 @@ public sealed partial class SettingsWindow
             if (!_ringChoices.TryGetValue(entry.InstanceId, out var built) || RingChoices(entry) == built) continue;
             // A row being worked in (a field being typed in, an open list) waits for a later reading, so nothing is lost.
             var row = _appRows.Children.OfType<Border>().FirstOrDefault(border => border.Tag is AppEntry shown && shown.InstanceId == entry.InstanceId);
-            if (row is null || Keyboard.FocusedElement is TextBox typing && row.IsAncestorOf(typing)) continue;
+            if (row is null || QuotaRowBusy(row)) continue;
             RefreshAppRow(entry.InstanceId);
         }
+    }
+
+    internal static bool QuotaRowBusy(FrameworkElement row) => row.IsKeyboardFocusWithin ||
+        Descendants(row).OfType<ComboBox>().Any(box => box.IsDropDownOpen);
+
+    private void WatchQuotaRow(Border row)
+    {
+        // Lost focus fires before the next element receives it. Re-check after the input/dropdown events have settled,
+        // using the latest snapshot; a row replaced or a page left in the meantime is ignored by QuotasChanged.
+        void Recheck() => Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, () => QuotasChanged());
+        row.LostKeyboardFocus += (_, _) => Recheck();
+        foreach (var box in Descendants(row).OfType<ComboBox>()) box.DropDownClosed += (_, _) => Recheck();
     }
 
     private void CollapseSourceRows()
@@ -505,7 +517,8 @@ public sealed partial class SettingsWindow
                 decimal? value = null;
                 if (text.Length > 0)
                 {
-                    if (!decimal.TryParse(text, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var parsed) || parsed <= 0 || parsed > AppPresets.MaximumBalanceTarget)
+                    if (!decimal.TryParse(text, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var parsed) || parsed > AppPresets.MaximumBalanceTarget ||
+                        decimal.Round(parsed, 2, MidpointRounding.AwayFromZero) <= 0)
                     {
                         SaveStatus(account ? Loc.T("目标余额必须是大于 0 的金额，例如 100。", "The target balance must be an amount greater than 0, such as 100.")
                             : Loc.T("目标金额必须是大于 0 的金额，例如 100。", "The target must be an amount greater than 0, such as 100."), true);

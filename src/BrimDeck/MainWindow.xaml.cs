@@ -553,6 +553,7 @@ public partial class MainWindow : Window
     {
         double opacity = 1 - Settings.SurfaceTransparency / 100d;
         bool clear = opacity < 1 || Island.BackgroundOpacity < 1;
+        if (clear) EndThemeFade();
         Island.SurfaceOpacity = opacity;
         if (PanelTheme.Current.Effects.Pixel <= 0)
         {
