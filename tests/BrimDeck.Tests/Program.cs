@@ -19,6 +19,13 @@ if (args is ["--only", "frames"])
     Console.WriteLine($"{passed} checks passed.");
     return 0;
 }
+// "--only notifications": the notification items' ordering and text cleanup, without the rest.
+if (args is ["--only", "notifications"])
+{
+    NotificationItemsTests.Run(Check);
+    Console.WriteLine($"{passed} checks passed.");
+    return 0;
+}
 var root = Path.Combine(Path.GetTempPath(), "BrimDeck-Tests-" + Guid.NewGuid().ToString("N"));
 Directory.CreateDirectory(root);
 try
@@ -62,6 +69,7 @@ try
     SensorStopTests.Run(Check);
     StripAdmissionTests.Run(Check);
     DevicesTests.Run(Check);
+    NotificationItemsTests.Run(Check);
     DeviceProtocolTests.Run(Check);
     DeviceSafetyTests.Run(Check);
     PowerTests.Run(Check);
