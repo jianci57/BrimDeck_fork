@@ -148,6 +148,10 @@
                 </StackPanel>
               </Grid>
           </Grid>
+          <!-- A system notification shown on the island itself (MainWindow.Notice.cs): an opaque card in the panel theme,
+               last so it draws over the compact row and the open panel and takes their clicks while it shows. Its size and
+               the island's are laid out by SetExpanded's interception; nothing here changes the user's own content. -->
+          <Grid x:Name="NotificationOverlay" Visibility="Collapsed" Background="{x:Null}"/>
         </Grid>
       </local:IslandBorder>
     </Grid>

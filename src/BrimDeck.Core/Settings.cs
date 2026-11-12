@@ -55,6 +55,9 @@ public enum PausedMusicHide { None, Text, Cover, Both }
 // drum beat or a voice is seen crossing them. Spectrum: the sound split by pitch, each bar one band, low on the left and high
 // on the right. Saved as numbers, so new members go at the end; a file without it, or with a number not listed, is Flow.
 public enum EqualizerMode { Flow = 0, Spectrum = 1 }
+// How much of a new system notification the island shows (the notifications settings page). Saved as a number, so
+// new members go at the end; a file with a number not listed reads as Compact.
+public enum NotificationContentMode { Brief, Compact, Full }
 // The parts of the collapsed notch and capsule that are put in order, left to right. The cover stays at the left; Music places
 // only the title or lyric. Saved as numbers, so new members go at the end.
 public enum CompactPart { Rings, Music, Monitor, Equalizer, Clock, Transfer, Devices }
@@ -638,6 +641,18 @@ public sealed class DeckSettings
     public bool SettingsWindowMaximized { get; set; }
     // Shows the compact notice when a quota rises into the warning or critical level.
     public bool QuotaAlerts { get; set; } = true;
+    // The system notifications shown on the island (NotificationService): off until the user turns it on, so the
+    // notification center is not read at all before then.
+    public bool NotificationsEnabled { get; set; }
+    // How much of a new notification the island shows: Brief the title and the body, Compact the time and the app
+    // name, Full the app name, the title and the body.
+    public NotificationContentMode NotificationContentMode { get; set; } = NotificationContentMode.Compact;
+    // A sound played once when a new notification arrives; off by default.
+    public bool NotificationSoundEnabled { get; set; }
+    // The sound's file; empty is the built-in chime (NotificationSound.ChimeWave).
+    public string NotificationSoundPath { get; set; } = "";
+    // The sound's loudness in percent; a quiet default, 0 is silence.
+    public int NotificationSoundVolume { get; set; } = NotificationSound.DefaultVolume;
     // Also reads the Claude Code and Codex CLI session records inside WSL distributions. Off by default: it starts stopped distributions.
     public bool IncludeWsl { get; set; }
     // The ordered application list; the order is the column order of the expanded panel. Claude and Codex are shown
@@ -808,6 +823,12 @@ public sealed class DeckSettings
         CompactMonitor = Core.CompactMonitor.Preset(CompactReadings) ?? CompactMonitorMode.Custom;
         CompactMonitorItems = Core.CompactMonitor.Shown(CompactReadings);
         if (!Enum.IsDefined(MusicText)) MusicText = CompactMusicText.None;
+        if (!Enum.IsDefined(NotificationContentMode)) NotificationContentMode = NotificationContentMode.Compact;
+        NotificationSoundVolume = Math.Clamp(NotificationSoundVolume, 0, NotificationSound.MaximumVolume);
+        NotificationSoundPath = (NotificationSoundPath ?? "").Trim();
+        // A path past the cap is not shortened — a shortened path would name a file that does not exist and would
+        // still be handed to the player; it reads as empty, which is the built-in chime.
+        if (NotificationSoundPath.Length > 512) NotificationSoundPath = "";
         if (!Enum.IsDefined(ClockStyle)) ClockStyle = ClockStyle.Minimal;
         if (!Enum.IsDefined(ClockColor)) ClockColor = ClockColor.White;
         ClockCustomColor = AppPresets.NormalizeColor(ClockCustomColor) is { Length: > 0 } custom ? custom : ClockColors.DefaultCustom;

@@ -23,6 +23,7 @@ if (args is ["--only", "frames"])
 if (args is ["--only", "notifications"])
 {
     NotificationItemsTests.Run(Check);
+    NotificationMonitorTests.Run(Check);
     Console.WriteLine($"{passed} checks passed.");
     return 0;
 }
@@ -70,6 +71,7 @@ try
     StripAdmissionTests.Run(Check);
     DevicesTests.Run(Check);
     NotificationItemsTests.Run(Check);
+    NotificationMonitorTests.Run(Check);
     DeviceProtocolTests.Run(Check);
     DeviceSafetyTests.Run(Check);
     PowerTests.Run(Check);
