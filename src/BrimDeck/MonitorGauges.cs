@@ -23,7 +23,24 @@ internal sealed class FramesBlock : FrameworkElement
     private readonly string _color;
     private readonly double _body, _caption;
     private FrameSample? _frames;
+    // Whether the low percentiles and the frame time show follows the settings page's toggles (MonitorFps1Low/MonitorFps01Low/
+    // MonitorFpsFrameTime).
+    private bool _show1, _show01, _showTime, _showGpu;
     private readonly DrawingCache<(IReadOnlyList<double>, double, double, double)> _curve = new();
+    // The widest frames a reading can show: the room every figure after the frame rate stands in, so none of them moves.
+    private const string WidestFrames = "999";
+    // The frame time: 1000 over the rate, in milliseconds, one decimal, at the widest "999.9ms"; a dash while there is no
+    // reading (no frames, no time).
+    private const string WidestFrameTime = "999.9ms";
+    private static string FrameTime(double? rate) => rate is { } value && double.IsFinite(value) && value > 0
+        ? Math.Clamp(1000.0 / value, 0, 999.9).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + "ms" : "—";
+    // The GPU frame time as the collapsed row's GpuMs draws it: the milliseconds Windows' counters say the GPU spent drawing
+    // one of the program's frames, a dash where they say nothing.
+    private static string GpuMs(double? gpuMs) => gpuMs is { } value && double.IsFinite(value)
+        ? Math.Clamp(value, 0, 999.9).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + "ms" : "—";
+    // The low figure as the collapsed row's FramesFigure draws it: clamped to the three digits its room reserves.
+    private static string Low(double? rate) => rate is { } value && double.IsFinite(value)
+        ? Math.Clamp(Math.Round(value, MidpointRounding.AwayFromZero), 0, 999).ToString(System.Globalization.CultureInfo.InvariantCulture) : "—";
 
     public FramesBlock(string color, double body, double caption, double row)
     {
@@ -32,8 +49,9 @@ internal sealed class FramesBlock : FrameworkElement
         Describe();
     }
 
-    public void Set(MonitorSnapshot snapshot)
+    public void Set(MonitorSnapshot snapshot, bool low1, bool low01, bool frameTime, bool gpuTime)
     {
+        _show1 = low1; _show01 = low01; _showTime = frameTime; _showGpu = gpuTime;
         var frames = snapshot.Frames.OrDefault;
         if (ReferenceEquals(frames, _frames)) return;
         // The curve moves with every reading; the tooltip's words only when the figure, the program or the display change.
@@ -79,10 +97,43 @@ internal sealed class FramesBlock : FrameworkElement
         else MonitorDraw.Arrow(drawing, new Point((badge - glyph) / 2, h / 2 - glyph / 2), glyph, Math.Max(1, glyph * .09), MonitorGlyph.Screen, _frames is null ? UI.Tertiary : _color);
         double x = badge + Math.Round(_body * .5);
         var number = MonitorDraw.Text(Figure, _body + 1, UI.Primary, ppd, strong: true);
-        MonitorDraw.Baseline(drawing, number, x, baseline); x += number.WidthIncludingTrailingWhitespace;
+        MonitorDraw.Baseline(drawing, number, x, baseline);
+        // The unit hugs the figure drawn; everything after it stands where the widest figure ("999") would end, as the
+        // collapsed row reserves its readings: the low percentiles, the name and the curve hold still while the figure's
+        // digits come and go.
         var unit = MonitorDraw.Text("FPS", _caption, UI.Tertiary, ppd);
-        MonitorDraw.Baseline(drawing, unit, x + 3, baseline); x += 3 + unit.WidthIncludingTrailingWhitespace;
+        MonitorDraw.Baseline(drawing, unit, x + number.WidthIncludingTrailingWhitespace + 3, baseline);
+        x += MonitorDraw.Text(WidestFrames, _body + 1, UI.Primary, ppd, strong: true).WidthIncludingTrailingWhitespace + 3 + unit.WidthIncludingTrailingWhitespace;
         if (_frames is not { } frames) return;
+        // The frame time in the room the widest "999.9ms" reserves, caption size like the unit, only where the settings page's
+        // toggle asks for it, so it does not move with the figure's digits.
+        if (_showTime)
+        {
+            var time = MonitorDraw.Text(FrameTime(frames.PerSecond), _caption, UI.Tertiary, ppd);
+            MonitorDraw.Baseline(drawing, time, x + 3, baseline);
+            x += 3 + MonitorDraw.Text(WidestFrameTime, _caption, UI.Tertiary, ppd).WidthIncludingTrailingWhitespace;
+        }
+        // The GPU frame time in the same room, where the counters say: a dash while they do not, so it never reads as a fast frame.
+        if (_showGpu)
+        {
+            var gpu = MonitorDraw.Text(GpuMs(frames.GpuMs), _caption, UI.Tertiary, ppd);
+            MonitorDraw.Baseline(drawing, gpu, x + 3, baseline);
+            x += 3 + MonitorDraw.Text(WidestFrameTime, _caption, UI.Tertiary, ppd).WidthIncludingTrailingWhitespace;
+        }
+        // The low percentiles each in the room the widest frames ("1% 999", "0.1% 999") reserve, caption size like the unit,
+        // only where the settings page's toggles ask for them, so none of them moves with the figures.
+        if (_show1)
+        {
+            var one = MonitorDraw.Text("1% " + Low(frames.Low1), _caption, UI.Tertiary, ppd);
+            MonitorDraw.Baseline(drawing, one, x + 3, baseline);
+            x += 3 + MonitorDraw.Text("1% " + WidestFrames, _caption, UI.Tertiary, ppd).WidthIncludingTrailingWhitespace;
+        }
+        if (_show01)
+        {
+            var point = MonitorDraw.Text("0.1% " + Low(frames.Low01), _caption, UI.Tertiary, ppd);
+            MonitorDraw.Baseline(drawing, point, x + 3, baseline);
+            x += 3 + MonitorDraw.Text("0.1% " + WidestFrames, _caption, UI.Tertiary, ppd).WidthIncludingTrailingWhitespace;
+        }
         // The refresh rate at the right end, then the name after the figure, cut to the room between them.
         double right = w;
         if (frames.Refresh is { } hertz)

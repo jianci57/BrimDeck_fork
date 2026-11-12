@@ -26,13 +26,13 @@ public partial class MainWindow
         _shadowSettle = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(250) };
         _shadowSettle.Tick += (_, _) => { _shadowSettle.Stop(); if (ShadowHost.Opacity > 0) ShadowHost.CacheMode = _shadowCache; };
         // The host's size follows the island's margin as well (the island sinks into place as the panel closes).
-        IslandShadow.SizeChanged += (_, _) => ShadowChanging(); ShadowHost.SizeChanged += (_, _) => ShadowChanging();
+        IslandShadow.SizeChanged += (_, _) => { UpdateShadowMask(); ShadowChanging(); }; ShadowHost.SizeChanged += (_, _) => ShadowChanging();
         // The color, corners and shoulders the shadow takes from the island; Changed is raised on each frame of a color animation.
         _surface.Changed += (_, _) => ShadowChanging();
         var corners = DependencyPropertyDescriptor.FromProperty(Border.CornerRadiusProperty, typeof(IslandBorder));
         var shoulders = DependencyPropertyDescriptor.FromProperty(IslandBorder.ShoulderRadiusProperty, typeof(IslandBorder));
         var opacity = DependencyPropertyDescriptor.FromProperty(OpacityProperty, typeof(Grid));
-        void ShapeChanged(object? sender, EventArgs e) => ShadowChanging();
+        void ShapeChanged(object? sender, EventArgs e) { UpdateShadowMask(); ShadowChanging(); }
         corners.AddValueChanged(Island, ShapeChanged);
         shoulders.AddValueChanged(Island, ShapeChanged);
         // Hidden (the open panel, the line), the picture is let go; shown again, it is kept at once unless a change is under way.
@@ -59,6 +59,26 @@ public partial class MainWindow
     {
         if (_shadowSettle is null) return;
         ShadowHost.CacheMode = null; _shadowSettle.Stop(); _shadowSettle.Start();
+    }
+
+    private void UpdateShadowMask()
+    {
+        // The copy paints the same content the island does; a mask hides its inside so only the blur stays visible.
+        double w = Island.ActualWidth, h = Island.ActualHeight;
+        if (w <= 0 || h <= 0) { IslandShadow.OpacityMask = null; return; }
+        // The mask's frame must reach past the effect's blur, or everything outside the island's rectangle would be cut:
+        // the brush paints nothing beyond its viewbox, and the shadow's reach is the blur radius plus the shadow depth,
+        // plus a small margin — the same reach the shadow bounds use below.
+        var effect = IslandShadow.Effect as System.Windows.Media.Effects.DropShadowEffect;
+        double reach = effect is null ? 0 : effect.BlurRadius + effect.ShadowDepth + 2;
+        var area = new Rect(-reach, -reach, w + 2 * reach, h + 2 * reach);
+        var mask = Geometry.Combine(new RectangleGeometry(area), Island.Outline(), GeometryCombineMode.Exclude, null);
+        IslandShadow.OpacityMask = new DrawingBrush
+        {
+            Viewbox = area, ViewboxUnits = BrushMappingMode.Absolute, Viewport = area, ViewportUnits = BrushMappingMode.Absolute,
+            Stretch = Stretch.None,
+            Drawing = new GeometryDrawing { Geometry = mask, Brush = Brushes.White }
+        };
     }
 
     // The picture is drawn at the display's scale and reaches past the blur by whole device pixels (ShadowBounds): a picture

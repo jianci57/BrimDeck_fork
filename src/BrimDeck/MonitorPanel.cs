@@ -114,6 +114,10 @@ public partial class MainWindow
             if (BuiltSensors(layout, sensors.Small) != _monitorSensors) _monitorFade = true;
             RenderMonitor(); return;
         }
+        _monitorView.Fps1Low = Settings.MonitorFps1Low;
+        _monitorView.Fps01Low = Settings.MonitorFps01Low;
+        _monitorView.FpsFrameTime = Settings.MonitorFpsFrameTime;
+        _monitorView.FpsGpuTime = Settings.MonitorFpsGpuTime;
         _monitorView.Update(snapshot, MonitorMotion);
     }
 
@@ -202,6 +206,10 @@ public partial class MainWindow
         _monitorView = new MonitorView(layout, MonitorThemeColors.For(Settings), Settings.MonitorMain, Settings.MonitorSort,
             Settings.MonitorProcessView, SwitchMonitorMain, SortProcesses, hold => { if (_app.Monitor is { } sampler) sampler.HoldProcesses = hold; }, SwitchMonitorGpu,
             Settings.MonitorTemperatures, _monitorSensors.Small, PowerBlockFor(old is null && MonitorMotion && !Resizing), Settings.MonitorFrames);
+        _monitorView.Fps1Low = Settings.MonitorFps1Low;
+        _monitorView.Fps01Low = Settings.MonitorFps01Low;
+        _monitorView.FpsFrameTime = Settings.MonitorFpsFrameTime;
+        _monitorView.FpsGpuTime = Settings.MonitorFpsGpuTime;
         _monitorView.Update(_app.Monitor?.Latest ?? WaitingSnapshot, motion: false);
         // The new page may show the power line where the old one did not, or the other way round: what is read follows
         // (UpdateMonitorDemand, which asks for the extras as well). And the frame rate's line: the frame rate is read only while a

@@ -42,6 +42,8 @@ public partial class MainWindow
         var material = new IslandBorder
         {
             Width = width, Height = height, CornerRadius = Island.CornerRadius, ShoulderRadius = Island.ShoulderRadius, MaterialOpacity = Island.MaterialOpacity, SurfaceOpacity = Island.SurfaceOpacity,
+            // The island's background opacity too, whatever it is, so the copy looks exactly as the surface does.
+            BackgroundOpacity = Island.BackgroundOpacity,
             // The brush's opacity too, whatever it is, so the copy looks exactly as the surface does.
             Background = new SolidColorBrush(_surface.Color) { Opacity = _surface.Opacity }
         };

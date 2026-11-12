@@ -240,8 +240,8 @@ public partial class MainWindow
         double width = DotMotion.Size * 4, height = DotMotion.Size * 2 + DropMerge.WaterBelow, floor = DotTop(shape) + DotMotion.Size;
         _merge.Width = width; _merge.Height = height;
         _merge.Margin = new Thickness(DotLeft(shape) + DotMotion.Size / 2 - width / 2, floor - (height - DropMerge.WaterBelow), 0, 0);
-        // As see-through as the surface (DeckSettings.SurfaceTransparency).
-        var fill = _surface.Color; fill.A = (byte)Math.Round(fill.A * Island.SurfaceOpacity);
+        // Match both the upstream surface transparency and the fork's background opacity.
+        var fill = _surface.Color; fill.A = (byte)Math.Round(fill.A * Island.SurfaceOpacity * Island.BackgroundOpacity);
         _merge.Fill = fill;
         _merge.Visibility = Visibility.Visible;
         SetImmediate(_merge, DropMerge.ProgressProperty, 0d);

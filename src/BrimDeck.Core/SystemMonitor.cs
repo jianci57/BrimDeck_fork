@@ -259,6 +259,30 @@ public sealed record FrameSample(double PerSecond, string Program)
     public string? Path { get; init; }
     public double? Refresh { get; init; }
     public IReadOnlyList<double> History { get; init; } = [];
+    // Low1 and Low01: the average rate of the worst 1% and 0.1% of the recent frames (the frame gaps' worst share, turned back
+    // into a rate), null where too few frames were counted.
+    public double? Low1 { get; init; }
+    public double? Low01 { get; init; }
+    // GpuMs: the selected rendering process's GPU execution busy-time union over this reading's window, divided by the same
+    // selected chain's frame count as PerSecond. This is a window average, not a measurement attributed to each frame; other
+    // GPU work in that process is included. HAGS uses queue execution as a proxy. Null without a known trace or any frames.
+    public double? GpuMs { get; init; }
+
+    // The average rate of the slowest share of the gaps given (0.01 for the 1% low, 0.001 for the 0.1% low): the gaps sorted
+    // slowest first, the share averaged, and 1000 ms over it. At least one frame counts, so a small sample still has a low (the
+    // worst frame). Gaps that are not finite or not positive go.
+    public static double? Low(IReadOnlyList<double> intervalsMs, double fraction)
+    {
+        if (intervalsMs.Count == 0) return null;
+        List<double> times = [];
+        foreach (var ms in intervalsMs) if (double.IsFinite(ms) && ms > 0) times.Add(ms);
+        if (times.Count == 0) return null;
+        times.Sort((a, b) => b.CompareTo(a));
+        var count = Math.Max(1, (int)(times.Count * fraction));
+        double sum = 0;
+        for (var i = 0; i < count; i++) sum += times[i];
+        return Math.Round(1000.0 / (sum / count), 1);
+    }
 }
 
 public sealed record MonitorSnapshot(DateTimeOffset Time, int LogicalProcessors, Reading<CpuSample> Cpu, Reading<MemorySample> Memory,

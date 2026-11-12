@@ -26,8 +26,8 @@
           <Grid.Effect>
             <DropShadowEffect Color="Black" BlurRadius="14" ShadowDepth="4" Direction="270" Opacity="0.28"/>
           </Grid.Effect>
-          <local:IslandBorder Background="{Binding Background, ElementName=Island}" CornerRadius="{Binding CornerRadius, ElementName=Island}"
-                              ShoulderRadius="{Binding ShoulderRadius, ElementName=Island}" Inset="1"/>
+          <local:IslandBorder x:Name="ShadowIsland" Background="{Binding Background, ElementName=Island}" CornerRadius="{Binding CornerRadius, ElementName=Island}"
+                              ShoulderRadius="{Binding ShoulderRadius, ElementName=Island}" BackgroundOpacity="{Binding BackgroundOpacity, ElementName=Island}" Inset="1"/>
         </Grid>
       </Grid>
       <!-- In compact form this strip covers the whole bounding box from the screen edge down, including the notch shoulders,

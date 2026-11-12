@@ -21,6 +21,10 @@ internal static class PanelTheme
     // Whether Windows' high contrast is shown: the system's colors on the whole panel, whatever theme is chosen
     // (PanelThemes.HighContrast).
     public static bool HighContrast { get; private set; }
+    // Whether the island's background opacity (the theme page's slider) is below 100%: the surface then lets the desktop
+    // through, so surface-colored marquee bands would float over the see-through panel and the text fades itself instead
+    // (MusicMarquee.InkFade).
+    public static bool IslandTransparent { get; internal set; }
     // When the theme on screen changes between its day and night looks next, or null for a theme without a night look.
     public static DateTime? NextDaylightChange(DeckSettings settings) => PanelThemes.NextDaylightChange(ShownTheme.File, DateTime.Now, settings.ThemeDaylight);
     public static int Generation { get; private set; }
@@ -67,9 +71,10 @@ internal static class PanelTheme
     // between light and dark (systemChanged) while "system" is chosen.
     public static bool Use(DeckSettings settings, bool reload = false, bool systemChanged = false)
     {
-        // Turning the surface see-through or opaque again changes how text and marquees are drawn on it, so what was built for the
-        // other is built again (Outdate); a new amount alone only redraws the surface.
-        bool translucent = settings.SurfaceTransparency > 0;
+        // Turning the surface or the island see-through, or opaque again, changes how text and marquees are drawn on it, so what
+        // was built for the other is built again (Outdate); a new amount alone only redraws the surface. The island's background
+        // opacity (PanelOpacity) counts too: crossing its opaque boundary must rebuild the caches as well.
+        bool translucent = settings.SurfaceTransparency > 0 || settings.PanelOpacity < 100;
         if (translucent != Translucent) { Translucent = translucent; Outdate(); }
         var chosen = PanelThemes.NormalizeId(settings.PanelTheme);
         // The hour reaching the other look, or new hours for it, counts as a change too.
@@ -335,7 +340,8 @@ internal static class PanelTheme
         => new(new GradientStopCollection(stops.Select((stop, i) => new GradientStop(ToColor(stop), (double)i / (stops.Count - 1)))), new Point(0, 0), end);
     // The text marquees draw their edge fades in the surface color; over a gradient or scan lines that color would show as a band,
     // so there they fade the text itself instead (MusicMarquee.InkFade).
-    // A see-through surface (Translucent) has no single color behind the text either.
+    // A see-through surface (Translucent) or a see-through island (IslandTransparent) has no single color behind the text either:
+    // both transparency sources fade the text itself.
     public static Color? MarqueeBackdrop => InkFade ? null : ColorOf("surface");
-    public static bool InkFade => Current.HasOverlay || Translucent;
+    public static bool InkFade => Current.HasOverlay || Translucent || IslandTransparent;
 }
