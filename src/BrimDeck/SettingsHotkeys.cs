@@ -30,7 +30,7 @@ public sealed partial class SettingsWindow
     private void HotkeysSettings()
     {
         SectionTitle(Loc.T("展开与显示", "Expand and show"));
-        Group([.. new[] { HotkeyKind.Hide, HotkeyKind.Expand }.Select(HotkeyRow)]);
+        Group([.. new[] { HotkeyKind.Hide, HotkeyKind.Expand, HotkeyKind.CycleStyle, HotkeyKind.LineStyle }.Select(HotkeyRow)]);
         // Counted in the order of the page switch; a page that is not shown has no place, so its shortcut does nothing.
         SectionTitle(Loc.T("切换页面", "Switch pages"));
         Group([.. Enumerable.Range(0, 10).Select(place => HotkeyRow(HotkeyKind.Page1 + place))]);
@@ -49,6 +49,8 @@ public sealed partial class SettingsWindow
         HotkeyKind.ClickThrough => Loc.T("开启/关闭鼠标穿透", "Mouse pass-through on/off"),
         HotkeyKind.OpenSettings => Loc.T("打开/关闭设置", "Open/close settings"),
         HotkeyKind.Refresh => Loc.T("立即同步用量", "Sync usage now"),
+        HotkeyKind.CycleStyle => Loc.T("切换刘海、胶囊或指示条", "Switch notch, capsule or bar"),
+        HotkeyKind.LineStyle => Loc.T("切换指示条与刘海或胶囊", "Switch between bar and notch or capsule"),
         _ => Loc.T($"展开/收起第 {PagePlace(kind) + 1} 个页面", $"Expand/collapse page {PagePlace(kind) + 1}")
     };
 
@@ -61,6 +63,8 @@ public sealed partial class SettingsWindow
         HotkeyKind.ClickThrough => Loc.T("开启或关闭鼠标穿透模式。", "Turns mouse pass-through on or off."),
         HotkeyKind.OpenSettings => Loc.T("打开设置窗口，再按一次关闭。", "Opens the settings window; press again to close it."),
         HotkeyKind.Refresh => Loc.T("立即读取一次 AI 用量与模型消耗。", "Reads AI usage and model consumption once, now."),
+        HotkeyKind.CycleStyle => Loc.T("按刘海、胶囊、指示条的顺序循环切换收起样式。", "Cycles the collapsed style: notch, capsule, bar."),
+        HotkeyKind.LineStyle => Loc.T("刘海或胶囊切换为指示条，再按一次切换回原来的样式。", "Turns the notch or capsule into the bar; press again to turn it back."),
         _ => null
     };
 

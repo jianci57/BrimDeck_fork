@@ -19,6 +19,40 @@ public sealed partial class SettingsWindow
     private CancellationTokenSource? _sourceTestCancellation;
     private readonly Dictionary<Guid, (Border Row, FrameworkElement Detail, Button Arrow)> _sourceRows = [];
 
+    // The quotas each application row's ring lines were built with (RingDetails), so a reading that brings other quotas (a row just
+    // added, a source that answered late) builds the row again (QuotasChanged).
+    private readonly Dictionary<Guid, string> _ringChoices = [];
+    // Whether anything was read counts too, so a source that answers without shares replaces "once quotas are read".
+    private string RingChoices(AppEntry entry)
+    {
+        var snapshot = DashboardUsage.Quota(entry, _app.Deck.Snapshots);
+        return (snapshot.Metrics.Count > 0 ? "read\n" : "") + string.Join("\n", QuotaRing.Choices(snapshot).Select(metric => metric.Id));
+    }
+    internal void QuotasChanged()
+    {
+        if (!IsLoaded || _page != 3 || _appRows is null) return;
+        foreach (var entry in S.Apps.ToList())
+        {
+            if (!_ringChoices.TryGetValue(entry.InstanceId, out var built) || RingChoices(entry) == built) continue;
+            // A row being worked in (a field being typed in, an open list) waits for a later reading, so nothing is lost.
+            var row = _appRows.Children.OfType<Border>().FirstOrDefault(border => border.Tag is AppEntry shown && shown.InstanceId == entry.InstanceId);
+            if (row is null || QuotaRowBusy(row)) continue;
+            RefreshAppRow(entry.InstanceId);
+        }
+    }
+
+    internal static bool QuotaRowBusy(FrameworkElement row) => row.IsKeyboardFocusWithin ||
+        Descendants(row).OfType<ComboBox>().Any(box => box.IsDropDownOpen);
+
+    private void WatchQuotaRow(Border row)
+    {
+        // Lost focus fires before the next element receives it. Re-check after the input/dropdown events have settled,
+        // using the latest snapshot; a row replaced or a page left in the meantime is ignored by QuotasChanged.
+        void Recheck() => Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, () => QuotasChanged());
+        row.LostKeyboardFocus += (_, _) => Recheck();
+        foreach (var box in Descendants(row).OfType<ComboBox>()) box.DropDownClosed += (_, _) => Recheck();
+    }
+
     private void CollapseSourceRows()
     {
         _expandedSource = null;
@@ -71,7 +105,7 @@ public sealed partial class SettingsWindow
         var detail = new StackPanel { Margin = new Thickness(0, 0, 0, 12) }; Grid.SetIsSharedSizeScope(detail, true);
         Grid.SetRow(detail, 1); Grid.SetColumnSpan(detail, 9);
         if (SourceDetails(entry) is { } source) { source.Margin = new Thickness(0); detail.Children.Add(source); }
-        if (ProviderCatalog.HasAccountBalance(entry.QuotaSource)) detail.Children.Add(BalanceTargetDetails(entry));
+        detail.Children.Add(RingDetails(entry));
         detail.Children.Add(OffPeakDetails(entry));
         bool open = _expandedSource == entry.InstanceId;
         detail.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
@@ -134,68 +168,6 @@ public sealed partial class SettingsWindow
         }
         toggle.Checked += (_, _) => Set(true); toggle.Unchecked += (_, _) => Set(false);
         line.Margin = new Thickness(0, 5, 0, 5);
-        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        Grid.SetColumn(line, 1); Grid.SetColumnSpan(line, 6); grid.Children.Add(line);
-        return grid;
-    }
-
-    // Sources billed per API call: the balance that counts as 0% used, so that the account balance is drawn as a used share
-    // with the row's warning and critical levels. New rows start at 100; empty leaves the balance a bare amount.
-    private FrameworkElement BalanceTargetDetails(AppEntry entry)
-    {
-        var grid = AppColumns();
-        string title = Loc.T("目标余额", "Target balance");
-        string help = Loc.T("以目标余额为 100%，按剩余比例显示用量。例如目标余额 100，剩余 20 时显示已用 80%。",
-            "The target balance counts as 100%, and usage is shown from what is left. For example, with a target of 100 and 20 left, 80% is shown as used.");
-        var line = new Grid();
-        // The label column is shared with the lines above and below, so the field starts where their controls start.
-        line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto, SharedSizeGroup = "SourceLabel" });
-        line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        line.ColumnDefinitions.Add(new ColumnDefinition());
-        var caption = TextLine(title, 12, TextSecondary);
-        var heading = new HelpHeading(caption, SmallHelp(title, () => help)) { Margin = new Thickness(16, 0, 16, 0), MinWidth = 52, VerticalAlignment = VerticalAlignment.Center };
-        line.Children.Add(heading);
-        static string Format(decimal? value) => value?.ToString("0.##", CultureInfo.InvariantCulture) ?? "";
-        var input = new TextBox { Style = (Style)FindResource("SettingsNumber"), TextAlignment = TextAlignment.Left, FontSize = 12.5, MaxLength = 20,
-            VerticalAlignment = VerticalAlignment.Center, Text = Format(entry.BalanceTarget) };
-        AutomationProperties.SetName(input, title); AutomationProperties.SetHelpText(input, help);
-        AutomationProperties.SetAutomationId(input, "balance-target-" + entry.InstanceId.ToString("N"));
-        var hint = TextLine(Loc.T("未设置", "Not set"), 12.5, TextTertiary);
-        hint.VerticalAlignment = VerticalAlignment.Center; hint.IsHitTestVisible = false; hint.Margin = new Thickness(5, 0, 0, 0);
-        var content = new Grid(); content.Children.Add(hint); content.Children.Add(input);
-        var field = new Border { Child = content, Width = 140, Height = 34, CornerRadius = new CornerRadius(6), Padding = new Thickness(10, 0, 10, 0), Margin = new Thickness(0, 5, 0, 5),
-            Background = UI.Brush(_palette.Input), BorderBrush = UI.Brush(_palette.InputBorder), BorderThickness = new Thickness(1) };
-        FieldFocus(field, field, () => UI.Brush(_palette.InputBorder));
-        field.MouseLeftButtonDown += (_, e) => { input.Focus(); e.Handled = true; };
-        void Hint() => hint.Visibility = input.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
-        void Commit()
-        {
-            if (S.Entry(entry.InstanceId) is not { } current) return;
-            // A currency sign or thousands separator copied with the amount is accepted.
-            var text = input.Text.Trim().TrimStart('¥', '￥', '$').Replace(",", "").Replace("，", "").Replace('．', '.').Trim();
-            decimal? value = null;
-            if (text.Length > 0)
-            {
-                if (!decimal.TryParse(text, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var parsed) || parsed <= 0 || parsed > AppPresets.MaximumBalanceTarget)
-                {
-                    SaveStatus(Loc.T("目标余额必须是大于 0 的金额，例如 100。", "The target balance must be an amount greater than 0, such as 100."), true);
-                    input.Text = Format(current.BalanceTarget); Hint();
-                    return;
-                }
-                value = decimal.Round(parsed, 2, MidpointRounding.AwayFromZero);
-            }
-            if (value != current.BalanceTarget) Change(s => s.Entry(entry.InstanceId)!.BalanceTarget = value);
-            input.Text = Format(value); Hint();
-        }
-        input.TextChanged += (_, _) => Hint();
-        input.LostKeyboardFocus += (_, _) => Commit();
-        input.KeyDown += (_, e) =>
-        {
-            if (e.Key == Key.Enter) { Commit(); e.Handled = true; }
-            else if (e.Key == Key.Escape) { input.Text = Format(S.Entry(entry.InstanceId)?.BalanceTarget); Hint(); e.Handled = true; }
-        };
-        Hint();
-        Grid.SetColumn(field, 1); line.Children.Add(field);
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         Grid.SetColumn(line, 1); Grid.SetColumnSpan(line, 6); grid.Children.Add(line);
         return grid;
@@ -453,6 +425,190 @@ public sealed partial class SettingsWindow
         };
         Line("", test);
         Line("", result);
+        return grid;
+    }
+
+    // This row's collapsed quota ring (QuotaRing.For): which quotas it shows in the style chosen above the applications, one line
+    // per ring under the same label column as the target balance and the off-peak time. The style, what the arcs show and the
+    // letters' switch are shared by every row and set above the applications (QuotaRingSection); the letter is the display name's.
+    private FrameworkElement RingDetails(AppEntry entry)
+    {
+        var grid = AppColumns();
+        Guid id = entry.InstanceId;
+        var snapshot = DashboardUsage.Quota(entry, _app.Deck.Snapshots);
+        var choices = QuotaRing.Choices(snapshot);
+        _ringChoices[id] = RingChoices(entry);
+        // top: the heading stands level with the control's first row (34 high under a margin of 2), for a control that wraps.
+        void Line(string label, Func<string>? help, FrameworkElement control, bool top = false)
+        {
+            var line = new Grid();
+            // The label column is shared with the lines above and below, so the controls start where theirs start.
+            line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto, SharedSizeGroup = "SourceLabel" });
+            line.ColumnDefinitions.Add(new ColumnDefinition());
+            var caption = TextLine(label, 12, TextSecondary);
+            FrameworkElement heading = help is null ? caption : new HelpHeading(caption, SmallHelp(label, help));
+            heading.Margin = new Thickness(16, 0, 16, 0); heading.MinWidth = 52; heading.VerticalAlignment = VerticalAlignment.Center;
+            line.Children.Add(top ? new Grid { Height = 38, VerticalAlignment = VerticalAlignment.Top, Children = { heading } } : heading);
+            Grid.SetColumn(control, 1); line.Children.Add(control);
+            line.Margin = new Thickness(0, 5, 0, 5);
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            Grid.SetRow(line, grid.RowDefinitions.Count - 1); Grid.SetColumn(line, 1); Grid.SetColumnSpan(line, 6); grid.Children.Add(line);
+        }
+        string Name(UsageMetric metric) => metric.Kind == MetricKind.Text ? metric.Label : UI.QuotaLabel(new Quota(metric.Label, 0, null, metric.Window));
+        // A chosen quota the source does not report now stays listed, so the choice is kept while the quota is away.
+        string Label(string quota) => choices.FirstOrDefault(metric => metric.Id == quota) is { } metric ? Name(metric)
+            : UI.QuotaLabel(new Quota(quota, 0, null)) + Loc.T("（暂无数据）", " (no data)");
+        ComboBox Combo(string name, List<(string Id, string Label)> options, string selected, Action<string> choose)
+        {
+            var box = new ComboBox { Width = 140, Style = (Style)FindResource("SettingsCombo"), VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Left,
+                ItemsSource = options.Select(option => option.Label).ToList(), SelectedIndex = Math.Max(0, options.FindIndex(option => option.Id == selected)) };
+            AutomationProperties.SetName(box, entry.Name + " " + name); PopupMotion.Attach(box);
+            box.SelectionChanged += (_, _) => { if (box.SelectedIndex >= 0 && options[box.SelectedIndex].Id != selected) choose(options[box.SelectedIndex].Id); };
+            return box;
+        }
+        TextBlock Note(string text) { var note = TextLine(text, 11.5, TextTertiary); note.VerticalAlignment = VerticalAlignment.Center; note.TextWrapping = TextWrapping.Wrap; return note; }
+
+        // Every balance and amount spent has its own target, on one line apart from the rings: the account balance's is the row's
+        // target balance (AppEntry.BalanceTarget), any other's is in AppEntry.QuotaTargets; the rings, the panel's bars and the notices
+        // all follow them (DashboardUsage.Quota).
+        bool hasAccount = ProviderCatalog.HasAccountBalance(entry.QuotaSource);
+        void Targets()
+        {
+            var items = choices.Where(metric => QuotaRing.IsAccountBalance(metric) && hasAccount || QuotaRing.TakesTarget(metric))
+                .Select(metric => (Account: QuotaRing.IsAccountBalance(metric) && hasAccount, metric.Id, Name: Name(metric))).ToList();
+            // Before anything is read the account balance is offered, as the source has one; once read, only what the source reports.
+            if (hasAccount && snapshot.Metrics.Count == 0) items.Insert(0, (true, "", Loc.T("账户余额", "Account balance")));
+            if (items.Count == 0) return;
+            var panel = new WrapPanel { Orientation = Orientation.Horizontal };
+            foreach (var item in items)
+            {
+                // The names share one width (the expanded area is a size-sharing scope), so the fields stand in columns when they wrap.
+                var pair = new Grid { Margin = new Thickness(0, 2, 24, 2) };
+                pair.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto, SharedSizeGroup = "TargetName" });
+                pair.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                var name = Note(item.Name); name.Margin = new Thickness(0, 0, 8, 0);
+                var field = Field(item.Account, item.Id, item.Name); Grid.SetColumn(field, 1);
+                pair.Children.Add(name); pair.Children.Add(field);
+                panel.Children.Add(pair);
+            }
+            Line(Loc.T("目标金额", "Targets"), () => Loc.T("以填写的金额为 100%：余额按剩余比例计算，例如目标 100、剩余 20 时显示已用 80%；扣费按已花比例计算。配额环、展开面板的进度条、预警颜色与提醒都按它计算。留空时只显示金额。",
+                "The amount entered counts as 100%: a balance is shown by what is left (with 100 as the target and 20 left, 80% is shown as used), spending by what is spent. The quota rings, the panel's bars, warning colors and notices all follow it. Left empty, only the amount is shown."), panel, top: true);
+        }
+        FrameworkElement Field(bool account, string quota, string name)
+        {
+            static string Format(decimal? value) => value?.ToString("0.##", CultureInfo.InvariantCulture) ?? "";
+            decimal? Saved() => S.Entry(id) is not { } current ? null : account ? current.BalanceTarget : current.QuotaTargets.TryGetValue(quota, out var value) ? value : null;
+            var input = new TextBox { Style = (Style)FindResource("SettingsNumber"), TextAlignment = TextAlignment.Left, FontSize = 12.5, MaxLength = 20,
+                VerticalAlignment = VerticalAlignment.Center, Text = Format(Saved()) };
+            AutomationProperties.SetName(input, entry.Name + " " + name + (account ? Loc.T(" 目标余额", " target balance") : Loc.T(" 目标金额", " target")));
+            var hint = TextLine(Loc.T("未设置", "Not set"), 12.5, TextTertiary);
+            hint.VerticalAlignment = VerticalAlignment.Center; hint.IsHitTestVisible = false; hint.Margin = new Thickness(5, 0, 0, 0);
+            var content = new Grid(); content.Children.Add(hint); content.Children.Add(input);
+            var field = new Border { Child = content, Width = 110, Height = 34, HorizontalAlignment = HorizontalAlignment.Left, CornerRadius = new CornerRadius(6), Padding = new Thickness(10, 0, 10, 0),
+                Background = UI.Brush(_palette.Input), BorderBrush = UI.Brush(_palette.InputBorder), BorderThickness = new Thickness(1), VerticalAlignment = VerticalAlignment.Center };
+            FieldFocus(field, field, () => UI.Brush(_palette.InputBorder));
+            field.MouseLeftButtonDown += (_, e) => { input.Focus(); e.Handled = true; };
+            void Hint() => hint.Visibility = input.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+            void Commit()
+            {
+                if (S.Entry(id) is null) return;
+                // A currency sign or thousands separator copied with the amount is accepted, as for the target balance.
+                var text = input.Text.Trim().TrimStart('¥', '￥', '$').Replace(",", "").Replace("，", "").Replace('．', '.').Trim();
+                decimal? value = null;
+                if (text.Length > 0)
+                {
+                    if (!decimal.TryParse(text, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var parsed) || parsed > AppPresets.MaximumBalanceTarget ||
+                        decimal.Round(parsed, 2, MidpointRounding.AwayFromZero) <= 0)
+                    {
+                        SaveStatus(account ? Loc.T("目标余额必须是大于 0 的金额，例如 100。", "The target balance must be an amount greater than 0, such as 100.")
+                            : Loc.T("目标金额必须是大于 0 的金额，例如 100。", "The target must be an amount greater than 0, such as 100."), true);
+                        input.Text = Format(Saved()); Hint();
+                        return;
+                    }
+                    value = decimal.Round(parsed, 2, MidpointRounding.AwayFromZero);
+                }
+                if (value != Saved())
+                    Change(s =>
+                    {
+                        var changed = s.Entry(id)!;
+                        if (account) { changed.BalanceTarget = value; return; }
+                        var targets = new Dictionary<string, decimal>(changed.QuotaTargets);
+                        if (value is { } amount) targets[quota] = amount; else targets.Remove(quota);
+                        changed.QuotaTargets = targets;
+                    });
+                input.Text = Format(value); Hint();
+            }
+            input.TextChanged += (_, _) => Hint();
+            input.LostKeyboardFocus += (_, _) => Commit();
+            input.KeyDown += (_, e) =>
+            {
+                if (e.Key == Key.Enter) { Commit(); e.Handled = true; }
+                else if (e.Key == Key.Escape) { input.Text = Format(Saved()); Hint(); e.Handled = true; }
+            };
+            Hint();
+            return field;
+        }
+        Targets();
+
+        if (S.QuotaRingStyle == QuotaRingStyle.Single)
+        {
+            // By default the single ring shows the account balance where the source has one, else the most used quota (QuotaRing.For).
+            var account = choices.FirstOrDefault(QuotaRing.IsAccountBalance);
+            List<(string Id, string Label)> options = [("", account is not null ? Name(account) : hasAccount && snapshot.Metrics.Count == 0 ? Loc.T("账户余额", "Account balance") : Loc.T("已用最高的一项", "Most used")),
+                .. choices.Where(metric => metric != account).Select(metric => (metric.Id, Name(metric)))];
+            if (entry.SingleRingQuota.Length > 0 && choices.All(metric => metric.Id != entry.SingleRingQuota)) options.Add((entry.SingleRingQuota, Label(entry.SingleRingQuota)));
+            string title = Loc.T("配额环额度", "Ring quota");
+            Line(title, null, Combo(title, options, account is not null && entry.SingleRingQuota == account.Id ? "" : entry.SingleRingQuota,
+                quota => { Change(s => s.Entry(id)!.SingleRingQuota = quota); RefreshAppRow(id); }));
+            return grid;
+        }
+
+        bool automatic = entry.RingQuotas.Count == 0;
+        var slots = (automatic ? QuotaRing.Automatic(snapshot) : entry.RingQuotas).Take(QuotaRing.MaximumRings).ToList();
+        List<(string Id, string Label)> quotas = [.. choices.Select(metric => (metric.Id, Name(metric)))];
+        foreach (var saved in entry.RingQuotas) if (choices.All(metric => metric.Id != saved)) quotas.Add((saved, Label(saved)));
+        if (quotas.Count == 0)
+        {
+            // Nothing read yet, or a source whose figures have nothing to draw (text only).
+            Line(Loc.T("外环额度", "Outer ring"), null, Note(snapshot.Metrics.Count == 0 ? Loc.T("读取到额度后可以选择。", "Can be chosen once quotas are read.")
+                : Loc.T("这个来源没有可按比例显示的额度，配额环显示为满环。", "This source has no quota with a share to show; its ring is drawn full.")));
+            return grid;
+        }
+        while (slots.Count < QuotaRing.MaximumRings) slots.Add("");
+        string[] names = [Loc.T("外环额度", "Outer ring"), Loc.T("中环额度", "Middle ring"), Loc.T("内环额度", "Inner ring")];
+        for (int i = 0; i < QuotaRing.MaximumRings; i++)
+        {
+            int slot = i;
+            // Any ring may be left out; the others keep their places.
+            List<(string Id, string Label)> options = [("", Loc.T("不显示", "None")), .. quotas];
+            var box = Combo(names[slot], options, slots[slot], quota =>
+            {
+                var chosen = slots.ToList();
+                // A quota already in another ring trades places with this ring's quota, so no quota shows twice.
+                int other = quota.Length > 0 ? chosen.IndexOf(quota) : -1;
+                if (other >= 0 && other != slot) chosen[other] = chosen[slot];
+                chosen[slot] = quota;
+                // Each ring keeps its place; leaving every ring out goes back to the default rings (QuotaRing.Slots).
+                var kept = QuotaRing.Slots(chosen);
+                Change(s => s.Entry(id)!.RingQuotas = kept);
+                RefreshAppRow(id);
+            });
+            var line = new StackPanel { Orientation = Orientation.Horizontal };
+            line.Children.Add(box);
+            if (slot == 0)
+            {
+                // Beside the outer ring, always: the way back to the default rings (an empty choice, QuotaRing.For).
+                var reset = ActionButton(Loc.T("恢复默认", "Restore defaults"), () =>
+                {
+                    if (S.Entry(id)?.RingQuotas.Count is not > 0) return;
+                    Change(s => s.Entry(id)!.RingQuotas = []); RefreshAppRow(id);
+                });
+                reset.FontSize = 11; reset.Margin = new Thickness(12, 0, 0, 0); reset.VerticalAlignment = VerticalAlignment.Center;
+                AutomationProperties.SetName(reset, entry.Name + Loc.T(" 配额环恢复默认", " quota rings restore defaults"));
+                line.Children.Add(reset);
+            }
+            Line(names[slot], null, line);
+        }
         return grid;
     }
 

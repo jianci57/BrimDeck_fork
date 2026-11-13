@@ -63,20 +63,10 @@ internal static class ProcessWindows
         return name.ToString() is "Progman" or "WorkerW" or "Shell_TrayWnd" or "Shell_SecondaryTrayWnd";
     }
 
-    private static string ImageName(uint pid)
-    {
-        var process = OpenProcess(ProcessQueryLimitedInformation, false, pid);
-        if (process == 0) return "";
-        try
-        {
-            var text = new char[1024]; int size = text.Length;
-            return QueryFullProcessImageNameW(process, 0, text, ref size) ? System.IO.Path.GetFileName(new string(text, 0, size)) : "";
-        }
-        finally { CloseHandle(process); }
-    }
+    private static string ImageName(uint pid) => System.IO.Path.GetFileName(AppIdentity.ImagePath((int)pid));
 
     private const int GwlExStyle = -20, SwRestore = 9, DwmCloaked = 14;
-    private const uint GwOwner = 4, ProcessQueryLimitedInformation = 0x1000;
+    private const uint GwOwner = 4;
     private const long WsExToolWindow = 0x80;
     private delegate bool EnumWindowsProc(nint handle, nint parameter);
     [ComImport, Guid("aa509086-5ca9-4c25-8f95-589d3c07b48a")] private class VirtualDesktopManager;
@@ -98,7 +88,4 @@ internal static class ProcessWindows
     [DllImport("user32.dll")] private static extern bool ShowWindow(nint handle, int command);
     [DllImport("user32.dll")] private static extern bool SetForegroundWindow(nint handle);
     [DllImport("dwmapi.dll")] private static extern int DwmGetWindowAttribute(nint handle, int attribute, out int value, int size);
-    [DllImport("kernel32.dll")] private static extern nint OpenProcess(uint access, bool inherit, uint processId);
-    [DllImport("kernel32.dll")] private static extern bool CloseHandle(nint handle);
-    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] private static extern bool QueryFullProcessImageNameW(nint process, int flags, char[] name, ref int size);
 }

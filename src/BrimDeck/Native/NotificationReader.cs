@@ -10,18 +10,19 @@ namespace BrimDeck.Native;
 // diagnostic (exception chain with HRESULT) the page shows, so a failure never reads as an empty list.
 internal readonly record struct NotificationAccess(NotificationReader.Access State, string? Detail);
 
-// Thrown instead of starting a second WinRT operation while one is still alive; the page shows it as
-// a "reading" note and the next poll tries again.
+// Thrown instead of starting a second WinRT operation while one is still alive; the settings page shows
+// it as a "reading" note, the background poll simply tries again on its next tick.
 internal sealed class NotificationBusyException : Exception
 {
     public NotificationBusyException() : base("A previous notification read has not ended yet") { }
 }
 
-// Reads the toasts Windows already shows, for the notifications page in the settings (SettingsNotifications).
-// Modeled on NotchPeninsula's Notify/Toast.cs (Apache License 2.0, see ThirdPartyNotices.txt): the same
-// UserNotificationListener access dance, reduced to what the page needs — one snapshot per poll, capped
-// waits, per-notification isolation, nothing removed, nothing written down. Only the page's own timer
-// polls this while that page is current; there is no background listener and nothing runs afterwards.
+// Reads the toasts Windows already shows. One reader serves the whole application: the background service
+// (NotificationService) polls a snapshot every 2.5 seconds while the feature is switched on, and the
+// notifications page in the settings (SettingsNotifications) asks the same reader for its access state and,
+// by its button, consent — the one-operation gate below keeps a poll's snapshot and a consent dialog from
+// ever running behind each other. Modeled on NotchPeninsula's Notify/Toast.cs (Apache License 2.0, see
+// ThirdPartyNotices.txt): capped waits, per-notification isolation, nothing removed, nothing written down.
 internal sealed class NotificationReader
 {
     public enum Access { Unsupported, Unspecified, Denied, Allowed, Error }
@@ -55,8 +56,9 @@ internal sealed class NotificationReader
         throw new NotificationBusyException();
     }
 
-    // Where the access stands at this moment. GetAccessStatus is synchronous and cheap; the page calls it
-    // every poll, so a permission changed in the system settings shows up within seconds.
+    // Where the access stands at this moment. GetAccessStatus is synchronous and cheap; the service's poll
+    // and the page's status line call it every time, so a permission changed in the system settings shows
+    // up within seconds.
     public NotificationAccess AccessNow()
     {
         var (listener, missing) = Listener();
@@ -102,8 +104,9 @@ internal sealed class NotificationReader
         }
         catch (Exception exception) { return new(Access.Error, Describe(exception)); }
     }
-    // One snapshot of the notification center. Throws when the API fails (the page shows that as an error,
-    // never as an empty list) and skips a single notification the system can no longer describe.
+    // One snapshot of the notification center. Throws when the API fails — the service reads that as a lost
+    // read (its baseline resets and the next poll starts over), never as an empty center — and skips a
+    // single notification the system can no longer describe.
     public async Task<IReadOnlyList<NotificationItem>> SnapshotAsync(CancellationToken cancelled)
     {
         var (listener, _) = Listener();
@@ -134,14 +137,18 @@ internal sealed class NotificationReader
                 try { items.Add(Describe(notification)); }
                 catch { /* One notification that was withdrawn before it was read is skipped alone. */ }
             }
-            return NotificationItem.NewestFirst(items);
+            // Sorted newest first and uncapped: the monitor applies the page's Maximum only after it has judged
+            // the snapshot against the clock — a rollback's future-dated toasts must not trim a genuinely new
+            // one here, before the monitor ever sees it. Nothing is logged or kept.
+            return items.OrderByDescending(n => n.CreationTime).ThenByDescending(n => n.Id).ToList();
         }
         finally { await ReleasePending(pending); }
     }
 
     // The listener is created once and kept; a failed attempt is retried on the next poll (Error), while a
     // system without the API at all is Unsupported and stays that way. There is nothing to unsubscribe:
-    // the page stops polling when it closes, and its cancellations end the operations.
+    // the service's timer stops when the feature is switched off, the page stops asking when it closes,
+    // and their cancellations end the operations.
     private (UserNotificationListener? Listener, Access Missing) Listener()
     {
         if (_listener is not null) return (_listener, default);

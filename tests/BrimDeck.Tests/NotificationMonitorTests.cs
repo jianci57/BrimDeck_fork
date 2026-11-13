@@ -80,6 +80,44 @@ internal static class NotificationMonitorTests
         monitor.Reset();
         check("After access returns, nothing replays", monitor.Diff(seed).Count == 0);
 
+        // A rollback starts a new baseline even while more than the display cap's worth of future-dated old
+        // notifications remain. They must neither hide the new epoch's toast nor lift its watermark again.
+        var rollback = new NotificationMonitor();
+        var oldEpoch = Enumerable.Range(0, 120).Select(i => Item((uint)(7000 + i), "old", start.AddHours(1).AddSeconds(i))).ToList();
+        rollback.Diff(oldEpoch, start.AddHours(2));
+        check("A clock rollback establishes a quiet baseline", rollback.Diff(oldEpoch, start).Count == 0);
+        var afterRollback = oldEpoch.Append(Item(8000, "after rollback", start.AddSeconds(1))).ToList();
+        check("A new toast after rollback arrives despite future-dated old records",
+            rollback.Diff(afterRollback, start.AddSeconds(2)) is [var rebased] && rebased.Id == 8000);
+        check("The rollback epoch retains deduplication", rollback.Diff(afterRollback, start.AddSeconds(3)).Count == 0);
+        check("An old record rolling into the new epoch stays quiet",
+            rollback.Diff([.. afterRollback, Item(8001, "rolled in", start.AddSeconds(-1))], start.AddSeconds(4)).Count == 0);
+        check("Empty center does not replay old records", rollback.Diff([], start.AddSeconds(5)).Count == 0);
+        check("New detection continues after the center was cleared",
+            rollback.Diff([Item(8002, "fresh", start.AddSeconds(6))], start.AddSeconds(7)) is [var freshAgain] && freshAgain.Id == 8002);
+        check("A second rollback seeds without replay", rollback.Diff(oldEpoch, start.AddHours(-1)).Count == 0);
+        check("Detection resumes after a second rollback",
+            rollback.Diff([.. oldEpoch, Item(8003, "second epoch", start.AddHours(-1).AddSeconds(1))], start.AddHours(-1).AddSeconds(2)) is [var secondEpoch] && secondEpoch.Id == 8003);
+
+        rollback.Reset();
+        check("Reset after rollback quietly baselines retained future records", rollback.Diff(oldEpoch, start).Count == 0);
+        check("A fresh monitor detects new timestamps below retained future records",
+            rollback.Diff(afterRollback, start.AddSeconds(2)) is [var afterReset] && afterReset.Id == 8000);
+
+        var crowdedEpoch = new NotificationMonitor();
+        var futureCrowd = Enumerable.Range(0, 600).Select(i => Item((uint)(10000 + i), "old epoch", start.AddHours(1).AddSeconds(i))).ToList();
+        crowdedEpoch.Diff(futureCrowd, start.AddHours(2));
+        crowdedEpoch.Diff(futureCrowd, start);
+        check("Old future records stay silent after the clock catches up beyond history capacity",
+            crowdedEpoch.Diff(futureCrowd, start.AddHours(3)).Count == 0);
+        var churnEpoch = new NotificationMonitor();
+        churnEpoch.Diff(oldEpoch, start.AddHours(2));
+        churnEpoch.Diff(oldEpoch, start);
+        for (int i = 1; i <= 600; i++)
+            churnEpoch.Diff([Item((uint)(20000 + i), "new epoch", start.AddSeconds(i))], start.AddSeconds(i));
+        check("New epoch history churn never replays retained old future records",
+            churnEpoch.Diff(oldEpoch, start.AddHours(3)).Count == 0);
+
         // The settings' own fields normalize: an unknown mode falls back to Compact.
         var settings = new DeckSettings { NotificationContentMode = (NotificationContentMode)99 };
         settings.Normalize();

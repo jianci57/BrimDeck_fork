@@ -68,6 +68,16 @@ internal static class KugouInstall
     public static LibcefPatchState? State() => Find() is { } location ? State(location) ?? LibcefPatchState.Unsupported : null;
 
     public static LibcefPatchState? State(Location location) => LibcefFile.State(location.Library, KugouPatch.Profile);
+    // The installation's state, as State() reads it, and when its libcef.dll was last written (UTC): a KuGou that started
+    // before then loaded the file as it was before the change.
+    public static (LibcefPatchState? State, DateTime? Written) Inspect()
+    {
+        if (Find() is not { } location) return (null, null);
+        var state = State(location) ?? LibcefPatchState.Unsupported;
+        try { return (state, File.GetLastWriteTimeUtc(location.Library)); }
+        catch (IOException) { return (state, null); }
+        catch (UnauthorizedAccessException) { return (state, null); }
+    }
 
     // Changes or restores the file and leaves KuGou as it is; a running KuGou takes the change at its next start.
     // Throws with a short message for the user, as EnableAsync does.

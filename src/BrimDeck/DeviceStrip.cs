@@ -23,7 +23,8 @@ internal sealed class DeviceStrip : FrameworkElement
         IsHitTestVisible = false;
     }
 
-    private double Ring => Math.Max(4, CompactMusicLayout.Whole(20 * _scale));
+    // The ring is as wide as the monitor's dials (MonitorStrip), so the collapsed row's rings read as one size.
+    private double Ring => Math.Max(4, CompactMusicLayout.Whole(16 * _scale));
     // Each device keeps the room of the widest figure ("100%"), so the part never moves with the readings.
     private double Slot => Ring + (_devices.Figures ? Math.Round(4 * _scale) + Math.Ceiling(MonitorDraw.Text("100%", _font, UI.Primary, 1).WidthIncludingTrailingWhitespace) : 0);
     private double Gap => Math.Round((_devices.Figures ? 8 : 6) * _scale);
@@ -40,7 +41,7 @@ internal sealed class DeviceStrip : FrameworkElement
 
     protected override void OnRender(DrawingContext drawing)
     {
-        double ppd = MonitorDraw.PixelsPerDip(this), center = Height / 2, ring = Ring, stroke = Math.Max(1, 1.75 * _scale), icon = Math.Round(11 * _scale);
+        double ppd = MonitorDraw.PixelsPerDip(this), center = Height / 2, ring = Ring, stroke = Math.Max(1, 1.5 * _scale), icon = Math.Round(9 * _scale);
         double x = Math.Max(0, Math.Round((ActualWidth - PreferredWidth) / 2));
         foreach (var device in _devices.Devices)
         {
@@ -49,7 +50,7 @@ internal sealed class DeviceStrip : FrameworkElement
             if (device.Percent is null) drawing.PushOpacity(.5);
             DeviceGlyphs.Draw(drawing, device.Kind, new Rect(middle.X - icon / 2, middle.Y - icon / 2, icon, icon), UI.Primary);
             if (device.Percent is null) drawing.Pop();
-            if (device.Charging) DevicesView.Badge(drawing, middle, (ring - stroke) / 2, Math.Round(9 * _scale), device.Ring);
+            if (device.Charging) DevicesView.Badge(drawing, middle, (ring - stroke) / 2, Math.Round(7.5 * _scale, MidpointRounding.AwayFromZero), device.Ring);
             if (_devices.Figures)
             {
                 var figure = MonitorDraw.Text(Devices.Figure(device.Percent), _font, device.Percent is null ? UI.Tertiary : device.Figure, ppd);

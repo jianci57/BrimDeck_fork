@@ -35,6 +35,22 @@ internal static class MediaAppTargetTests
             && MediaAppTarget.Plays(new(42, "cloudmusic", "cloudmusic.exe"), P(43, "cloudmusic"))
             && !MediaAppTarget.Plays(new(42, "cloudmusic", "cloudmusic.exe"), P(44, "chrome")));
 
+        IgnoredMediaApp[] ignored = [new("Chrome"), new("cloudmusic.exe"), new("kugou"), new("SpotifyAB.SpotifyMusic_zpdnekdrzrea0!Spotify")];
+        check("An ignored app's sessions are left out by their id",
+            MediaAppTarget.Ignores(ignored, "chrome", "chrome") && MediaAppTarget.Ignores(ignored, "SpotifyAB.SpotifyMusic_zpdnekdrzrea0!Spotify", "")
+            && !MediaAppTarget.Ignores(ignored, "MSEdge", "msedge") && !MediaAppTarget.Ignores(ignored, "SpotifyAB.Other_zpdnekdrzrea0!Spotify", ""));
+        check("A player read through its own connection is left out by the process its ignored id names",
+            MediaAppTarget.Ignores(ignored, "", "cloudmusic") && MediaAppTarget.Ignores(ignored, "", "kugou")
+            && !MediaAppTarget.Ignores(ignored, "", "QQMusic") && !MediaAppTarget.Ignores([], "Chrome", "chrome"));
+        check("An id of the application's own choosing is matched only by itself",
+            MediaAppTarget.Ignores([new("BroNekoX.QueMusic")], "BroNekoX.QueMusic", "") && !MediaAppTarget.Ignores([new("BroNekoX.QueMusic")], "", "BroNekoX"));
+
+        var settings = new DeckSettings { IgnoredMediaApps = [new(" Chrome ", "Google Chrome"), new("chrome", "Again"), new(""), null!] };
+        settings.Normalize();
+        var copy = settings.Copy(); copy.IgnoredMediaApps.Add(new("kugou"));
+        check("Ignored apps are kept once each by id, and a settings copy keeps its own list",
+            settings.IgnoredMediaApps is [{ AppId: "Chrome", Name: "Google Chrome" }] && copy.IgnoredMediaApps.Count == 2);
+
         string? Listed(string id) => id == "BroNekoX.QueMusic" ? "QueMusic" : null;
         check("A player is named by its well-known name, the name Windows lists it under, or its executable",
             MediaAppTarget.DisplayName("cloudmusic.exe", Listed) == "网易云音乐" && MediaAppTarget.DisplayName("Chrome", Listed) == "Google Chrome"

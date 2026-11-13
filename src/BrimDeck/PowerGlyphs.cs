@@ -115,9 +115,8 @@ internal static class PowerGlyphs
         if (plugged)
         {
             double plugHeight = Snap(h * (compact ? .8 : .54)), plugWidth = plugHeight * PowerMarks.PlugAspect, gap = Math.Max(1, Math.Round(1.2 * ppd)) / ppd;
-            cornerPlug = PowerMarks.PlugIn(new Rect(Snap(body.Right - plugWidth), Snap(body.Bottom - plugHeight * .72), plugWidth, plugHeight));
-            var room = Geometry.Combine(cornerPlug, cornerPlug.GetWidenedPathGeometry(new Pen(Brushes.Black, gap * 2) { LineJoin = PenLineJoin.Round }), GeometryCombineMode.Union, null);
-            drawing.PushClip(new CombinedGeometry(GeometryCombineMode.Exclude, new RectangleGeometry(Rect.Inflate(area, h, h)), room));
+            (cornerPlug, var bodyClip) = CornerPlug(new Rect(Snap(body.Right - plugWidth), Snap(body.Bottom - plugHeight * .72), plugWidth, plugHeight), gap, Rect.Inflate(area, h, h));
+            drawing.PushClip(bodyClip);
         }
 
         switch (gauge)
@@ -189,6 +188,22 @@ internal static class PowerGlyphs
             double left = inner.X + lit;
             PowerMarks.Exclamation(drawing, new Rect(left, body.Y + stroke / 2, Math.Max(0, inner.Width - lit), Math.Max(0, body.Height - stroke)), fillColor, null, ppd);
         }
+    }
+
+    // The corner plug at its place, and the clip the body is drawn in: the area around the battery without the plug's outline
+    // widened by the gap. Kept by the plug's place, the gap and that area: a battery holds its place from one frame to the next,
+    // and widening the outline and uniting it with the plug took 1.2 ms each time, which was over half of what a frame of the
+    // collapsed row cost on a laptop on mains (measured 2026-11-10).
+    private static readonly Dictionary<(Rect Plug, double Gap, Rect Around), (Geometry Plug, Geometry BodyClip)> Plugs = [];
+    private static (Geometry Plug, Geometry BodyClip) CornerPlug(Rect place, double gap, Rect around)
+    {
+        if (Plugs.TryGetValue((place, gap, around), out var known)) return known;
+        var plug = PowerMarks.PlugIn(place);
+        var room = Geometry.Combine(plug, plug.GetWidenedPathGeometry(new Pen(Brushes.Black, gap * 2) { LineJoin = PenLineJoin.Round }), GeometryCombineMode.Union, null);
+        var clip = new CombinedGeometry(GeometryCombineMode.Exclude, new RectangleGeometry(around), room);
+        clip.Freeze();
+        if (Plugs.Count > 48) Plugs.Clear();
+        return Plugs[(place, gap, around)] = (plug, clip);
     }
 
     // A rectangle with the top left and the bottom right corners cut, as the HUD look cuts its panels.

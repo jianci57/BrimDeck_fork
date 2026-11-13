@@ -20,14 +20,14 @@ The music page and the collapsed view show the song that is playing and offer pl
 
 Full control needs NetEase Cloud Music to open a local debugging port, which carries some risk while it is open. Read [Data and privacy](privacy.md#netease-cloud-music-full-control) before you turn it on.
 
-- **Always on**: turn on Always enable full control in Settings › Music › Players › NetEase Cloud Music and confirm; NetEase Cloud Music restarts once. This changes 2 places in the `libcef.dll` in its install folder; after that, NetEase Cloud Music starts with full control every time, whatever starts it, with nothing to enable again. Turning the switch off restores the file; it does not close NetEase Cloud Music, which returns to normal mode at its next start. While the switch is on, if an update replaces the file, BrimDeck changes it again and restarts NetEase Cloud Music once.
+- **Always on**: turn on Always enable full control in Settings › Players › NetEase Cloud Music and confirm; NetEase Cloud Music restarts once. This changes 2 places in the `libcef.dll` in its install folder; after that, NetEase Cloud Music starts with full control every time, whatever starts it, with nothing to enable again. Turning the switch off restores the file; it does not close NetEase Cloud Music, which returns to normal mode at its next start. While the switch is on, if an update replaces the file, BrimDeck changes it again and restarts NetEase Cloud Music once.
 - When NetEase Cloud Music is installed in a folder that needs administrator rights, such as `C:\Program Files`, Windows asks for them to change the file.
-- To enable it just once instead, select Enable full control on the music page, or turn on Always show "Enable full control" in Settings › Music › Players.
+- To enable it just once instead, select Enable full control on the music page, or turn on Always show "Enable full control" in Settings › Players › NetEase Cloud Music.
 
 ## Apple Music
 
 - **By default**: the track, cover and progress are shown, and you can play, pause and change tracks.
-- **Full control**: select Enable full control on the music page and confirm. You can then seek, turn shuffle on or off, and switch the repeat mode (off, repeat all, repeat one). These work by operating the buttons and the progress bar in the Apple Music window through Windows UI Automation, so they need the Apple Music main window; while that window is not minimized, using them brings it to the front. Full control lasts until BrimDeck restarts.
+- **Full control**: select Enable full control on the music page and confirm. You can then seek, turn shuffle on or off, and switch the repeat mode (off, repeat all, repeat one). These work by operating the buttons and the progress bar in the Apple Music window through Windows UI Automation, so they need the Apple Music main window; while that window is not minimized, using them brings it to the front. Full control lasts until BrimDeck restarts; with Always enable full control on under Settings › Players › Apple Music, BrimDeck enables it every time it starts.
 
 ## KuGou Music
 
@@ -38,3 +38,12 @@ Full control needs NetEase Cloud Music to open a local debugging port, which car
 - BrimDeck reads and writes only these 9 places. A file that tools such as LyricsWall changed the same way is used as it is; one they changed in part gets only the remaining places written when full control is turned on. If another tool changed any of these places to something else, BrimDeck leaves the file alone; if KuGou's debugging port is opened some other way, BrimDeck connects to it.
 
 Full control makes KuGou open a local debugging port. Read [Data and privacy](privacy.md#kugou-music-full-control) before you turn it on.
+
+## Several players and ignored apps
+
+- When several players are playing or paused, switch between them or pin one in the source menu at the top right of the music page.
+- Add apps you do not want shown under Settings › Players › Playback sources › Ignored apps. While an ignored app plays, the panel does not show its song and the source menu does not list it. Ignoring a browser ignores playback in all of its pages.
+
+## Quick actions
+
+On the music page, drag with the mouse to the left, right, up or down, or swipe left or right with two fingers on a touchpad, to go to the previous or next song, switch players, play or pause, or change the volume. The action for each direction is chosen under Settings › Quick actions.

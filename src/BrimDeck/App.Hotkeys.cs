@@ -85,6 +85,25 @@ public partial class App
         _settingsWindow?.ClickThroughChanged();
     }
 
+    // Turns the collapsed style to the next one, in the order of CompactStyle: notch, capsule, line, then the notch again.
+    public void CycleCompactStyle()
+    {
+        var settings = Settings.Copy();
+        var styles = Enum.GetValues<CompactStyle>();
+        settings.Style = styles[(Array.IndexOf(styles, settings.Style) + 1) % styles.Length];
+        UpdateSettings(settings);
+        _settingsWindow?.CompactStyleChanged();
+    }
+
+    // Turns the notch or the capsule into the line, or the line back into the notch or capsule last chosen (DeckSettings.ShapeStyle).
+    public void ToggleLineStyle()
+    {
+        var settings = Settings.Copy();
+        settings.Style = settings.Style == CompactStyle.Line ? settings.ShapeStyle : CompactStyle.Line;
+        UpdateSettings(settings);
+        _settingsWindow?.CompactStyleChanged();
+    }
+
     // Opens the settings window, or closes it when it is open and not minimized.
     private void ToggleSettingsFromHotkey()
     {
@@ -115,7 +134,7 @@ public partial class App
         var page = pages[place];
         if (Decks.FirstOrDefault(deck => deck.IsOpenForHotkey) is { } open)
         {
-            if (open.CurrentPage == page) open.CollapseFromHotkey(); else open.SelectPage(page);
+            if (open.PageForHotkey == page) open.CollapseFromHotkey(); else if (!open.IsExpanded) open.OpenFromHotkey(page); else open.SelectPage(page);
             return;
         }
         DeckUnderPointer().OpenFromHotkey(page);
@@ -173,6 +192,8 @@ public partial class App
             case HotkeyKind.OpenSettings: ToggleSettingsFromHotkey(); break;
             case >= HotkeyKind.Page1 and <= HotkeyKind.Page10: OpenPageFromHotkey(kind - HotkeyKind.Page1); break;
             case HotkeyKind.Refresh: Deck.SyncNow(); break;
+            case HotkeyKind.CycleStyle: CycleCompactStyle(); break;
+            case HotkeyKind.LineStyle: ToggleLineStyle(); break;
         }
     }
 }

@@ -225,9 +225,9 @@ static class SystemMonitorTests
         var withRings = CompactMusicLayout.Calculate(300, 1, false, 2, false, 0, 120);
         check("Compact row: readings after the rings, with a gap", withRings is { MonitorAlone: false, MonitorWidth: 128 } && withRings.MiddleWidth == 172);
         var tight = CompactMusicLayout.Calculate(100, 1, false, 2, true, 0, 400);
-        // The readings keep half of the middle; one ring and the shortest lyric (30 DIP) stay in any case.
+        // The readings keep half of the middle; one ring and the shortest lyric (38 DIP) stay in any case.
         check("Compact row: one ring and the shortest lyric stay", tight.MonitorWidth == 50 && tight.MiddleWidth == 50
-            && CompactMusicLayout.Calculate(40, 1, false, 2, true, 0, 400) is { MonitorWidth: 10, MiddleWidth: 30 });
+            && CompactMusicLayout.Calculate(40, 1, false, 2, true, 0, 400) is { MonitorWidth: 2, MiddleWidth: 38 });
         check("Compact row: no readings, no region", CompactMusicLayout.Calculate(300, 1, true, 2, true, 40).MonitorWidth == 0);
         bool steady = true;
         for (double width = 60; width < 400; width++)

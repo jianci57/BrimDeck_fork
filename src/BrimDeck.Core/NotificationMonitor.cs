@@ -7,18 +7,20 @@ namespace BrimDeck.Core;
 // same toast. A toast whose text changed keeps its id and creation time, so an update to a notification the user
 // has already been told about is not a new notification.
 //
-// Two guards keep old toasts quiet. The watermark is the newest creation time any snapshot has shown so far, and
-// it only moves forward: an arrival must reach it, so a toast that merely rolls into the newest-100 window as
-// newer ones leave the center is not raised, and neither is anything a clock set backwards produces. The history
-// keeps the keys of everything seen until it holds more than its capacity, oldest out first — the reader caps a
-// snapshot at the newest NotificationItem.Maximum, so a snapshot larger than any bound can never loop: it grows
-// the history by at most one cap, and what the center still holds stays seen through the churn.
+// The watermark keeps old toasts that roll into the newest-100 window quiet. A backwards observation clock starts
+// a fresh epoch: the current snapshot is a quiet baseline, and future-dated records from the old epoch cannot raise
+// the new watermark. History is bounded; normal snapshots add at most NotificationItem.Maximum keys.
 public sealed class NotificationMonitor
 {
     public const int HistoryCapacity = 512;
     private readonly HashSet<(uint Id, DateTimeOffset Created)> _history = [];
     private readonly Queue<(uint Id, DateTimeOffset Created)> _order = [];
     private DateTimeOffset _watermark = DateTimeOffset.MaxValue;
+    private DateTimeOffset? _observedAt;
+    private bool _clockRebased;
+    // Future records belonging to a previous clock epoch must outlive ordinary history churn. Keys only,
+    // bounded by the center's retained records; once the watermark passes one, the watermark protects it instead.
+    private readonly HashSet<(uint Id, DateTimeOffset Created)> _previousEpoch = [];
     // Nothing is raised before a baseline exists; Diff seeds it on the first call after a Reset.
     public bool Seeded { get; private set; }
 
@@ -30,20 +32,49 @@ public sealed class NotificationMonitor
         _history.Clear();
         _order.Clear();
         _watermark = DateTimeOffset.MaxValue;
+        _observedAt = null;
+        _clockRebased = false;
+        _previousEpoch.Clear();
         Seeded = false;
     }
 
     // The notifications the center gained since the last call, newest first; empty while seeding and when nothing
     // arrived. The input is clamped to the newest Maximum first, so a snapshot larger than the page's cap can
     // never raise what it trimmed away.
-    public IReadOnlyList<NotificationItem> Diff(IReadOnlyList<NotificationItem> snapshot)
+    public IReadOnlyList<NotificationItem> Diff(IReadOnlyList<NotificationItem> snapshot) => Diff(snapshot, DateTimeOffset.Now);
+
+    public IReadOnlyList<NotificationItem> Diff(IReadOnlyList<NotificationItem> snapshot, DateTimeOffset observedAt)
     {
-        var current = snapshot.Count > NotificationItem.Maximum ? NotificationItem.NewestFirst(snapshot) : snapshot;
+        // Keep the old epoch's ids quiet while the clock catches up. Merely lowering the watermark is insufficient:
+        // future-dated toasts still in the center would otherwise raise it again on the next poll.
+        bool rolledBack = _observedAt is { } previous && observedAt < previous;
+        _observedAt = observedAt;
+        if (rolledBack)
+        {
+            _clockRebased = true;
+            _watermark = observedAt;
+        }
+        // A restarted monitor may first observe the clock only after the rollback. Future records reveal that
+        // epoch too; never seed a fresh baseline's watermark beyond the observation clock.
+        if (!Seeded && snapshot.Any(item => item.CreationTime > observedAt)) _clockRebased = true;
+        if (_clockRebased && (rolledBack || !Seeded))
+            foreach (var item in snapshot.Where(item => item.CreationTime > observedAt))
+                _previousEpoch.Add((item.Id, item.CreationTime));
+        var eligible = _clockRebased
+            ? snapshot.Where(item => item.CreationTime <= observedAt && !_previousEpoch.Contains((item.Id, item.CreationTime))).ToList()
+            : snapshot;
+        var current = eligible.Count > NotificationItem.Maximum ? NotificationItem.NewestFirst(eligible) : eligible;
+        if (rolledBack)
+        {
+            // This snapshot is the baseline in the new clock epoch, including retained old-epoch notifications.
+            foreach (var item in snapshot) Remember(item);
+            return [];
+        }
         if (!Seeded)
         {
-            foreach (var item in current) Remember(item);
-            // An empty center has nothing to keep out: everything that appears afterwards is new.
-            _watermark = current.Count > 0 ? current.Max(item => item.CreationTime) : DateTimeOffset.MinValue;
+            foreach (var item in _clockRebased ? snapshot : current) Remember(item);
+            // In a new clock epoch, everything already present is old, including records dated in its future.
+            _watermark = _clockRebased ? observedAt : current.Count > 0 ? current.Max(item => item.CreationTime) : DateTimeOffset.MinValue;
             Seeded = true;
             return [];
         }
@@ -68,6 +99,7 @@ public sealed class NotificationMonitor
             var newest = current.Max(item => item.CreationTime);
             if (newest > _watermark) _watermark = newest;
         }
+        _previousEpoch.RemoveWhere(key => key.Created < _watermark);
         return arrivals is null ? [] : NotificationItem.NewestFirst(arrivals);
     }
 

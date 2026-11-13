@@ -93,6 +93,9 @@ internal static class GpuAdapterTests
         check("GPU driver: the driver's usage is shown, Windows' kept beside it", read.Usage == .31 && read.EngineUsage == .05 && read.UsageSource == "NVIDIA 驱动" && read.DriverWatts == 42.5);
         check("GPU driver: without a reading the busiest engine stays", GpuDriverReadings.Apply(discrete, null, null) == discrete
             && GpuDriverReadings.Apply(discrete, 250, null).Usage == 1);
+        var windows = GpuDriverReadings.Apply(discrete, 31, 42.5, 61, GpuUsageSource.Windows);
+        check("GPU driver: with Windows' usage chosen the busiest engine stays, the power and temperature are still the driver's",
+            windows.Usage == .05 && windows.UsageSource is null && windows.DriverWatts == 42.5 && windows.DriverTemperature == 61);
         var integrated = discrete with { VendorId = GpuDriverReadings.Amd, Kind = GpuKind.Integrated };
         check("GPU driver: an integrated adapter's power is the processor's, never added again", GpuDriverReadings.Apply(integrated, 12, 8).DriverWatts is null
             && GpuDriverReadings.Apply(integrated, 12, 8).UsageSource == "AMD 驱动");

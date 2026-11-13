@@ -18,13 +18,13 @@ public partial class MainWindow
     // Hidden by the hide hotkey; part of IsSuppressed, so it combines with the full-screen rule the same way.
     internal bool HiddenByUser => _app.UserHidden && !_hotkeyOpened;
     internal IntPtr HotkeyMonitor => MonitorHandle;
-    internal bool IsOpenForHotkey => _expanded && !_preview;
+    internal bool IsOpenForHotkey => (_noticeDeferredExpand ?? _expanded) && !_preview;
     internal bool IsHotkeyPinned => _hotkeyPinned;
 
     // page: the page to open on (a page hotkey), in place of the page chosen for opening (ApplyDefaultMusicPage).
     internal void OpenFromHotkey(DeckPage? page = null)
     {
-        if (_expanded) return;
+        if (_expanded && _noticeDeferredExpand != false) return;
         _hotkeyPage = page;
         try { Open(); } finally { _hotkeyPage = null; }
     }
@@ -41,7 +41,7 @@ public partial class MainWindow
         _hover.Stop(); _leave.Stop();
         _hotkeyPinned = true;
         SetExpanded(true, keyboard: true);
-        if (!_expanded) { _hotkeyPinned = false; if (_hotkeyOpened) { _hotkeyOpened = false; ApplySettings(); } }
+        if (!_expanded && _noticeDeferredExpand != true) { _hotkeyPinned = false; if (_hotkeyOpened) { _hotkeyOpened = false; ApplySettings(); } }
     }
 
     internal void CollapseFromHotkey() => SetExpanded(false, keyboard: true);

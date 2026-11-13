@@ -25,11 +25,15 @@ public sealed class ClipEntry
     public DateTimeOffset Copied { get; set; }
     // The application that copied it (process name), shown in the details; empty for a phrase.
     public string Source { get; set; } = "";
-    public Guid? Category { get; set; }
+    // The categories it is in, "常用" among them; an entry can be in several.
+    private List<Guid> _categories = [];
+    public List<Guid> Categories { get => _categories; set { _categories = value; CategoriesSpecified = true; } }
+    // An explicit list, including [], is a choice. Older single-category histories omitted it.
+    [JsonIgnore] public bool CategoriesSpecified { get; private set; }
+    // The first of them, also written for the versions up to 1.3.0-alpha.2, which knew one category per entry and read only this.
+    [JsonPropertyName("Category")] public Guid? LegacyCategory { get => Shelf.First(Categories); set => Shelf.AddLegacy(Categories, value); }
     // A phrase the user wrote here instead of copying it.
     public bool Manual { get; set; }
-    // Entries in a category and phrases are kept until the user deletes them; the rest is history and is cleared by the rules.
-    [JsonIgnore] public bool Kept => Category is not null || Manual;
 }
 
 public sealed class TransferFile
@@ -37,7 +41,9 @@ public sealed class TransferFile
     public Guid Id { get; set; } = Guid.NewGuid();
     public string Path { get; set; } = "";
     public DateTimeOffset Added { get; set; }
-    public Guid? Category { get; set; }
+    // The categories it is in; a file can be in several. "Category" as for ClipEntry.
+    public List<Guid> Categories { get; set; } = [];
+    [JsonPropertyName("Category")] public Guid? LegacyCategory { get => Shelf.First(Categories); set => Shelf.AddLegacy(Categories, value); }
     [JsonIgnore] public string Name => System.IO.Path.GetFileName(Path.TrimEnd('\\', '/')) is { Length: > 0 } name ? name : Path;
 }
 
@@ -47,6 +53,13 @@ public sealed class ShelfCategory
     public string Name { get; set; } = "";
     // "#RRGGBB", taken from the theme's swatches when the category is made.
     public string Color { get; set; } = "#9CB9FF";
+    // Clipboard only: whether its entries are kept until deleted, or go with the history when BrimDeck exits. "常用" always keeps.
+    // A category made now starts cleared on exit (AddCategory); one saved before the choice existed has none and stays kept, as
+    // every category was then.
+    [JsonPropertyName("Keep")] public bool? KeepChosen { get; set; }
+    [JsonIgnore] public bool Keep { get => KeepChosen ?? true; set => KeepChosen = value; }
+    // What goes in by itself (ShelfRules); null when nothing does.
+    public ShelfRule? Rule { get; set; }
 }
 
 public enum ShelfSide { Clipboard, Files }
@@ -65,6 +78,10 @@ public sealed class ShelfData
     // The categories the user made, which can be renamed, colored, reordered and deleted.
     public IEnumerable<ShelfCategory> OwnCategories(ShelfSide side) => Categories(side).Where(category => category.Id != Favorites);
 
+    // A phrase, and an entry in "常用" or in a category set to keep, stays until the user deletes it; the rest is history, cleared
+    // when BrimDeck exits (and when it starts, after an exit that did not clear it).
+    public bool Kept(ClipEntry clip) => clip.Manual || clip.Categories.Any(id => id == Favorites || ClipCategories.FirstOrDefault(c => c.Id == id)?.Keep == true);
+
     private static readonly JsonSerializerOptions Options = new() { Converters = { new JsonStringEnumConverter() } };
     public byte[] Serialize() => JsonSerializer.SerializeToUtf8Bytes(this, Options);
     public static ShelfData Deserialize(byte[] bytes)
@@ -74,27 +91,33 @@ public sealed class ShelfData
         data.Files = [.. (data.Files ?? []).Where(file => file is not null && file.Path.Length > 0)];
         data.ClipCategories = [.. (data.ClipCategories ?? []).Where(category => category is not null)];
         data.FileCategories = [.. (data.FileCategories ?? []).Where(category => category is not null && category.Id != Favorites)];
+        foreach (var category in data.ClipCategories.Concat(data.FileCategories))
+            if (category.Rule is { } rule) rule.Conditions = [.. (rule.Conditions ?? []).Where(condition => condition is not null)];
         // "常用" comes first, also in history saved before it existed, and the phrases written then are in it.
         data.ClipCategories.RemoveAll(category => category.Id == Favorites);
         data.ClipCategories.Insert(0, new ShelfCategory { Id = Favorites, Name = "常用" });
-        foreach (var clip in data.Clips) if (clip.Manual && clip.Category is null) clip.Category = Favorites;
-        // An entry whose category is gone goes back to the whole list.
+        // A category that is gone is dropped from the entries in it; an entry left in none goes back to the whole list.
         var clips = data.ClipCategories.Select(category => category.Id).ToHashSet();
-        foreach (var clip in data.Clips) if (clip.Category is { } id && !clips.Contains(id)) clip.Category = null;
+        foreach (var clip in data.Clips)
+        {
+            bool legacyPhrase = clip.Manual && !clip.CategoriesSpecified && (clip.Categories?.Count ?? 0) == 0;
+            clip.Categories = [.. (clip.Categories ?? []).Where(clips.Contains).Distinct()];
+            if (legacyPhrase) clip.Categories.Add(Favorites);
+        }
         var files = data.FileCategories.Select(category => category.Id).ToHashSet();
-        foreach (var file in data.Files) if (file.Category is { } id && !files.Contains(id)) file.Category = null;
+        foreach (var file in data.Files) file.Categories = [.. (file.Categories ?? []).Where(files.Contains).Distinct()];
         return data;
     }
 }
 
-// How long the clipboard history is kept (DeckSettings.ClipboardRetention). Entries in a category and phrases are always kept.
-public enum ClipRetention { Week, Month, Recent500, UntilExit }
+// What dragging files out of the file transfer does (DeckSettings.TransferDragOut). Move lets the target move the originals; a
+// target that only takes copies (a chat window, a browser) still copies them. Files moved away leave the list.
+public enum TransferDragOut { Copy, Move }
 
 public static class Shelf
 {
     // The most text one entry keeps; longer copies are not recorded.
     public const int MaxText = 1_000_000;
-    public const int RecentCount = 500;
 
     // Which kind a copied text is: a single web address, a color value, code, or plain text.
     public static ClipKind Classify(string text)
@@ -188,7 +211,7 @@ public static class Shelf
 
     public static int LineCount(string text) => text.Length == 0 ? 0 : text.Count(c => c == '\n') + 1;
 
-    // A copy is added at the top. The same text copied again moves its entry up instead of adding a second one, keeping its category.
+    // A copy is added at the top. The same text copied again moves its entry up instead of adding a second one, keeping its categories.
     public static ClipEntry Add(ShelfData data, ClipEntry entry)
     {
         if (entry.Kind != ClipKind.Image)
@@ -211,9 +234,11 @@ public static class Shelf
     // The same for the file transfer, which has no "常用": every file in "全部", a category's files in it. Only the records go; the
     // files themselves stay where they are.
     public static List<TransferFile> ClearableFiles(ShelfData data, Guid? category)
-        => data.Files.Where(file => category is null || file.Category == category).ToList();
+        => data.Files.Where(file => category is not { } id || file.Categories.Contains(id)).ToList();
+    // "清除" in the file transfer: in "全部" every record goes (returned); in a category, the files only in it go and the others leave it.
+    public static List<TransferFile> ClearFiles(ShelfData data, Guid? category) => Clear(ClearableFiles(data, category), category, file => file.Categories);
 
-    // An entry copied again from the page: it goes to the top as a new copy would, with the time of this copy; it keeps its category.
+    // An entry copied again from the page: it goes to the top as a new copy would, with the time of this copy; it keeps its categories.
     public static void Recopied(ShelfData data, ClipEntry entry, DateTimeOffset now)
     {
         if (!data.Clips.Remove(entry)) return;
@@ -221,34 +246,48 @@ public static class Shelf
         data.Clips.Insert(0, entry);
     }
 
-    // The history entries the rules clear: older than a week or a month, or past the most recent 500. Kept entries never are.
-    public static List<ClipEntry> Expired(ShelfData data, ClipRetention retention, DateTimeOffset now)
-    {
-        var history = data.Clips.Where(clip => !clip.Kept).ToList();
-        return retention switch
-        {
-            ClipRetention.Week => history.Where(clip => now - clip.Copied > TimeSpan.FromDays(7)).ToList(),
-            ClipRetention.Month => history.Where(clip => now - clip.Copied > TimeSpan.FromDays(30)).ToList(),
-            ClipRetention.Recent500 => history.OrderByDescending(clip => clip.Copied).Skip(RecentCount).ToList(),
-            _ => []
-        };
-    }
+    // The history, without what is kept (ShelfData.Kept): cleared when BrimDeck exits.
+    public static List<ClipEntry> History(ShelfData data) => data.Clips.Where(clip => !data.Kept(clip)).ToList();
 
-    // The history, without what is kept: leaving with UntilExit.
-    public static List<ClipEntry> History(ShelfData data) => data.Clips.Where(clip => !clip.Kept).ToList();
-
-    // What "清除" takes away where it is pressed: in "全部" everything but "常用"; in one of the user's categories, what is in it.
-    // Nothing in "常用".
+    // What "清除" reaches where it is pressed: in "全部" everything not kept (ShelfData.Kept: phrases, "常用" and the categories set
+    // to keep stay); in one of the user's categories, what is in it. Nothing in "常用".
     public static List<ClipEntry> Clearable(ShelfData data, Guid? category) => category switch
     {
-        null => data.Clips.Where(clip => clip.Category != ShelfData.Favorites).ToList(),
+        null => History(data),
         { } id when id == ShelfData.Favorites => [],
-        { } id => data.Clips.Where(clip => clip.Category == id).ToList()
+        { } id => data.Clips.Where(clip => clip.Categories.Contains(id)).ToList()
     };
+    // "清除" itself: in "全部" all it reaches is deleted (returned). In a category, the entries only in it are deleted; those also in
+    // another category only leave this one, so clearing one category never takes anything out of another.
+    public static List<ClipEntry> Clear(ShelfData data, Guid? category) => Clear(Clearable(data, category), category, clip => clip.Categories);
+    private static List<T> Clear<T>(List<T> reached, Guid? category, Func<T, List<Guid>> categories)
+    {
+        if (category is not { } id) return reached;
+        var gone = reached.Where(item => categories(item).All(other => other == id)).ToList();
+        foreach (var item in reached) categories(item).Remove(id);
+        return gone;
+    }
+
+    // Puts entries in a category, or takes them out of it; their other categories stay.
+    public static void SetCategory(IEnumerable<List<Guid>> categories, Guid id, bool add)
+    {
+        foreach (var list in categories)
+            if (!add) list.Remove(id);
+            else if (!list.Contains(id)) list.Add(id);
+    }
+
+    // The "Category" of the versions with one category per entry (ClipEntry.LegacyCategory): written as the first, read in first.
+    public static Guid? First(List<Guid> categories) => categories.Count > 0 ? categories[0] : null;
+    public static void AddLegacy(List<Guid> categories, Guid? id)
+    {
+        if (id is { } known && !categories.Contains(known)) categories.Insert(0, known);
+    }
 
     // Files are added at the top in the order they were dropped; a file already on the shelf moves up rather than appearing twice.
-    public static void AddFiles(ShelfData data, IEnumerable<string> paths, Guid? category, DateTimeOffset now)
+    // Returns the files added or moved up.
+    public static List<TransferFile> AddFiles(ShelfData data, IEnumerable<string> paths, Guid? category, DateTimeOffset now)
     {
+        var added = new List<TransferFile>();
         var list = paths.Where(path => !string.IsNullOrWhiteSpace(path)).Select(path => path.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         for (int i = list.Count - 1; i >= 0; i--)
         {
@@ -256,9 +295,11 @@ public static class Shelf
             if (existing is not null) data.Files.Remove(existing);
             var file = existing ?? new TransferFile { Path = list[i] };
             file.Added = now;
-            if (category is not null) file.Category = category;
+            if (category is { } id && !file.Categories.Contains(id)) file.Categories.Add(id);
             data.Files.Insert(0, file);
+            added.Add(file);
         }
+        return added;
     }
 
     // The name shown for a category; "常用" in the language of the interface.
@@ -269,7 +310,7 @@ public static class Shelf
     {
         var categories = data.Categories(side);
         int own = data.OwnCategories(side).Count();
-        var category = new ShelfCategory { Name = name, Color = colors.Count > 0 ? colors[own % colors.Count] : "#9CB9FF" };
+        var category = new ShelfCategory { Name = name, Color = colors.Count > 0 ? colors[own % colors.Count] : "#9CB9FF", Keep = false };
         categories.Add(category);
         return category;
     }
@@ -289,7 +330,7 @@ public static class Shelf
     // A phrase the user writes goes to the top of "常用".
     public static ClipEntry AddPhrase(ShelfData data, string text, DateTimeOffset now)
     {
-        var phrase = new ClipEntry { Kind = Classify(text), Text = text, Manual = true, Copied = now, Category = ShelfData.Favorites };
+        var phrase = new ClipEntry { Kind = Classify(text), Text = text, Manual = true, Copied = now, Categories = [ShelfData.Favorites] };
         data.Clips.Insert(0, phrase);
         return phrase;
     }
@@ -298,8 +339,8 @@ public static class Shelf
     {
         if (id == ShelfData.Favorites) return;
         data.Categories(side).RemoveAll(category => category.Id == id);
-        if (side == ShelfSide.Clipboard) foreach (var clip in data.Clips.Where(clip => clip.Category == id)) clip.Category = null;
-        else foreach (var file in data.Files.Where(file => file.Category == id)) file.Category = null;
+        if (side == ShelfSide.Clipboard) foreach (var clip in data.Clips) clip.Categories.Remove(id);
+        else foreach (var file in data.Files) file.Categories.Remove(id);
     }
 
     // A search matches the text of an entry, or a file's name, ignoring case; pictures match nothing.

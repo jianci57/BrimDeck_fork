@@ -16,7 +16,14 @@ public partial class MainWindow
         if (!IsUsagePage && Settings.UsagePage) SelectPage(DeckPage.Usage, remember: false);
         bool wanted = details && Settings.UsagePage;
         if (wanted != _details) _usageHandover = wanted ? Handover.Forward : Handover.Back;
-        _details = wanted; RenderUsage();
+        _details = wanted;
+        // The panel takes clicks without taking focus, so an open date or app pop-up stays open when the back button is
+        // clicked, and RenderUsage leaves the page as it is while a pop-up is open. The pop-up goes at once, before the page
+        // moves: faded out, it would close (and hand activation back to the panel) in the middle of the page's move, and the
+        // page would be built twice, once by the pop-up's closing and once here. Closed now, its closing builds the page once,
+        // with the motion set above, and the call below finds it built.
+        if (_detailPopup is { } popup) { _popupAtOnce = true; try { popup.Close(); } finally { _popupAtOnce = false; } }
+        RenderUsage();
     }
 
     private const double ColumnTopInset = 2, EdgeInset = 6;
@@ -158,7 +165,7 @@ public partial class MainWindow
         if (UsageContent is null) return;
         if (IsMusicPage) { RenderMusic(); return; }
         if (IsMonitorPage) { RenderMonitor(); return; }
-        if (IsShelfPage) { RenderShelf(); return; }
+        if (IsShelfPage) { RenderShelf(lazy: true); return; }
         if (CurrentPage == DeckPage.Devices) { RenderDevices(); return; }
         // Only a page that was on screen hands over; one that arrives by the page switch or with the panel opening comes in whole.
         bool shown = UsageContent.IsVisible && _expanded && !_preview;
@@ -343,7 +350,7 @@ public partial class MainWindow
         // fill in where they will stay instead of the whole column changing when they arrive.
         bool awaiting = Awaiting(snapshot);
         int blocks = awaiting ? view.Slots : view.Quotas.Count;
-        FrameworkElement Block(int i) => awaiting ? SkeletonBlock(entry, layout, i) : QuotaBlock(entry, view.Quotas[i], layout, i);
+        FrameworkElement Block(int i) => awaiting ? SkeletonBlock(entry, layout, i) : QuotaBlock(entry, view.Quotas[i], layout, i, Settings.QuotaRingRemaining);
         bool off = blocks == 0;
         // Only this column changes: it comes up from faint while the others stay as they are.
         void NextQuotaPage() { _quotaPages[entry.InstanceId] = (view.Page + 1) % view.Pages; _flippedColumn = entry.InstanceId; RenderUsage(); }
@@ -557,9 +564,15 @@ public partial class MainWindow
     // Three rows per quota: the period name, the used share with its reset countdown, and the track.
     // slot is the quota's place in its column: a bar keeps its place's last share (QuotaBar), so a new reading eases the same bar
     // and a quota page flip eases each bar from the quota it replaces, as the monitor page's values move.
-    private static Grid QuotaBlock(AppEntry entry, UsageMetric quota, Layout layout, int slot)
+    // remaining (DeckSettings.QuotaRingRemaining): a quota with a share shows what is left: the bar's length, a percentage as the big
+    // number ("58% 剩余") and the share at the label's right; an amount (a balance, an amount spent) keeps its figure. The colors
+    // still follow the used share, so warning and critical mean the same either way.
+    private static Grid QuotaBlock(AppEntry entry, UsageMetric quota, Layout layout, int slot, bool remaining = false)
     {
         double used = Math.Clamp(quota.UsedPercent ?? 100, 0, 100);
+        bool left = remaining && quota.UsedPercent is not null;
+        bool share = quota.Kind is MetricKind.Percent or MetricKind.Count;
+        string valueText = left && share ? $"{100 - used:0.#}%" : quota.ValueText, valueSuffix = left && share ? Loc.T("剩余", "left") : quota.ValueSuffix;
         string color = quota.UsedPercent is null ? PanelTheme.QuotaTheme(entry) : PanelTheme.QuotaColor(entry, used);
         int level = quota.UsedPercent is null ? 0 : AppPresets.Level(used);
         var block = new Grid();
@@ -574,15 +587,16 @@ public partial class MainWindow
         var number = new TextBlock { FontFamily = UI.DisplayFont, LineHeight = layout.NumberRow, LineStackingStrategy = LineStackingStrategy.BlockLineHeight, Height = layout.NumberRow,
             TextWrapping = TextWrapping.NoWrap, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Left };
         // A custom item without a value leaves the row empty; the row keeps its height so blocks stay aligned.
-        if (quota.ValueText.Length > 0) number.Inlines.Add(new Run(quota.ValueText) { FontSize = layout.Number, FontWeight = FontWeights.SemiBold, Foreground = UI.Brush(level > 0 ? color : UI.Primary) });
-        if (layout.UsedWord && quota.ValueSuffix.Length > 0) number.Inlines.Add(new Run(" " + quota.ValueSuffix) { FontSize = 11, FontFamily = UI.PanelFont, Foreground = UI.Brush(UI.Tertiary) });
+        if (valueText.Length > 0) number.Inlines.Add(new Run(valueText) { FontSize = layout.Number, FontWeight = FontWeights.SemiBold, Foreground = UI.Brush(level > 0 ? color : UI.Primary) });
+        if (layout.UsedWord && valueSuffix.Length > 0) number.Inlines.Add(new Run(" " + valueSuffix) { FontSize = 11, FontFamily = UI.PanelFont, Foreground = UI.Brush(UI.Tertiary) });
         number.ToolTip = quota.Kind switch
         {
             MetricKind.Balance => Loc.T("可用 " + quota.ValueText, quota.ValueText + " available")
                 + (quota.Total is { } total ? quota.TotalIsTarget
                     ? Loc.T(" · 目标余额 " + UsageMetric.Money(total, quota.Currency), " · target " + UsageMetric.Money(total, quota.Currency))
                     : Loc.T(" · 总额 " + UsageMetric.Money(total, quota.Currency), " · " + UsageMetric.Money(total, quota.Currency) + " total") : ""),
-            MetricKind.Spend => Loc.T("已用 " + quota.ValueText, quota.ValueText + " used") + (quota.Unlimited ? Loc.T(" · 无上限", " · no limit") : ""),
+            MetricKind.Spend => Loc.T("已用 " + quota.ValueText, quota.ValueText + " used") + (quota.Unlimited ? Loc.T(" · 无上限", " · no limit") : "")
+                + (quota.Total is { } goal && quota.TotalIsTarget ? Loc.T(" · 目标金额 " + UsageMetric.Money(goal, quota.Currency), " · target " + UsageMetric.Money(goal, quota.Currency)) : ""),
             MetricKind.Count => CountTooltip(quota),
             _ => MetricPercentTooltip(quota)
         };
@@ -590,7 +604,8 @@ public partial class MainWindow
         var resetText = UI.ShortReset(quota.ResetAt);
         var expiryText = quota.ExpiresAt is { } expiry ? (expiry <= DateTimeOffset.Now ? Loc.T("已到期", "Expired") : Loc.T(UI.ShortReset(expiry) + "到期", "expires " + UI.ShortReset(expiry))) : "";
         var countText = CountLabel(quota);
-        var sideText = countText.Length > 0 ? countText : quota.Kind == MetricKind.Balance && quota.UsedPercent is { } percent ? Loc.T($"{Math.Max(0, percent):0.#}% 已用", $"{Math.Max(0, percent):0.#}% used") : quota.Unlimited ? Loc.T("无上限", "No limit") : "";
+        var sideText = countText.Length > 0 ? countText : quota.Kind is MetricKind.Balance or MetricKind.Spend && quota.UsedPercent is { } percent
+            ? left ? Loc.T($"{100 - used:0.#}% 剩余", $"{100 - used:0.#}% left") : Loc.T($"{Math.Max(0, percent):0.#}% 已用", $"{Math.Max(0, percent):0.#}% used") : quota.Unlimited ? Loc.T("无上限", "No limit") : "";
         // Times sit beside the number, next to the track; shares, counts and "无上限" sit at the label's right.
         // A quota with both a reset and an expiry keeps the reset below and moves the expiry up.
         bool expiryAbove = resetText.Length > 0 && expiryText.Length > 0;
@@ -622,7 +637,7 @@ public partial class MainWindow
             right.Margin = new Thickness(6, 0, 0, 1); Grid.SetColumn(right, 1); numbers.Children.Add(right);
         }
         block.Children.Add(numbers);
-        var track = new QuotaBar($"{entry.InstanceId:N}:{slot}", used / 100, color); Grid.SetRow(track, 4);
+        var track = new QuotaBar($"{entry.InstanceId:N}:{slot}", (left ? 100 - used : used) / 100, color); Grid.SetRow(track, 4);
         block.Children.Add(track);
         return block;
     }

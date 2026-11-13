@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Runtime.InteropServices;
 
 namespace BrimDeck.Native;
@@ -12,22 +11,15 @@ internal static class RunningApps
     public static IReadOnlyList<App> WithWindows()
     {
         var apps = new Dictionary<string, App>(StringComparer.OrdinalIgnoreCase);
+        var seen = new HashSet<uint>();
         EnumWindows((window, _) =>
         {
             if (!IsWindowVisible(window) || GetWindowTextLength(window) == 0) return true;
             GetWindowThreadProcessId(window, out var pid);
-            if (pid == 0) return true;
-            try
-            {
-                using var process = Process.GetProcessById((int)pid);
-                var name = process.ProcessName;
-                if (name.Length == 0 || apps.ContainsKey(name)) return true;
-                string path = "";
-                try { path = process.MainModule?.FileName ?? ""; }
-                catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException or NotSupportedException) { }
-                apps[name] = new App(name, path);
-            }
-            catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception) { }
+            // Each process is read once, however many windows it has.
+            if (pid == 0 || !seen.Add(pid)) return true;
+            var (name, path) = AppIdentity.NameAndPath((int)pid);
+            if (name.Length > 0 && !apps.ContainsKey(name)) apps[name] = new App(name, path);
             return true;
         }, IntPtr.Zero);
         return apps.Values.OrderBy(app => app.Name, StringComparer.OrdinalIgnoreCase).ToList();

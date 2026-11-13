@@ -18,8 +18,9 @@ internal sealed class GpuDrivers(Action stuck)
     private readonly AmdDriver _amd = new();
     private readonly IntelDriver _intel = new();
 
-    // temperatures: whether anything shows a temperature; only NVIDIA's costs a call of its own, made only then.
-    public List<GpuSample> Read(IReadOnlyList<GpuSample> gpus, double now, bool temperatures)
+    // temperatures: whether anything shows a temperature; only NVIDIA's costs a call of its own, made only then. usage: whether the
+    // driver's usage is taken (GpuUsageSource); its power and temperature are either way.
+    public List<GpuSample> Read(IReadOnlyList<GpuSample> gpus, double now, bool temperatures, GpuUsageSource usage)
     {
         _gate.Keep(gpus.Select(gpu => gpu.Luid));
         _nvidia.Temperatures = temperatures;
@@ -34,7 +35,7 @@ internal sealed class GpuDrivers(Action stuck)
             var device = new GuardedDevice(GuardedReading.GpuDriver, name, name);
             if (driver is null || !_gate.Awake(gpu, now) || SensorGuard.Stopped(device.Reading, device.Device)) { read.Add(gpu); continue; }
             var (percent, watts, celsius) = SensorGuard.Ask(device, () => driver.Read(gpu, now), stuck);
-            read.Add(GpuDriverReadings.Apply(gpu, percent, watts, celsius));
+            read.Add(GpuDriverReadings.Apply(gpu, percent, watts, celsius, usage));
         }
         return read;
     }

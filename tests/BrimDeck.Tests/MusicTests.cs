@@ -8,6 +8,7 @@ internal static class MusicTests
         await MediaRoutingTests.Run(check);
         MediaSeekPreviewTests.Run(check);
         MediaPlaybackStackTests.Run(check);
+        HorizontalSwipeTests.Run(check);
         var modes = new MediaTrack { CanRepeat = true, CanShuffle = true, Repeat = MediaRepeat.List };
         check("Modes cycle list, single, shuffle, order, list", MusicPlaybackModes.Next(modes) == MusicPlaybackMode.Track
             && MusicPlaybackModes.Next(modes with { Repeat = MediaRepeat.Track }) == MusicPlaybackMode.Shuffle
@@ -17,15 +18,15 @@ internal static class MusicTests
         check("Sources without modes omit the mode control", MusicPlaybackModes.Supported(new MediaTrack()).Count == 0);
         PageLayout(check);
         var narrow = CompactMusicLayout.Calculate(115, true, 4, true);
-        check("A narrow compact row keeps one rotating ring, at full size, beside a scrolling lyric", narrow.VisibleRings == 1 && narrow.ScrollRings && narrow.RingSize == 12 && narrow.TextWidth == 41);
+        check("A narrow compact row keeps one rotating ring, at full size, beside a scrolling lyric", narrow.VisibleRings == 1 && narrow.ScrollRings && narrow.RingSize == 20 && narrow.TextWidth == 33);
         var capsule = CompactMusicLayout.Calculate(91.3, true, 4, true);
-        check("The capsule beside the widest clock cuts its first ring at the region's edge instead of shrinking it", capsule.VisibleRings == 0 && capsule.RingSize == 12
+        check("The capsule beside the widest clock cuts its first ring at the region's edge instead of shrinking it", capsule.VisibleRings == 0 && capsule.RingSize == 20
             && Math.Abs(capsule.RingWidth - 11.3) < 1e-9 && capsule.TextWidth == 18 && capsule.TextScrolls);
         var tight = CompactMusicLayout.Calculate(84, true, 4, true);
         check("Short of one ring, the lyric keeps its minimum, then the space between, then the first ring is cut", tight.VisibleRings == 0 && !tight.ScrollRings
-            && tight.TextWidth == 18 && tight.Between == 8 && tight.RingWidth == 4 && tight.TextScrolls && tight.RingSize == 12);
-        check("Without the clock the default notch and capsule rotate two full-size rings beside the lyric", CompactMusicLayout.Calculate(178, true, 4, true) is { VisibleRings: 2, ScrollRings: true, RingSize: 12, RingGap: 8 }
-            && CompactMusicLayout.Calculate(164, true, 4, true) is { VisibleRings: 2, ScrollRings: true, RingSize: 12, RingGap: 8 });
+            && tight.TextWidth == 18 && tight.Between == 8 && tight.RingWidth == 4 && tight.TextScrolls && tight.RingSize == 20);
+        check("Without the clock the default notch rotates two full-size rings beside the lyric, the default capsule one", CompactMusicLayout.Calculate(178, true, 4, true) is { VisibleRings: 2, ScrollRings: true, RingSize: 20, RingGap: 8 }
+            && CompactMusicLayout.Calculate(164, true, 4, true) is { VisibleRings: 1, ScrollRings: true, RingSize: 20, RingGap: 8 });
         CompactLayout(check);
         var now = DateTimeOffset.UtcNow;
         var track = new MediaTrack { Title = "测试曲目", Artist = "测试歌手", Start = TimeSpan.FromSeconds(10), End = TimeSpan.FromSeconds(210), ReportedPosition = TimeSpan.FromSeconds(20), PositionAt = now, State = MediaState.Playing, Rate = 2 };
@@ -206,12 +207,12 @@ internal static class MusicTests
             && standard.TextHeight == 22 && standard.RowHeight == 24 && standard.RingThickness == 2 && standard.TextEdge == 6 && standard.RingEdge == 3);
         var wide = CompactMusicLayout.Calculate(400, 1, true, 4, true, 33);
         check("A wider row only widens the middle, and the lyric takes the rest", wide.CoverWidth == standard.CoverWidth && wide.EqualizerWidth == standard.EqualizerWidth
-            && wide.ClockWidth == standard.ClockWidth && wide.MiddleWidth - standard.MiddleWidth == 222 && wide.VisibleRings == 4 && wide.RingSize == 12 && !wide.ScrollRings
+            && wide.ClockWidth == standard.ClockWidth && wide.MiddleWidth - standard.MiddleWidth == 222 && wide.VisibleRings == 4 && wide.RingSize == 20 && !wide.ScrollRings
             && wide.TextWidth == wide.MiddleWidth - wide.RingWidth - wide.Between);
         var tall = CompactMusicLayout.Calculate(400, 1.5, true, 4, true, 50);
         check("A taller row scales the cover, equalizer, rings and type, in whole and half DIPs", tall.CoverSize == 30 && tall.CoverWidth == 42 && tall.EqualizerSize == 27
             && tall.EqualizerHeight == 21 && tall.EqualizerWidth == 39 && tall.ClockWidth == 62 && tall.TextFont == 17.5 && tall.TextHeight == 33 && tall.RowHeight == 36
-            && tall.RingSize == 18 && tall.RingThickness == 3 && tall.TextEdge == 9);
+            && tall.RingSize == 30 && tall.RingThickness == 3 && tall.TextEdge == 9);
 
         // The middle gives way first; then the equalizer, the cover and the clock, each to nothing before the next.
         var sides = CompactMusicLayout.Calculate(95, 1, true, 4, true, 33);
@@ -290,7 +291,7 @@ internal static class MusicTests
         var after = CompactMusicLayout.Calculate(sideRegions + 176, 1, true, 6, true, 0);
         check("One DIP across the old all-rings threshold moves the rings and the lyric by at most one DIP",
             Math.Abs(after.RingWidth - before.RingWidth) <= 1 && Math.Abs(after.TextWidth - before.TextWidth) <= 1 && before.ScrollRings && after.ScrollRings);
-        check("All rings stand still once the middle holds them in its 40 % share", CompactMusicLayout.Calculate(sideRegions + 280, 1, true, 6, true, 0) is { RingWidth: 112, ScrollRings: false, VisibleRings: 6 });
+        check("All rings stand still once the middle holds them in its 40 % share", CompactMusicLayout.Calculate(sideRegions + 400, 1, true, 6, true, 0) is { RingWidth: 160, ScrollRings: false, VisibleRings: 6 });
 
         // Every region, for every style, height, clock, ring count, lyric and cover, moves by at most one DIP per DIP of
         // width from 0 to 800, also between rotating and static rings. Snapped to device pixels the way the row lays them out
@@ -403,7 +404,7 @@ internal static class MusicTests
                     string key = string.Join("|", l.RingSize, l.RingGap, l.RingThickness, l.RingEdge, l.CoverSize, l.CoverRadius, l.EqualizerSize, l.EqualizerHeight,
                         l.EqualizerBar, l.ClockFace, l.TextFont, l.TextHeight, l.TextEdge, l.RowHeight);
                     if (raw) { firstRaw ??= key; fixedSizes &= key == firstRaw; } else { first ??= key; fixedSizes &= key == first; }
-                    fixedSizes &= l.RingSize == Math.Max(1, CompactMusicLayout.Whole(12 * l.Scale)) && l.RingGap == CompactMusicLayout.Whole(8 * l.Scale)
+                    fixedSizes &= l.RingSize == Math.Max(1, CompactMusicLayout.Whole(20 * l.Scale)) && l.RingGap == CompactMusicLayout.Whole(8 * l.Scale)
                         && l.CoverSize == Math.Max(1, CompactMusicLayout.Whole(20 * l.Scale)) && l.EqualizerSize == Math.Max(1, CompactMusicLayout.Whole(18 * l.Scale));
                     // A region narrower than one ring cuts it; the ring keeps its size.
                     if (l.VisibleRings == 0 && l.RingWidth > 0 && l.RingWidth < l.RingSize) regionsMove = true;

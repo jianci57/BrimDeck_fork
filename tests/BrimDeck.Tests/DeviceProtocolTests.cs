@@ -92,6 +92,13 @@ static class DeviceProtocolTests
 
     private static void MoreDongles(Action<string, bool> check)
     {
+        // Captured from the ATK Wireless Charging dongle (373B:12DA), awake in 2.4 GHz mode.
+        check("ATK charging dongle: measured battery reply and its checked collection",
+            Dongles.CompxFrame(Bytes("08 04 00 00 00 02 64 00 10 EF 00 00 00 00 00 00 E4")) == new BatteryRead(100)
+            && Dongles.Find(0x373B, 0x12DA, 0xFF02, "ATK Wireless Charging dongle", 0, 1, 2, 17, 17) == Dongles.Protocol.CompxFramed
+            && Dongles.Find(0x373B, 0x12DA, 0xFF05, "", 0, 1, 0, 8, 0) is null
+            && Dongles.Find(0x373B, 0x12DA, 0xFF02, "", 0, 1, 2, 49, 49) is null
+            && Dongles.Find(0x373B, 0x12DA, 0xFF02, "", 0, 1, 1, 17, 17) is null);
         // Compx's 17-byte frame: vigil-watt's captures on an ATK 101B receiver.
         check("Compx frame: a reply on battery and one on the cable", Dongles.CompxFrame(Bytes("08 04 00 00 00 02 5F 00 10 01 00 00 00 00 00 00 D7")) == new BatteryRead(95)
             && Dongles.CompxFrame(Bytes("08 04 00 00 00 02 5F 01 10 61 00 00 00 00 00 00 76")) == new BatteryRead(95, true));
@@ -297,6 +304,14 @@ static class DeviceProtocolTests
 
     private static void DongleFrames(Action<string, bool> check)
     {
+        // AULA F87 PRO: report id 0x13, command 0x05, the checksum the low byte of the nineteen bytes before it; only the
+        // receiver's 0x0A answer is a reading.
+        var aula = Dongles.AulaRequest(0x05);
+        check("AULA F87 PRO: the state request, its checksum, and its collection", aula.Length == 20 && aula[0] == 0x13 && aula[1] == 0x05
+            && aula[19] == (byte)(aula.Take(19).Sum(b => b) & 0xFF) && Dongles.Find(0x3554, 0xFA09, 0xFF02, "", 0, 1, 0x0002, 20, 20) == Dongles.Protocol.Aula
+            && Dongles.Find(0x3554, 0xFA09, 0xFF04, "", 8) is null);
+        check("AULA F87 PRO: the 0x0A answer's level; the echo and other commands are none", Dongles.AulaBattery([0x13, 0x0A, 0x01, 0x00, 0x04, 0x05, 87, 0x01, 0, 0]) == new BatteryRead(87)
+            && Dongles.AulaBattery([0x13, 0x05, 0x01, 0x00, 0x0A, 0x03, 0, 0]) is null && Dongles.AulaBattery([0x13, 0x0A, 0x01, 0x00, 0x04, 0x07, 87]) is null);
         check("ATK/VXE: the battery request with its checksum", Dongles.BitMouseRequest(0x07).Take(8).SequenceEqual(new byte[] { 0x08, 0x7D, 0x72, 0x02, 0x00, 0x01, 0x07, 0x01 }));
         check("ATK/VXE: a reply's level; an asleep mouse or a cabled placeholder is none",
             Dongles.BitMouseBattery([0x08, 0x72, 0x00, 0x00, 0x01, 0x07, 0x01, 87, 0x10, 0x0F]) == new BatteryRead(87)
@@ -309,6 +324,12 @@ static class DeviceProtocolTests
             && Dongles.CompxBattery([0x08, 0x04, 0, 0, 0, 1, 63, 2]) == new BatteryRead(63) && Dongles.CompxBattery([0x08, 0x03, 0, 0, 0, 0, 63, 0]) is null);
         var vgn = new byte[64]; vgn[0] = 0x04; vgn[3] = 0x1A; vgn[8] = 41; vgn[9] = 0;
         check("VGN keyboards: the request and a reply", Dongles.VgnRequest().Take(5).SequenceEqual(new byte[] { 0x04, 0, 0, 0x1A, 0x06 }) && Dongles.VgnBattery(vgn) == new BatteryRead(41));
+        // The ATK Z87 Pro's dongle (373B:1012) answers that frame on its 0xFF1C collection; the reply below is the one it gave.
+        var atk = (byte[])vgn.Clone(); atk[8] = 92;
+        check("ATK keyboards: the Z87 Pro's dongle read with VGN's frame, its model name given over the dongle's",
+            Dongles.VgnBattery(atk) == new BatteryRead(92) && Dongles.Find(0x373B, 0x1012, 0xFF1C, "ATK Z87 Dongle", 0, 1, 0x0092, 64, 64) == Dongles.Protocol.Vgn
+            && Dongles.Find(0x373B, 0x1012, 0xFF1B, "ATK Z87 Dongle", 0, 1, 0x0092, 64, 64) is null
+            && Dongles.AtkKeyboard(0x1012) == "ATK Z87 Pro" && Dongles.AtkKeyboard(0x1013) is null);
         var endgame = new byte[32]; endgame[0] = 0xA1; endgame[1] = 0x01; endgame[16] = 77;
         check("Endgame Gear: the request and a reply; a busy one is none", Dongles.EndgameRequest(32)[..2].SequenceEqual(new byte[] { 0xA1, 0xB4 }) && Dongles.EndgameBattery(endgame) == new BatteryRead(77)
             && Dongles.EndgameBattery([0xA1, 0x03, .. new byte[30]]) is null);

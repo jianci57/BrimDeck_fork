@@ -111,6 +111,11 @@ public sealed partial class SettingsWindow
                 Loc.T("读不到的温度不显示。CPU 温度由主板固件提供，许多电脑没有这项数据；有的电脑读到的是主板的温度，不是 CPU 本身的温度。",
                     "Temperatures that cannot be read are not shown. The CPU temperature comes from the motherboard firmware. Many PCs do not provide it, and on some it is the motherboard's temperature rather than the CPU's."),
                 keepPreview: true)));
+        SectionTitle(Loc.T("来源", "Sources"));
+        Group(MusicChoice(Loc.T("显卡占用率", "GPU usage"), S.MonitorGpuUsage,
+            [(GpuUsageSource.Driver, Loc.T("显卡驱动", "GPU driver")), (GpuUsageSource.Windows, "Windows")], v => Change(s => s.MonitorGpuUsage = v),
+            help: Loc.T("显卡驱动：与 nvidia-smi、HWiNFO 一致；驱动没有读数时使用 Windows。Windows：与任务管理器一致，驱动读数不正确时选择。",
+                "GPU driver: matches nvidia-smi and HWiNFO; Windows is used where the driver gives no reading. Windows: matches Task Manager; choose it when the driver's reading is wrong.")));
     }
 
     // Under the last row of "展开时": a line in amber for every reading stopped because its driver did not answer (SensorGuard),

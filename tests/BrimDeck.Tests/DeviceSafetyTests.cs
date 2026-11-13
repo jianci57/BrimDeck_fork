@@ -47,13 +47,15 @@ static class DeviceSafetyTests
         int[] pages = [0xFF00, 0xFF01, 0xFF02, 0xFF04, 0xFF05, 0xFF0B, 0xFF1C, 0xFFA0, 0x01, 0x0C];
         // Every vendor and product of the three shared ids, on every page a protocol here uses: none is sent to, but the products
         // verified for a frame (Dongles.CompxFramed, Dongles.NinjutsoProducts), and those only on their own collection.
-        bool Verified(int vendor, int product) => Dongles.IsCompxFramed(vendor, product) || vendor == Dongles.NordicVendor && Dongles.NinjutsoProducts.Contains(product);
+        bool Verified(int vendor, int product) => Dongles.IsCompxFramed(vendor, product) || vendor == Dongles.NordicVendor && Dongles.NinjutsoProducts.Contains(product)
+            || vendor == Dongles.AulaVendor && product == Dongles.AulaF87Pro;
         bool shared = true;
         foreach (int vendor in new[] { 0x3554, 0x1915, 0x0BDA })
             for (int product = 0; product <= 0xFFFF && shared; product++)
                 foreach (int page in pages)
                     if (!Verified(vendor, product) && (Dongles.Find(vendor, product, page, "Wireless Mouse", 64) is not null
-                        || Dongles.Find(vendor, product, page, "Wireless Mouse", 65, 1, 0x0002, 17, 17) is not null)) { shared = false; break; }
+                        || Dongles.Find(vendor, product, page, "Wireless Mouse", 65, 1, 0x0002, 17, 17) is not null
+                        || Dongles.Find(vendor, product, page, "Wireless Mouse", 65, 1, 0x0002, 64, 64) is not null)) { shared = false; break; }
         check("Requests: Compx's 0x3554, Nordic's 0x1915 and Realtek's 0x0BDA are sent to on no product or page but the verified ones", shared);
         bool own = true;
         foreach (var (vendor, product) in Dongles.CompxFramed.Where(pair => pair.Vendor == 0x3554).Append((0x1915, 0xAE1C)).Append((0x1915, 0xAE11)))
@@ -64,6 +66,14 @@ static class DeviceSafetyTests
             }
         check("Requests: the verified products of the shared ids only on their own collection (the 17-byte 0xFF02 one, Nordic's 0xFFA0)", own
             && Dongles.Find(0x3554, 0xF58A, 0xFF02, "", 0, 1, 0x0002, 17, 17) == Dongles.Protocol.CompxFramed);
+        // The AULA F87 PRO's receiver shares Compx's 0x3554: its request goes to its 20-byte 0xFF02 collection (usage 2) alone.
+        bool aula = true;
+        foreach (int page in pages)
+            foreach (int usage in new[] { 0x0001, 0x0002 })
+                if (Dongles.Find(0x3554, 0xFA09, page, "", 65, 1, usage, 64, 64) is { } found && !(page == 0xFF02 && usage == 0x0002 && found == Dongles.Protocol.Aula)) aula = false;
+        check("Requests: the AULA F87 PRO's receiver only on its 0xFF02 collection of usage 2 with 20-byte reports", aula
+            && Dongles.Find(0x3554, 0xFA09, 0xFF02, "", 0, 1, 0x0002, 20, 20) == Dongles.Protocol.Aula
+            && Dongles.Find(0x3554, 0xFA09, 0xFF02, "", 0, 1, 0x0002, 17, 17) is null && Dongles.Find(0x3554, 0xFA08, 0xFF02, "", 0, 1, 0x0002, 20, 20) is null);
         check("Requests: Realtek 0BDA:4762 and a Nordic 1915 receiver, the cases the review named, are not sent to",
             Dongles.Find(0x0BDA, 0x4762, 0xFF01, "MCHOSE Mouse", 64) is null && Dongles.Find(0x0BDA, 0x4762, 0xFF0B, "2.4G Mouse", 64) is null
             && Dongles.Find(0x1915, 0x0001, 0xFFA0, "Crazyradio", 64) is null && Dongles.Find(0x1915, 0x520F, 0xFFA0, "HP Prime", 64) is null);
@@ -77,6 +87,18 @@ static class DeviceSafetyTests
             compx.SequenceEqual(new[] { (0x1119, 0xFF04), (0x111A, 0xFF04) }));
         check("Requests: the Compx page 0xFF02 on ATK's vendor and the other pages of the A9 are not sent to",
             Dongles.Find(0x373B, 0x1119, 0xFF02, "", 0) is null && Dongles.Find(0x373B, 0x111A, 0xFF01, "", 0) is null && Dongles.Find(0x373B, 0x1120, 0xFF04, "", 0) is null);
+
+        // ATK's keyboards answer VGN's keyboard frame (AtkKeyboards): the Z87 Pro's dongle is the one product measured, so it is
+        // the only one sent to, on the keyboard page, while ATK's mice keep BitMouse on theirs.
+        var atkKeyboards = new List<(int Product, int Page)>();
+        for (int product = 0; product <= 0xFFFF; product++)
+            foreach (int page in pages)
+                if (Dongles.Find(0x373B, product, page, "ATK Z87 Dongle", 0, 1, 0x0092, 64, 64) == Dongles.Protocol.Vgn) atkKeyboards.Add((product, page));
+        check("Requests: VGN's keyboard frame goes to 373B:1012 on page 0xFF1C and nowhere else of ATK's",
+            atkKeyboards.SequenceEqual(new[] { (0x1012, 0xFF1C) })
+            && Dongles.Find(0x373B, 0x1012, 0xFF1C, "ATK Z87 Dongle", 0, 1, 0x0001, 64, 64) is null && Dongles.Find(0x373B, 0x1012, 0xFF1C, "ATK Z87 Dongle", 0, 1, 0x0092, 32, 32) is null
+            && Dongles.Find(0x373B, 0x1012, 0xFF05, "ATK Z87 Dongle", 0, 1, 0x0001, 64, 64) == Dongles.Protocol.BitMouse
+            && Dongles.Find(0x373B, 0x1013, 0xFF1C, "ATK Z87 Pro", 0, 1, 0x0092, 64, 64) is null);
 
         // The vendors' own ids keep their readers.
         check("Requests: ATK's BitMouse page, VGN's keyboard, Endgame Gear and VAXEE are still read",

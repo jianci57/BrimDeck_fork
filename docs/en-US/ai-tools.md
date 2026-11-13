@@ -36,6 +36,14 @@ When a record carries its own amount (Cursor and OpenCode, for example), that am
 
 A price in that list usually comes from the cheapest provider and can differ from the model maker's list price. For example, GLM-5.3 is listed at 0.07 and 1.4 USD per million input and output tokens, while Z.AI charges 1.4 and 4.4. So for each model your records use, BrimDeck looks up the model maker's own endpoint on OpenRouter and uses its prices instead; a model whose maker has no endpoint there keeps the list price. Each model's endpoint prices are looked up once a day and saved on this PC; when a lookup fails, the prices saved before are used. Prices added by hand take precedence.
 
+## Quota rings and off-peak time
+
+Expand an app's row under Settings › Quotas and usage › Apps to set:
+
+- **Targets**: for sources billed per API call (such as DeepSeek, New API and Sub2API), each balance or amount spent can have its own target, which counts as 100%: a balance is shown by what is left (with 100 as the target and 20 left, 80% is shown as used), spending by what is spent. The account balance's target starts at 100 on new rows; the others start unset. The quota rings, the panel's bars, warning colors and notices all follow the targets; left empty, only the amount is shown.
+- **Ring quotas**: choose which quotas this app's collapsed quota ring shows. With nested rings, choose the outer, middle and inner ring's quota; any ring can be set to None, and the others keep their places. A quota is never shown twice. By default the quotas fill the outer, middle and inner rings from the shortest period to the longest, with quotas without a period (such as tool calls) last: for GLM, 5 hours, the week and the tool calls. When one is missing, the ones after it move out. Each ring keeps its own quota, whichever is used more; Restore defaults goes back to this. Sources billed per API call can also show a gift balance, a key balance, today's spending and the like; the account balance comes first by default, and shares follow the targets above. With a single ring, a source with an account balance shows it by default, and other sources show their most used quota. While a quota has no data, its ring shows only its track. The ring style, whether to show what is used or what is left, and the letters are set in the Quota display section above the app list on the Quotas and usage page; with what is left chosen, the panel's bars and percentages and the quota notices show what is left too, while amounts such as balances and spending stay as they are.
+- **Off-peak time**: add up to 6 off-peak periods, with colors of their own. During an off-peak period, the column's quota ring and progress bar use the off-peak colors.
+
 ## Usage in WSL
 
 When "Include usage from WSL" is turned on in Settings › Quotas and usage, BrimDeck reads the Claude Code and Codex CLI session records inside installed WSL distributions and counts them in the tokens and cost of Claude and Codex. Only Claude and Codex support WSL at present.
@@ -82,6 +90,7 @@ Reads local session usage and cost statistics from Pi Coding Agent (`~/.pi/agent
 - **Usage app**: select Pi under "Usage app" and pair it with an existing quota source. Pi is not offered under "Quota source". No Pi sign-in, third-party subscription quota or Pi account switching is read or provided.
 - **Tokens and cost**: reads session records from `~/.pi/agent/sessions` and counts token usage and Pi-recorded costs for Today and Week, not subscription charges.
 - **Session path**: `PI_CODING_AGENT_SESSION_DIR` takes precedence; otherwise reads `sessions` under `PI_CODING_AGENT_DIR`, or the default directory when neither is set. Pi-specific resolution supports `~`, `~/...`, relative paths and local `file://` URLs; Windows also supports `~\...` and Git Bash/MSYS/Cygwin/WSL drive paths. Relative paths use the BrimDeck process working directory, which may differ from Pi running in another terminal. Only the selected directory is read; other Pi profiles are not automatically scanned.
+
 ## OpenCode
 
 The OpenCode CLI and desktop app share one data folder (`%USERPROFILE%\.local\share\opencode`), and keep the sign-in and session records in `opencode.db` there, so signing in to either is enough. OpenCode 1.x and 2.x use this folder too.

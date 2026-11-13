@@ -100,7 +100,11 @@ public partial class MainWindow
     private bool ClearBeforeMoving(bool animatePage)
     {
         if (_edgeClearing) return true;
-        if (_framedDock is not { } framed || Dock(EffectiveStyle) == framed || !IsVisible || IsSuppressed || _hiding || _moveOverlay is not null || !(HoverZone.Opacity > 0)) return false;
+        // Another anchor on the same edge often leaves the window where it is (no taskbar on that edge: the screen's edge and the
+        // taskbar's are one line), as from the notch to the capsule at the top: nothing is cleared then, so a style morph plays.
+        var (edge, overTaskbar) = Dock(EffectiveStyle);
+        if (_framedDock is not { } framed || (edge, overTaskbar) == framed
+            || EdgeFrame.For(edge, _screenMonitor.Width, _screenMonitor.Height, _screenWork, overTaskbar) == _frame || !IsVisible || IsSuppressed || _hiding || _moveOverlay is not null || !(HoverZone.Opacity > 0)) return false;
         _edgeClearing = true;
         SetImmediate(HoverZone, OpacityProperty, 0d);
         int frames = 0;

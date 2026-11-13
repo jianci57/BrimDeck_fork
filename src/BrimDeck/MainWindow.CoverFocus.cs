@@ -29,6 +29,8 @@ public partial class MainWindow
             Press(true); e.Handled = true;
         };
         art.MouseLeave += (_, _) => { if (pressed) Press(false); };
+        // A drag that begins on the cover is a gesture (MainWindow.MusicGestures.cs): the press lets go and its release does not arrive here.
+        _releaseCoverPress = () => { if (pressed) Press(false); };
         art.MouseLeftButtonUp += (_, e) =>
         {
             if (!pressed) return;

@@ -192,8 +192,9 @@ internal sealed class NeteaseSource : IMediaPlayerConnection
             if (_process?.IsAlive() != true)
             {
                 Clear();
-                // Looked for every second while a full-control setting waits for the player: the snapshot is the cheap check.
-                if (!ProcessSnapshot.Any("cloudmusic.exe")) { _unidentified = []; return; }
+                // Looked for every second while a full-control setting waits for the player: answered from a snapshot shared with
+                // the other players' checks and at most a few seconds old (ProcessSnapshot.AnyRecent).
+                if (!ProcessSnapshot.AnyRecent("cloudmusic.exe")) { _unidentified = []; return; }
                 var processes = Process.GetProcessesByName("cloudmusic");
                 int[] ids;
                 try { ids = processes.Select(p => p.Id).Order().ToArray(); }

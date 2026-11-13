@@ -109,7 +109,7 @@ public partial class MainWindow
         SyncProgress.Data = RingArc(fraction);
     }
 
-    // The arc starts at 12 o'clock and grows counterclockwise, like the compact quota rings.
+    // The arc starts at 12 o'clock and grows clockwise, like the compact quota rings.
     private static Geometry? RingArc(double fraction)
     {
         const double center = 12, radius = 10;
@@ -120,8 +120,8 @@ public partial class MainWindow
         {
             double angle = fraction * Math.PI * 2;
             var figure = new PathFigure { StartPoint = new Point(center, center - radius), IsClosed = false };
-            figure.Segments.Add(new ArcSegment(new Point(center - radius * Math.Sin(angle), center - radius * Math.Cos(angle)),
-                new Size(radius, radius), 0, fraction > .5, SweepDirection.Counterclockwise, true));
+            figure.Segments.Add(new ArcSegment(new Point(center + radius * Math.Sin(angle), center - radius * Math.Cos(angle)),
+                new Size(radius, radius), 0, fraction > .5, SweepDirection.Clockwise, true));
             geometry = new PathGeometry([figure]);
         }
         geometry.Freeze();

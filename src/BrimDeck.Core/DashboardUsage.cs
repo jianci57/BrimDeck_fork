@@ -19,13 +19,18 @@ public static class DashboardUsage
 
     public static ProviderSnapshot Quota(AppEntry entry, IReadOnlyList<ProviderSnapshot> snapshots) => WithBalanceTarget(entry, Find(entry, snapshots));
 
-    // The row's target balance becomes the total of its account balance, so the rings, the panel and the level notices
-    // read the balance as a used share. Several rows can share one snapshot, so the snapshot itself is left unchanged.
+    // The row's target balance becomes the total of its account balance, and each other target (AppEntry.QuotaTargets) the total
+    // of its balance or amount spent, so the rings, the panel and the level notices read them as used shares. Several rows can
+    // share one snapshot, so the snapshot itself is left unchanged.
     private static ProviderSnapshot WithBalanceTarget(AppEntry entry, ProviderSnapshot snapshot)
     {
-        if (entry.BalanceTarget is not { } target || !ProviderCatalog.HasAccountBalance(entry.QuotaSource) || !snapshot.Metrics.Any(ProviderCatalog.IsAccountBalance)) return snapshot;
+        decimal? account = entry.BalanceTarget is { } balance && ProviderCatalog.HasAccountBalance(entry.QuotaSource) ? balance : null;
+        var targets = entry.QuotaTargets ?? [];
+        decimal? Target(UsageMetric metric) => ProviderCatalog.IsAccountBalance(metric) ? account
+            : QuotaRing.TakesTarget(metric) && targets.TryGetValue(metric.Id, out var target) ? target : null;
+        if (!snapshot.Metrics.Any(metric => Target(metric) is not null)) return snapshot;
         var copy = snapshot.Copy();
-        copy.Metrics = [.. snapshot.Metrics.Select(metric => ProviderCatalog.IsAccountBalance(metric) ? metric with { Total = target, TotalIsTarget = true } : metric)];
+        copy.Metrics = [.. snapshot.Metrics.Select(metric => Target(metric) is { } target ? metric with { Total = target, TotalIsTarget = true } : metric)];
         return copy;
     }
 

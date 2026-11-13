@@ -319,6 +319,9 @@ public partial class MainWindow
         // about 25 times a second during the drag, and once more when it ends (FinishResize saves the size).
         if (_resizePage == DeckPage.Monitor) RenderMonitor();
         else if (_resizePage == DeckPage.Devices) RenderDevices();
+        // The clipboard page is built again only where its sizes step; in between its columns stretch (StretchShelf). It is built
+        // once more when the size is saved (FinishResize).
+        else if (_resizePage == DeckPage.Clipboard) StretchShelf();
         else if (Environment.TickCount64 - _resizeRendered >= 40)
         {
             _resizeRendered = Environment.TickCount64;

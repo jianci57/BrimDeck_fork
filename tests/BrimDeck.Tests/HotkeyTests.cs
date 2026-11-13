@@ -47,6 +47,11 @@ internal static class HotkeyTests
             Enum.GetValues<HotkeyKind>().All(kind => all.Hotkey(kind) == kind.ToString() && new DeckSettings().Hotkey(kind) == "")
             && Normalized(new DeckSettings { Page10Hotkey = null!, MoveHotkey = null! }).Page10Hotkey == ""
             && Normalized(new DeckSettings { MoveHotkey = null! }).MoveHotkey == "");
+        check("The line style hotkey returns to the notch or capsule last chosen",
+            Normalized(new DeckSettings { Style = CompactStyle.Capsule }).ShapeStyle == CompactStyle.Capsule
+            && Normalized(new DeckSettings { Style = CompactStyle.Line, ShapeStyle = CompactStyle.Capsule }).ShapeStyle == CompactStyle.Capsule
+            && Normalized(new DeckSettings { Style = CompactStyle.Line, ShapeStyle = CompactStyle.Line }).ShapeStyle == CompactStyle.Notch
+            && Normalized(new DeckSettings { Style = CompactStyle.Line }).ShapeStyle == CompactStyle.Notch);
     }
 
     private static DeckSettings Normalized(DeckSettings settings) { settings.Normalize(); return settings; }

@@ -34,13 +34,15 @@ public sealed record UsageMetric(MetricKind Kind, string Label)
         // An exhausted or overdrawn balance counts as fully used even when the source gives no total.
         MetricKind.Balance when Total is null or 0 && Amount <= 0 => 100,
         MetricKind.Count when Total is > 0 && Used is { } used => (double)(used / Total.Value * 100),
+        // An amount spent against a total, such as a target of the row's own (AppEntry.QuotaTargets).
+        MetricKind.Spend when Total is > 0 && Amount is { } spent => (double)(spent / Total.Value * 100),
         _ => null
     };
     public string ValueText => Kind == MetricKind.Text ? Value : Kind is MetricKind.Balance or MetricKind.Spend ? (AtLeast ? "≥" : "") + Money(Amount!.Value, Currency) : UsedPercent is { } p ? $"{p:0.#}%" : "—";
     public string ValueSuffix => Kind switch { MetricKind.Text => Value.Length > 0 ? Suffix : "", MetricKind.Balance => Loc.T("可用", "left"), _ => Loc.T("已用", "used") };
     public string CountText => Kind == MetricKind.Count ? $"{Used:N0} / {Total:N0}" : "";
     public string Description => string.Join("\n", new[] { Kind == MetricKind.Text ? Label : Loc.Label(Label), (ValueText + " " + ValueSuffix).Trim(), Note, ResetText,
-        Total is { } total ? (TotalIsTarget ? Loc.T("目标余额：", "Target balance: ") : Loc.T("总额：", "Total: ")) + (Kind == MetricKind.Count ? total.ToString("N0") + " " + Loc.Label(Unit) : Money(total, Currency)) : "",
+        Total is { } total ? (TotalIsTarget ? Kind == MetricKind.Spend ? Loc.T("目标金额：", "Target: ") : Loc.T("目标余额：", "Target balance: ") : Loc.T("总额：", "Total: ")) + (Kind == MetricKind.Count ? total.ToString("N0") + " " + Loc.Label(Unit) : Money(total, Currency)) : "",
         CountText, Unlimited ? Loc.T("无上限", "No limit") : "", ResetAt is { } reset ? Loc.T("重置时间：", "Resets: ") + $"{reset.LocalDateTime:yyyy-MM-dd HH:mm:ss}" : "",
         ExpiresAt is { } expiry ? Loc.T("到期时间：", "Expires: ") + $"{expiry.LocalDateTime:yyyy-MM-dd HH:mm:ss}" : "" }.Where(x => x.Length > 0));
     public static string Money(decimal amount, string currency) => (amount < 0 ? "−" : "") + (currency switch { "USD" => "$", "CNY" => "¥", "" => "", _ => currency + " " }) + Math.Abs(amount).ToString("N2", CultureInfo.InvariantCulture);

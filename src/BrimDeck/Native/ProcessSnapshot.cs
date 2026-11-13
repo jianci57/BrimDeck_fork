@@ -36,6 +36,41 @@ internal static class ProcessSnapshot
         return found;
     }
 
+    // Whether a process of this executable runs, as of at most Recent ago: for the players that are looked for every few seconds
+    // while they do not run (NeteaseSource every second while full control waits for the player, KugouCdpConnection every three).
+    // A snapshot takes about 5 ms of processor time with 300 processes: each of them taking its own came to half a percent of a
+    // core, over a tenth of what an idle panel used (measured 2026-11-10). One snapshot answers for every name asked about so far,
+    // and a window coming to the front (WindowsHost) ends its time, so a player the user has just started is found at the next
+    // look, as before; one started without a window in front is found a few seconds later than it was.
+    private const long Recent = 3000;
+    private static readonly object Gate = new();
+    private static readonly Dictionary<string, bool> Asked = new(StringComparer.OrdinalIgnoreCase);
+    private static long _askedAt = long.MinValue / 2;
+    public static bool AnyRecent(string file)
+    {
+        lock (Gate)
+        {
+            long now = Environment.TickCount64;
+            if (!Asked.ContainsKey(file) || now - Volatile.Read(ref _askedAt) >= Recent)
+            {
+                Asked[file] = false;
+                string[] names = [.. Asked.Keys];
+                var runs = new bool[names.Length];
+                Walk((in PROCESSENTRY32W entry) =>
+                {
+                    var name = Name(entry);
+                    for (int i = 0; i < names.Length; i++) if (!runs[i] && name.Equals(names[i], StringComparison.OrdinalIgnoreCase)) runs[i] = true;
+                    return true;
+                });
+                for (int i = 0; i < names.Length; i++) Asked[names[i]] = runs[i];
+                Volatile.Write(ref _askedAt, now);
+            }
+            return Asked[file];
+        }
+    }
+    // A program may just have started: the next AnyRecent takes a new snapshot.
+    public static void Expire() => Volatile.Write(ref _askedAt, long.MinValue / 2);
+
     private static ReadOnlySpan<char> Name(in PROCESSENTRY32W entry)
     {
         ReadOnlySpan<char> name = MemoryMarshal.Cast<ushort, char>((ReadOnlySpan<ushort>)entry.szExeFile);

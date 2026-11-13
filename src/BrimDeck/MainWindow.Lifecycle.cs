@@ -86,7 +86,7 @@ public partial class MainWindow
     private void Boot()
     {
         if (_poweringOff || _app.Exiting || _retiring) return;
-        if (_expanded || IsSuppressed || !CanAnimateLifecycle) { SetImmediate(HoverZone, OpacityProperty, 1d); return; }
+        if (_expanded || IsSuppressed || !CanAnimateLifecycle) { SetImmediate(HoverZone, OpacityProperty, 1d); if (_notice is not null) LayoutSystemNotice(); return; }
         SetImmediate(HoverZone, OpacityProperty, 0d);
         _bootWaiting = true;
         int boot = ++_boot;
@@ -106,7 +106,7 @@ public partial class MainWindow
     {
         int boot = ++_boot; _bootWaiting = false;
         if (_poweringOff || _app.Exiting || _retiring) return;
-        if (_expanded || IsSuppressed || !CanAnimateLifecycle) { SetImmediate(HoverZone, OpacityProperty, 1d); return; }
+        if (_expanded || IsSuppressed || !CanAnimateLifecycle) { SetImmediate(HoverZone, OpacityProperty, 1d); if (_notice is not null) LayoutSystemNotice(); return; }
         var shape = Collapsed = ShapeFor(EffectiveStyle);
         PlaceDot(shape);
         _bootDot = true; Island.SettledClip = false;
@@ -244,7 +244,9 @@ public partial class MainWindow
         double width = DotMotion.Size * 4, height = DotMotion.Size * 2 + DropMerge.WaterBelow, floor = DotTop(shape) + DotMotion.Size;
         _merge.Width = width; _merge.Height = height;
         _merge.Margin = new Thickness(DotLeft(shape) + DotMotion.Size / 2 - width / 2, floor - (height - DropMerge.WaterBelow), 0, 0);
-        _merge.Fill = _surface.Color;
+        // Match both the upstream surface transparency and the fork's background opacity.
+        var fill = _surface.Color; fill.A = (byte)Math.Round(fill.A * Island.SurfaceOpacity * Island.BackgroundOpacity);
+        _merge.Fill = fill;
         _merge.Visibility = Visibility.Visible;
         SetImmediate(_merge, DropMerge.ProgressProperty, 0d);
         var progress = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(DotMotion.SinkLength)) { EasingFunction = null };

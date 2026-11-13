@@ -11,7 +11,6 @@ namespace BrimDeck;
 
 public sealed partial class SettingsWindow
 {
-    private DeckPage _previewPage;
     // keepPreview marks the segments alone as preview controls, so a press on the rest of the row still ends the preview.
     private FrameworkElement MusicChoice<T>(string title, T selected, (T Value, string Label)[] options, Action<T> change, bool enabled = true, bool keepPreview = false, string? help = null, double width = 292) where T : notnull
     {
@@ -58,7 +57,7 @@ public sealed partial class SettingsWindow
         var rows = new StackPanel();
         _partOptions.Clear();
         foreach (var part in S.CompactOrder(style))
-            rows.Children.Add(part switch { CompactPart.Clock => ClockRow(style, rows), CompactPart.Rings => RingsRow(style, rows), _ => PartRow(style, part, rows) });
+            rows.Children.Add(part switch { CompactPart.Clock => ClockRow(style, rows), _ => PartRow(style, part, rows) });
         UpdateDividers(rows);
         Group(rows);
     }
@@ -159,15 +158,21 @@ public sealed partial class SettingsWindow
         Show(_openParts.Contains(part));
         return item;
     }
-    // The quota rings: the switch turns them on or off; the option under the title writes each application's letter inside its ring.
-    private Border RingsRow(CompactStyle style, StackPanel rows)
+    // The quota rings' look, on the quota page beside the applications: one ring or nested rings, whether the arcs show what is used
+    // or what is left, and whether each application's letter (its display name's) is written inside its ring. They are shared by the
+    // notch, the capsule and the side column; each application's quotas are set with the application (RingDetails), and the rings are
+    // switched on or off with the collapsed content (PartRow). A new style builds the application rows again, so their ring lines follow it.
+    private void QuotaRingSection()
     {
-        bool notch = style == CompactStyle.Notch;
-        string letters = Loc.T("环内显示首字母", "Letter in the rings");
-        var options = new StackPanel();
-        options.Children.Add(Lighter(Toggle(letters, S.QuotaRingLetters, v => Change(s => s.QuotaRingLetters = v)), letters));
-        return OptionsPartRow(style, CompactPart.Rings, rows, Loc.T("配额环", "Quota rings"), Loc.T("配额环设置", "Quota ring settings"), S.ShowsSummary(style),
-            on => Change(s => { if (notch) s.NotchSummary = on; else s.CapsuleSummary = on; }), options);
+        SectionTitle(Loc.T("配额显示", "Quota display"));
+        Group(MusicChoice(Loc.T("环的样式", "Ring style"), S.QuotaRingStyle, [(QuotaRingStyle.Single, Loc.T("单环", "Single")), (QuotaRingStyle.Nested, Loc.T("多环", "Nested"))],
+                v => { Change(s => s.QuotaRingStyle = v); foreach (var entry in S.Apps) RefreshAppRow(entry.InstanceId); }, help: Loc.T("单环：每个应用一个环，默认显示已用比例最高的一项额度。\n多环：每个应用最多三个环，分别显示不同的额度。\n各环显示哪项额度，在下方展开该应用后设置。",
+                    "Single: one ring per app, showing its most used quota by default.\nNested: up to three rings per app, each showing a different quota.\nWhich quota each ring shows is set by expanding the app below."), width: 200),
+            MusicChoice(Loc.T("显示已用或剩余", "Used or left"), S.QuotaRingRemaining, [(false, Loc.T("已用额度", "Used")), (true, Loc.T("剩余额度", "Left"))],
+                v => Change(s => s.QuotaRingRemaining = v), help: Loc.T("已用额度：显示已用的比例，用得越多，配额环和进度条越长。\n剩余额度：显示剩余的比例，用得越多，配额环和进度条越短。\n配额环、展开面板的进度条和百分比、配额提醒都按这里显示；余额、扣费等金额不受影响。",
+                    "Used: shows the share used; the more is used, the longer the rings and bars.\nLeft: shows the share left; the more is used, the shorter the rings and bars.\nThe quota rings, the panel's bars and percentages, and the quota notices all follow it; amounts such as balances and spending stay as they are."), width: 200),
+            Toggle(Loc.T("环内显示首字母", "Letter in the rings"), S.QuotaRingLetters, v => Change(s => s.QuotaRingLetters = v),
+                help: Loc.T("在配额环中间显示应用名称的首字母，名称以下方“显示名称”一栏为准。", "Shows the first letter of the app's name inside its quota ring, taken from the Display name column below.")));
     }
     // The clock's swatches but the gradient: the theme's color (theme), the presets, a custom color and the cover's. Used for the
     // equalizer and for the music page's current lyric; save gets the chosen color and the custom one.
@@ -203,14 +208,6 @@ public sealed partial class SettingsWindow
             ClockColor.White => theme,
             _ => ClockFace.Fill([PanelTheme.Readable(ClockFace.Preset(color))])
         };
-    }
-    // Labels inside an open row are set lighter than the row's own title, as "快捷尺寸" is (QuickRow).
-    private static FrameworkElement Lighter(FrameworkElement row, string title)
-    {
-        static IEnumerable<TextBlock> Texts(DependencyObject parent) => LogicalTreeHelper.GetChildren(parent).OfType<DependencyObject>()
-            .SelectMany(child => child is TextBlock text ? new[] { text } : Texts(child));
-        if (Texts(row).FirstOrDefault(text => text.Text == title) is { } label) label.FontWeight = FontWeights.Normal;
-        return row;
     }
     // Settings every player shares: the equalizer, colors, cover and text.
     private void MusicStyle()
@@ -258,6 +255,8 @@ public sealed partial class SettingsWindow
     // Operations only one player supports, grouped under that player's name.
     private void Players()
     {
+        SectionTitle(Loc.T("播放来源", "Playback sources"));
+        Group(IgnoredAppsRow());
         SectionTitle(Loc.T("网易云音乐", "NetEase Cloud Music"));
         // Without full control NetEase is controlled through its system media session, an option in its own settings.
         PlayerNote(Loc.T("在网易云音乐“设置 › 系统”中打开“开启 SMTC”，即可控制播放。",
@@ -281,6 +280,59 @@ public sealed partial class SettingsWindow
         SectionTitle(Loc.T("QQ 音乐", "QQ Music"));
         PlayerNote(Loc.T("无需任何设置。", "Needs no setup."), last: true);
     }
+    // Whether the ignored apps are shown under their row, kept while the row is rebuilt after an app is added or removed.
+    private bool _ignoredOpen;
+    // Holds the row, so that adding or removing an app rebuilds the row alone, as the app rules row does.
+    private Border? _ignoredHost;
+
+    // The applications whose playback the panel leaves out. The menu offers the apps that report playback now, and any
+    // executable. An executable is added under its file name, the id most players report; a player that reports an id of
+    // its own choosing is matched only while it plays and can be added from the menu then.
+    private FrameworkElement IgnoredAppsRow() => _ignoredHost = new Border { Child = IgnoredAppsContent() };
+    private void RefreshIgnoredApps() { if (_ignoredHost is not null) _ignoredHost.Child = IgnoredAppsContent(); }
+
+    private FrameworkElement IgnoredAppsContent() => AppListRow(Loc.T("忽略的应用", "Ignored apps"),
+        () => Loc.T("被忽略的应用播放时，面板不显示它的歌曲，来源菜单中也不列出它。“添加应用”列出正在播放或已暂停的应用，也可以浏览可执行文件。忽略浏览器会忽略其中所有网页的播放。",
+            "While an ignored app plays, the panel does not show its songs and the source menu leaves it out. \"Add app\" lists the apps that are playing or paused, or browse for an executable. Ignoring a browser ignores playback in all its pages."),
+        Loc.T("展开忽略的应用", "Show ignored apps"), Loc.T("添加要忽略的应用", "Add an app to ignore"),
+        [.. S.IgnoredMediaApps.Select(IgnoredAppLine)], IgnoredAppMenu, _ignoredOpen, open => _ignoredOpen = open);
+
+    private FrameworkElement IgnoredAppLine(IgnoredMediaApp app)
+    {
+        string name = app.Name.Length > 0 ? app.Name : app.AppId;
+        return AppLine(name, IgnoredAppDetail(app), app.Path, app.Path.Length > 0 ? app.Path : app.AppId, () =>
+        {
+            Change(s => s.IgnoredMediaApps.RemoveAll(entry => string.Equals(entry.AppId, app.AppId, StringComparison.OrdinalIgnoreCase)));
+            RefreshIgnoredApps();
+        });
+    }
+
+    // The executable's file name when it is known, otherwise the id the app's media session reports.
+    private static string IgnoredAppDetail(IgnoredMediaApp app) => app.Path.Length > 0 ? System.IO.Path.GetFileName(app.Path) : app.AppId;
+
+    private void IgnoredAppMenu(Button anchor)
+    {
+        var menu = AppMenu(anchor);
+        var apps = (((App)Application.Current).Media?.DetectedApps() ?? [])
+            .Where(app => !S.IgnoredMediaApps.Any(entry => string.Equals(entry.AppId, app.AppId, StringComparison.OrdinalIgnoreCase)))
+            .OrderBy(app => app.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
+        foreach (var app in apps)
+            menu.Items.Add(AppMenuItem(app.Name, IgnoredAppDetail(app), app.Path, () =>
+            {
+                Change(s => s.IgnoredMediaApps.Add(app));
+                RefreshIgnoredApps();
+            }));
+        if (apps.Count == 0) menu.Items.Add(new MenuItem { Header = Loc.T("没有正在播放的应用", "No app is playing"), IsEnabled = false });
+        AddBrowseItem(menu, Loc.T("选择要忽略的应用", "Choose an app to ignore"), path =>
+        {
+            var app = new IgnoredMediaApp(System.IO.Path.GetFileName(path), AppName(System.IO.Path.GetFileNameWithoutExtension(path), path), path);
+            if (S.IgnoredMediaApps.Any(entry => string.Equals(entry.AppId, app.AppId, StringComparison.OrdinalIgnoreCase))) return;
+            Change(s => s.IgnoredMediaApps.Add(app));
+            RefreshIgnoredApps();
+        });
+        menu.IsOpen = true;
+    }
+
     // A line of small text between a player's title and its settings; last: the player has no settings, so the line ends the
     // section with a group's spacing.
     private void PlayerNote(string text, bool last = false)

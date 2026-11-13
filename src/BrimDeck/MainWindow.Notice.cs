@@ -42,6 +42,8 @@ public partial class MainWindow
     // A keyboard expand or collapse pressed while the card shows is remembered and applied when it clears, so the
     // five seconds never swallow the hotkeys' intent; pointer-driven calls only re-lay the card.
     private bool? _noticeDeferredExpand;
+    private DeckPage? _noticeDeferredPage;
+    internal DeckPage PageForHotkey => _noticeDeferredPage ?? CurrentPage;
 
     private void EnsureNoticeWired()
     {
@@ -65,7 +67,7 @@ public partial class MainWindow
         _notice = item;
         _noticeRendered = null;
         EnsureNoticeWired();
-        _noticeTimer.Stop(); _noticeTimer.Start();
+        _noticeTimer.Stop();
         LayoutSystemNotice();
     }
 
@@ -74,7 +76,7 @@ public partial class MainWindow
     internal void StopSystemNotification()
     {
         _noticeTimer.Stop();
-        _notice = null; _noticeRendered = null; _noticeDeferredExpand = null;
+        _notice = null; _noticeRendered = null; _noticeDeferredExpand = null; _noticeDeferredPage = null;
         _noticeSurface = default; _noticeCardW = 0; _noticeCardH = 0;
         NotificationOverlay.Visibility = Visibility.Collapsed;
         NotificationOverlay.Children.Clear();
@@ -97,6 +99,7 @@ public partial class MainWindow
         if (_notice is null) return;
         // A keyboard expand or collapse pressed while the card showed is read before anything clears it.
         bool expand = _noticeDeferredExpand ?? _expanded;
+        var page = _noticeDeferredPage;
         StopSystemNotification();
         _noticeDeferredExpand = null;
         if (PresentationSource.FromVisual(this) is null || _poweringOff || _retiring) return;
@@ -107,7 +110,13 @@ public partial class MainWindow
         HoverExtension.Visibility = _expanded ? Visibility.Visible : Visibility.Hidden;
         // The restore is laid out in place (instant): every size, margin and corner is set directly from the state,
         // so no frame of the notice's SetImmediate geometry can leak into an animated start value.
-        SetExpanded(expand, instant: true, keyboard: expand != _expanded);
+        if (expand && _expanded && page is { } target) SelectPage(target);
+        _hotkeyPage = page;
+        try { SetExpanded(expand, instant: true, keyboard: expand != _expanded); }
+        finally { _hotkeyPage = null; }
+        // The leave timer may already have fired while the card intercepted its collapse. The poll sees no new
+        // transition when _pointerInside is already false, so explicitly resume the existing guarded exit path.
+        if (_expanded && !_pointerInside && !IsHotkeyPinned) PointerChanged(false);
     }
 
     // Called by ApplySettings: the switch, the mode, a theme or a shape change all pass through here. Off, suppressed
@@ -174,6 +183,8 @@ public partial class MainWindow
             _noticeRendered = key; _noticeCardW = cardW; _noticeCardH = cardH;
         }
         ApplyNoticeGeometry(shape);
+        // A card held behind boot or dragging gets its full lifetime only once it is actually displayed.
+        if (!_noticeTimer.IsEnabled) _noticeTimer.Start();
     }
 
     // Sizes and places the island for the card, from the shape as it is now. The island's Width runs along the edge
@@ -201,8 +212,8 @@ public partial class MainWindow
         SetImmediate(Island, WidthProperty, islandAlong);
         SetImmediate(Island, HeightProperty, islandAcross);
         SetImmediate(Island, Border.CornerRadiusProperty, new CornerRadius(shape.TopRadius, shape.TopRadius, shape.BottomRadius, shape.BottomRadius));
-        Island.ShoulderRadius = shape.Shoulder;
-        Island.MaterialOpacity = 1;
+        SetImmediate(Island, IslandBorder.ShoulderRadiusProperty, shape.Shoulder);
+        SetImmediate(Island, IslandBorder.MaterialOpacityProperty, 1d);
         // The card keeps clear of the corners with its own padding; the settled rectangle clip comes back with the restore.
         Island.SettledClip = false;
         SetImmediate(_surface, SolidColorBrush.ColorProperty, PanelTheme.ColorOf("surface"));

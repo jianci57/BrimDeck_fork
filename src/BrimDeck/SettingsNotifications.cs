@@ -7,7 +7,7 @@ using BrimDeck.Native;
 
 namespace BrimDeck;
 
-// The notifications page (page 16): the switch for the island's system notifications, the reader's authorization and
+// The notifications page (NotificationsPage): the switch for the island's system notifications, the reader's authorization and
 // access state, and what the island shows. It is a settings page, not a mirror of the notification
 // center — the reader (the application's one, App.Notifications) is asked only for the access state and, by the
 // button, for consent; the page shows no notification content and keeps none. The background reading and the display
@@ -33,8 +33,8 @@ public sealed partial class SettingsWindow
             "When on, BrimDeck reads Windows' notification center every 2.5 seconds in the background and shows newly arrived notifications on the island. Nothing is removed, changed or recorded; the content is used to be shown, nothing more."));
         var toggle = Toggle(Loc.T("显示系统消息通知", "Show system notifications"), S.NotificationsEnabled,
             v => { Change(s => s.NotificationsEnabled = v); RefreshNotificationAccess(); }, help: Loc.T(
-                "关闭时灵动岛不显示系统消息，也不再读取通知中心；已显示的通知（含测试通知）立即消失。",
-                "Off, the island shows no system messages and the center is not read; a notification already shown (a test one too) disappears at once."));
+                "开启后，每条新通知会同时显示在所有可见的灵动岛上；关闭时灵动岛不显示系统消息，也不再读取通知中心；已显示的通知（含测试通知）立即消失。",
+                "When on, every new notification shows on all visible islands at once; off, the island shows no system messages and the center is not read; a notification already shown (a test one too) disappears at once."));
         _notificationStatus = new TextBlock { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 6) };
         var authorize = ActionButton(Loc.T("请求授权", "Request access"), RequestNotificationAccess);
         _notificationAuthorizeButton = authorize;
@@ -48,9 +48,13 @@ public sealed partial class SettingsWindow
         var buttons = new WrapPanel { Orientation = Orientation.Horizontal };
         authorize.Margin = new Thickness(0, 0, 10, 4); systemSettings.Margin = new Thickness(0, 0, 10, 4);
         buttons.Children.Add(authorize); buttons.Children.Add(systemSettings); buttons.Children.Add(refresh);
-        var access = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        // The access area takes an exclusive row under its label. Row() would place it in the Auto-sized column,
+        // which WPF measures with an infinite width, so a long denied or diagnostic text would neither wrap nor
+        // trim (the page has no horizontal scrolling) and be clipped. Stacked under the label, the page's width
+        // constrains it and the status text and the buttons wrap within that width.
+        var access = new StackPanel { Margin = new Thickness(0, 8, 0, 0) };
         access.Children.Add(_notificationStatus); access.Children.Add(buttons);
-        Group(toggle, Row(Loc.T("读取授权", "Reader access"), access));
+        Group(toggle, new StackPanel { Children = { SettingLabel(Loc.T("读取授权", "Reader access")), access } });
 
         SectionTitle(Loc.T("通知内容", "Notification content"));
         var modeTitle = Loc.T("内容模式", "Content");
@@ -66,8 +70,8 @@ public sealed partial class SettingsWindow
             modeOptions.Children.Add(option);
         }
         Group(Row(modeTitle, SegmentBorder(modeOptions), help: () => Loc.T(
-            "缩略显示标题与正文；紧凑显示时间与应用名；完整显示应用名、标题与正文（正文过长时截断）。",
-            "Brief shows the title and the body; Compact the time and the app name; Full the app name, the title and the body (a long body is cut).")));
+            "缩略显示标题与正文；紧凑在标题与正文旁加显示时间与应用名；完整在标题上方显示应用名与时间，并显示更长的正文（正文过长时截断）。",
+            "Brief shows the title and the body; Compact adds the time and the app name beside them; Full shows the app name and the time above the title with a longer body (a long body is cut).")));
 
         var test = ActionButton(Loc.T("测试通知", "Test notification"), () => _app.ShowTestNotification());
         Group(Row(Loc.T("测试通知", "Test notification"), test, help: () => Loc.T(
