@@ -38,12 +38,31 @@ internal static class FullscreenRuleTests
             && mixed.Behavior(ScreenContext.Exclusive, "Sahhpire") == WindowBehavior.Line);
         check("A desktop context has no rule and no override",
             mixed.Behavior(ScreenContext.Desktop, "Sahhpire") == WindowBehavior.Normal);
-        // A panel that is an ordinary window is covered by full-screen windows anyway, so neither rule applies.
-        var ordinary = new DeckSettings { AlwaysOnTop = false, FullscreenRules = [new FullscreenRule("Sahhpire") { Maximized = WindowBehavior.Hide }] };
-        check("A panel that is not kept above other windows follows no window rule",
-            ordinary.Behavior(ScreenContext.Maximized) == WindowBehavior.Normal && ordinary.Behavior(ScreenContext.Borderless) == WindowBehavior.Normal
-            && ordinary.Behavior(ScreenContext.Exclusive) == WindowBehavior.Normal && ordinary.Behavior(ScreenContext.Maximized, "Sahhpire") == WindowBehavior.Normal
-            && ordinary.Behavior(ScreenContext.BackgroundFullscreen, "Sahhpire", "", ScreenContext.Maximized) == WindowBehavior.Normal);
+        // A panel that is an ordinary window follows the same rules: the global ones, and an app's own first.
+        var ordinary = new DeckSettings
+        {
+            AlwaysOnTop = false, Maximized = WindowBehavior.Normal, Borderless = WindowBehavior.Line, Exclusive = WindowBehavior.Hide,
+            FullscreenRules = [new FullscreenRule("Sahhpire") { Maximized = WindowBehavior.Line }]
+        };
+        check("A panel that is not kept above other windows follows the global window rules",
+            ordinary.Behavior(ScreenContext.Maximized) == WindowBehavior.Normal && ordinary.Behavior(ScreenContext.Borderless) == WindowBehavior.Line
+            && ordinary.Behavior(ScreenContext.Exclusive) == WindowBehavior.Hide && ordinary.Behavior(ScreenContext.Desktop) == WindowBehavior.Normal);
+        check("A panel that is not kept above other windows follows an app's own rule",
+            ordinary.Behavior(ScreenContext.Maximized, "Sahhpire") == WindowBehavior.Line
+            && ordinary.Behavior(ScreenContext.BackgroundFullscreen, "Sahhpire", "", ScreenContext.Maximized) == WindowBehavior.Line
+            && ordinary.Behavior(ScreenContext.Maximized, "Other") == WindowBehavior.Normal);
+        // 1.3.0: before, an ordinary panel followed no rule and was left covered; a file saved so keeps that.
+        var before = SettingsMigrations.Read("""{"AppVersion":"1.2.5","AlwaysOnTop":false,"Maximized":1,"Borderless":2,"Exclusive":2}""", new Version(1, 3, 0), out _);
+        check("An ordinary panel saved before 1.3.0 keeps the style in all three global rules",
+            !before.AlwaysOnTop && before.Maximized == WindowBehavior.Normal && before.Borderless == WindowBehavior.Normal && before.Exclusive == WindowBehavior.Normal);
+        var defaults = SettingsMigrations.Read("""{"AppVersion":"1.2.5","AlwaysOnTop":false}""", new Version(1, 3, 0), out _);
+        check("An ordinary panel saved before 1.3.0 with the default rules keeps the style too",
+            defaults.Maximized == WindowBehavior.Normal && defaults.Borderless == WindowBehavior.Normal && defaults.Exclusive == WindowBehavior.Normal);
+        var above = SettingsMigrations.Read("""{"AppVersion":"1.2.5","Maximized":1,"Borderless":2,"Exclusive":0}""", new Version(1, 3, 0), out _);
+        check("A panel kept above other windows keeps its rules through 1.3.0",
+            above.AlwaysOnTop && above.Maximized == WindowBehavior.Line && above.Borderless == WindowBehavior.Hide && above.Exclusive == WindowBehavior.Normal);
+        var later = SettingsMigrations.Read("""{"AppVersion":"1.3.0","AlwaysOnTop":false,"Maximized":1}""", new Version(1, 3, 0), out _);
+        check("An ordinary panel saved by 1.3.0 keeps the rules it chose", later.Maximized == WindowBehavior.Line);
         check("A file saved before the switch keeps the panel above other windows",
             JsonSerializer.Deserialize<DeckSettings>("{}")!.AlwaysOnTop);
 

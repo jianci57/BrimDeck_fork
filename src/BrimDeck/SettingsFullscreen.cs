@@ -8,7 +8,6 @@ using System.Windows.Media;
 using System.Windows.Shapes;
 using BrimDeck.Core;
 using BrimDeck.Native;
-using Microsoft.Win32;
 
 namespace BrimDeck;
 
@@ -126,13 +125,7 @@ public sealed partial class SettingsWindow
         int n = exceptions.Count;
         var count = TextLine(n == 0 ? Loc.T("未添加", "None") : Loc.T($"{n} 个应用", n == 1 ? "1 app" : $"{n} apps"), 12, TextTertiary);
         count.VerticalAlignment = VerticalAlignment.Center; count.Margin = new Thickness(0, 0, 12, 0);
-        var add = new Button { Style = (Style)FindResource("SettingsOutlineButton"), VerticalAlignment = VerticalAlignment.Center };
-        var addContent = new StackPanel { Orientation = Orientation.Horizontal };
-        addContent.Children.Add(new TextBlock { Text = Loc.T("添加应用", "Add app"), VerticalAlignment = VerticalAlignment.Center });
-        var addChevron = Chevron(); addChevron.Margin = new Thickness(6, 1, 0, -1); addContent.Children.Add(addChevron);
-        add.Content = addContent;
-        AutomationProperties.SetName(add, Loc.T("添加应用程序规则", "Add an app rule"));
-        add.Click += (_, _) => ExceptionMenu(add);
+        var add = AddAppButton(Loc.T("添加应用程序规则", "Add an app rule"), ExceptionMenu);
         var controls = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
         controls.Children.Add(count); controls.Children.Add(add);
         var header = new Grid { MinHeight = 44, Background = Brushes.Transparent };
@@ -166,12 +159,7 @@ public sealed partial class SettingsWindow
         Grid.SetColumn(file, 1);
         labels.Children.Add(title); labels.Children.Add(file);
         Grid.SetColumn(labels, 1); row.Children.Add(labels);
-        var remove = new Button { Style = (Style)FindResource("SettingsGlyphButton"), Width = 24, Height = 26, Padding = new Thickness(0), VerticalAlignment = VerticalAlignment.Center };
-        var cross = Stroke("M 0,0 L 8,8 M 8,0 L 0,8", 8, 8, TextSecondary);
-        cross.SetBinding(Shape.StrokeProperty, new Binding("Foreground") { RelativeSource = new RelativeSource(RelativeSourceMode.FindAncestor, typeof(Button), 1) });
-        remove.Content = cross;
-        AutomationProperties.SetName(remove, Loc.T("移除 ", "Remove ") + name);
-        remove.Click += (_, _) => { Change(s => s.FullscreenRules.RemoveAll(entry => string.Equals(ScreenPolicy.Key(entry), key, StringComparison.OrdinalIgnoreCase))); RefreshExceptions(); };
+        var remove = RemoveButton(name, () => { Change(s => s.FullscreenRules.RemoveAll(entry => string.Equals(ScreenPolicy.Key(entry), key, StringComparison.OrdinalIgnoreCase))); RefreshExceptions(); });
         Grid.SetColumn(remove, 2);
         row.Children.Add(remove);
         column.Children.Add(row);
@@ -184,6 +172,31 @@ public sealed partial class SettingsWindow
             choice => Change(s => { var i = At(s); if (i >= 0) s.FullscreenRules[i] = s.FullscreenRules[i] with { Exclusive = choice }; })));
         column.Children.Add(picks);
         return column;
+    }
+
+    // The cross at the end of an app's line that takes the app off its list.
+    private Button RemoveButton(string name, Action remove)
+    {
+        var button = new Button { Style = (Style)FindResource("SettingsGlyphButton"), Width = 24, Height = 26, Padding = new Thickness(0), VerticalAlignment = VerticalAlignment.Center };
+        var cross = Stroke("M 0,0 L 8,8 M 8,0 L 0,8", 8, 8, TextSecondary);
+        cross.SetBinding(Shape.StrokeProperty, new Binding("Foreground") { RelativeSource = new RelativeSource(RelativeSourceMode.FindAncestor, typeof(Button), 1) });
+        button.Content = cross;
+        AutomationProperties.SetName(button, Loc.T("移除 ", "Remove ") + name);
+        button.Click += (_, _) => remove();
+        return button;
+    }
+
+    // The "Add app" button with its chevron, which opens a menu of apps.
+    private Button AddAppButton(string name, Action<Button> open)
+    {
+        var add = new Button { Style = (Style)FindResource("SettingsOutlineButton"), VerticalAlignment = VerticalAlignment.Center };
+        var content = new StackPanel { Orientation = Orientation.Horizontal };
+        content.Children.Add(new TextBlock { Text = Loc.T("添加应用", "Add app"), VerticalAlignment = VerticalAlignment.Center });
+        var chevron = Chevron(); chevron.Margin = new Thickness(6, 1, 0, -1); content.Children.Add(chevron);
+        add.Content = content;
+        AutomationProperties.SetName(add, name);
+        add.Click += (_, _) => open(add);
+        return add;
     }
 
     // One context's pick: the label, then a four-way segment — Follow and the three behaviours the global rules offer.
@@ -208,50 +221,46 @@ public sealed partial class SettingsWindow
     // Runs as the button's menu, so the menu is anchored to the button that opened it.
     private void ExceptionMenu(Button anchor)
     {
-        var menu = new ContextMenu { PlacementTarget = anchor, Placement = PlacementMode.Bottom };
-        // A menu opened from code is not in the window's tree and would take the application's dark menu colors; it takes
-        // the settings palette instead, as the settings' drop-down lists do.
-        menu.Resources["MenuSurface"] = UI.Brush(_palette.Popup);
-        menu.Resources["MenuInk"] = UI.Brush(_palette.Primary);
-        menu.Resources["MenuEdge"] = UI.Brush(_palette.Border);
-        menu.Resources["MenuHover"] = UI.Brush(_palette.Dark ? "#25252B" : "#E8E9EF");
-        menu.Resources["MenuRule"] = UI.Brush(_palette.Divider);
+        var menu = AppMenu(anchor);
         var apps = RunningApps.WithWindows()
             .Where(app => !S.FullscreenRules.Any(exception => ScreenPolicy.Matches(exception, app.Name, app.Path)))
             .Select(app => (App: app, Name: AppName(app.Name, app.Path)))
             .OrderBy(entry => entry.Name, StringComparer.CurrentCultureIgnoreCase)
             .ToList();
         foreach (var (app, name) in apps)
-        {
-            var line = new StackPanel { Orientation = Orientation.Horizontal };
-            line.Children.Add(AppIcon(app.Path));
-            line.Children.Add(new TextBlock { Text = name, VerticalAlignment = VerticalAlignment.Center });
-            line.Children.Add(new TextBlock { Text = FileName(app.Name, app.Path), Opacity = .55, FontSize = 11.5, Margin = new Thickness(10, 1, 0, 0), VerticalAlignment = VerticalAlignment.Center });
-            var item = new MenuItem { Header = line, ToolTip = app.Path.Length > 0 ? app.Path : null };
-            AutomationProperties.SetName(item, name);
-            item.Click += (_, _) => AddException(new FullscreenRule(app.Name, app.Path)
-                { Maximized = WindowBehavior.Normal, Borderless = WindowBehavior.Normal, Exclusive = WindowBehavior.Normal });
-            menu.Items.Add(item);
-        }
+            menu.Items.Add(AppMenuItem(name, FileName(app.Name, app.Path), app.Path, () => AddException(new FullscreenRule(app.Name, app.Path)
+                { Maximized = WindowBehavior.Normal, Borderless = WindowBehavior.Normal, Exclusive = WindowBehavior.Normal })));
         if (apps.Count == 0) menu.Items.Add(new MenuItem { Header = Loc.T("没有可添加的应用", "No apps to add"), IsEnabled = false });
-        menu.Items.Add(new Separator());
-        var browse = new MenuItem { Header = Loc.T("浏览可执行文件…", "Browse for an executable…") };
-        browse.Click += (_, _) => BrowseException();
-        menu.Items.Add(browse);
+        AddBrowseItem(menu, Loc.T("选择要豁免的应用", "Choose an app to exempt"), path => AddException(new FullscreenRule(System.IO.Path.GetFileNameWithoutExtension(path), path)
+            { Maximized = WindowBehavior.Normal, Borderless = WindowBehavior.Normal, Exclusive = WindowBehavior.Normal }));
         menu.IsOpen = true;
     }
 
-    private void BrowseException()
+    // A menu of apps opened under its button. A menu opened from code is not in the window's tree and would take the
+    // application's dark menu colors; it takes the settings palette instead, as the settings' drop-down lists do.
+    private ContextMenu AppMenu(Button anchor)
     {
-        var dialog = new OpenFileDialog
-        {
-            Title = Loc.T("选择要豁免的应用", "Choose an app to exempt"),
-            Filter = Loc.T("应用程序 (*.exe)|*.exe", "Applications (*.exe)|*.exe"),
-            CheckFileExists = true
-        };
-        if (dialog.ShowDialog(this) != true) return;
-        AddException(new FullscreenRule(System.IO.Path.GetFileNameWithoutExtension(dialog.FileName), dialog.FileName)
-            { Maximized = WindowBehavior.Normal, Borderless = WindowBehavior.Normal, Exclusive = WindowBehavior.Normal });
+        var menu = new ContextMenu { PlacementTarget = anchor, Placement = PlacementMode.Bottom };
+        menu.Resources["MenuSurface"] = UI.Brush(_palette.Popup);
+        menu.Resources["MenuInk"] = UI.Brush(_palette.Primary);
+        menu.Resources["MenuEdge"] = UI.Brush(_palette.Border);
+        menu.Resources["MenuHover"] = UI.Brush(_palette.Dark ? "#25252B" : "#E8E9EF");
+        menu.Resources["MenuRule"] = UI.Brush(_palette.Divider);
+        return menu;
+    }
+
+    // One app in the menu: its icon, its name and, lighter, its file or id.
+    private static MenuItem AppMenuItem(string name, string detail, string path, Action add)
+    {
+        var line = new StackPanel { Orientation = Orientation.Horizontal };
+        line.Children.Add(AppIcon(path));
+        line.Children.Add(new TextBlock { Text = name, VerticalAlignment = VerticalAlignment.Center });
+        if (detail.Length > 0 && !string.Equals(detail, name, StringComparison.OrdinalIgnoreCase))
+            line.Children.Add(new TextBlock { Text = detail, Opacity = .55, FontSize = 11.5, Margin = new Thickness(10, 1, 0, 0), VerticalAlignment = VerticalAlignment.Center });
+        var item = new MenuItem { Header = line, ToolTip = path.Length > 0 ? path : null };
+        AutomationProperties.SetName(item, name);
+        item.Click += (_, _) => add();
+        return item;
     }
 
     // The list stays open or closed as it was; the count beside the button shows the app was added.

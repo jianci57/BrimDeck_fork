@@ -73,6 +73,14 @@ internal static class DashboardUsageTests
         check("The target leaves the shared snapshot unchanged", balanceSnapshot.Metrics[0].Total is null && !ReferenceEquals(DashboardUsage.Quota(balanceRow, [balanceSnapshot]), balanceSnapshot));
         var untargeted = new AppEntry { QuotaSource = ProviderId.DeepSeek, BalanceTarget = null };
         check("Without a target the account balance stays an amount", Used(untargeted, 20) is null && ReferenceEquals(DashboardUsage.Quota(untargeted, [balanceSnapshot]), balanceSnapshot));
+        // Each other balance or amount spent takes a target of its own (AppEntry.QuotaTargets), for the panel and the rings alike.
+        balanceSnapshot.Metrics = [balanceSnapshot.Metrics[0] with { Amount = 20 }, balanceSnapshot.Metrics[1]];
+        var gifted = new AppEntry { QuotaSource = ProviderId.DeepSeek, BalanceTarget = 100, QuotaTargets = new() { ["granted:CNY"] = 100m, ["total:CNY"] = 7m } };
+        var withGift = DashboardUsage.Quota(gifted, [balanceSnapshot]);
+        check("Each other balance takes its own target, and the account balance keeps the target balance",
+            withGift.Metrics[1] is { Total: 100, TotalIsTarget: true } && withGift.Metrics[1].UsedPercent == 95 && withGift.Metrics[0] is { Total: 100 } && withGift.Metrics[0].UsedPercent == 80);
+        check("An amount spent against a target is used as far as it has gone",
+            new UsageMetric(MetricKind.Spend, "今日扣费") { Amount = 3, Total = 10, TotalIsTarget = true }.UsedPercent == 30 && new UsageMetric(MetricKind.Spend, "今日扣费") { Amount = 3 }.UsedPercent is null);
         var limited = new ProviderSnapshot(ProviderId.OpenRouter) { Configurations = [new AppEntry { QuotaSource = ProviderId.OpenRouter }.ConfigurationKey],
             Metrics = [new(MetricKind.Balance, "密钥余额") { Amount = 3, Total = 10, Currency = "USD" }] };
         var openRouter = new AppEntry { QuotaSource = ProviderId.OpenRouter, BalanceTarget = 100 };

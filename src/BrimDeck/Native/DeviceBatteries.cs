@@ -25,10 +25,9 @@ internal interface IDeviceSource : IDisposable
 }
 
 // The batteries of the connected wireless devices, from every source, merged (DeviceRoster). It runs only as far as the demand
-// asks (DeviceDemand), and lingers a little after the page closes, so reopening it finds the readings current.
+// asks (DeviceDemand), and lingers after the page closes (the memory mode's ReadingsLinger), so reopening it finds the readings current.
 internal sealed class DeviceBatteries : IDisposable
 {
-    private static readonly TimeSpan Linger = TimeSpan.FromSeconds(10);
     private readonly Dispatcher _dispatcher;
     private readonly DeviceRoster _roster = new();
     private readonly List<IDeviceSource> _sources = [];
@@ -43,7 +42,7 @@ internal sealed class DeviceBatteries : IDisposable
         _idle = new DispatcherTimer(DispatcherPriority.Background, dispatcher) { Interval = TimeSpan.FromSeconds(2) };
         _idle.Tick += (_, _) => Idle();
         SystemEvents.PowerModeChanged += PowerModeChanged;
-        _linger = new DispatcherTimer(DispatcherPriority.Background, dispatcher) { Interval = Linger };
+        _linger = new DispatcherTimer(DispatcherPriority.Background, dispatcher) { Interval = MemoryPlan.For(MemoryMode.Balanced).ReadingsLinger };
         _linger.Tick += (_, _) => { _linger.Stop(); Run(_demand); };
         _apple = new AppleBatteries(dispatcher, Report);
         _sources.Add(new BluetoothBatteries(dispatcher, Report));
@@ -70,6 +69,9 @@ internal sealed class DeviceBatteries : IDisposable
     public DeviceDemand Demand => _running;
     // Raised on the UI thread when the list or any reading changes.
     public event Action? Changed;
+
+    // How long the sources keep running after they are no longer asked for (MemoryPlan.ReadingsLinger).
+    public void UsePlan(MemoryPlan plan) => _linger.Interval = plan.ReadingsLinger;
 
     public void SetDemand(DeviceDemand demand)
     {

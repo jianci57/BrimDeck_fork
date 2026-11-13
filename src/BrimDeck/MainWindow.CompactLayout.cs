@@ -90,7 +90,10 @@ public partial class MainWindow
         var name = UI.Fixed(alert.Name, font, line, UI.Primary, FontWeights.SemiBold); name.ToolTip = alert.Name;
         // The name keeps its 76 DIP cap with an ellipsis; below that, its region cuts it.
         name.MaxWidth = CompactMusicLayout.Whole(76 * scale);
-        var used = UI.Fixed(Loc.T($"{alert.Label}已用 {alert.Used:0}%", $"{alert.Label}{alert.Used:0}% used"), font, line, UI.Secondary);
+        // With what is left chosen (DeckSettings.QuotaRingRemaining), the notice and its ring say what is left, as the rings and bars do.
+        bool left = Settings.QuotaRingRemaining;
+        double share = left ? 100 - Math.Clamp(alert.Used, 0, 100) : alert.Used;
+        var used = UI.Fixed(left ? Loc.T($"{alert.Label}剩余 {share:0}%", $"{alert.Label}{share:0}% left") : Loc.T($"{alert.Label}已用 {alert.Used:0}%", $"{alert.Label}{alert.Used:0}% used"), font, line, UI.Secondary);
         string shortReset = UI.ShortReset(alert.ResetAt);
         var reset = shortReset.Length > 0 ? UI.Fixed(Loc.T(shortReset + "重置", shortReset.StartsWith("in ", StringComparison.Ordinal) ? "resets " + shortReset : shortReset), font, line, UI.Tertiary) : null;
         double Natural(FrameworkElement element)
@@ -105,7 +108,7 @@ public partial class MainWindow
             // A notch on a side edge: the ring, then each text on its own line, cut with an ellipsis to the column.
             double column = SnapDown(ColumnWidth(shape), dpi);
             var stack = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Width = column, Tag = AlertRegionTag };
-            var mark = UI.Ring(alert.Used, PanelTheme.QuotaTheme(alert.Entry), layout.RingSize, layout.RingThickness);
+            var mark = UI.Ring(share, PanelTheme.QuotaTheme(alert.Entry), layout.RingSize, layout.RingThickness);
             mark.HorizontalAlignment = HorizontalAlignment.Center; mark.Margin = new Thickness(0, 0, 0, layout.Gap / 2);
             stack.Children.Add(mark);
             name.MaxWidth = column;
@@ -120,7 +123,7 @@ public partial class MainWindow
             return;
         }
         double row = Math.Max(layout.RingSize, layout.LineHeight);
-        var ring = UI.Ring(alert.Used, PanelTheme.QuotaTheme(alert.Entry), layout.RingSize, layout.RingThickness);
+        var ring = UI.Ring(share, PanelTheme.QuotaTheme(alert.Entry), layout.RingSize, layout.RingThickness);
         var parts = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
         if (layout.RingWidth > 0) parts.Children.Add(CompactRegion(ring, layout.RingWidth, layout.RingSize, layout.RingSize, row, RegionAnchor.Left, dpi));
         if (layout.NameWidth > 0) parts.Children.Add(CompactRegion(name, layout.NameWidth, Math.Min(nameWidth, name.MaxWidth), line, row, RegionAnchor.Left, dpi));

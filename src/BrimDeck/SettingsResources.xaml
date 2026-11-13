@@ -450,6 +450,38 @@
       </ControlTemplate.Triggers>
     </ControlTemplate></Setter.Value></Setter>
   </Style>
+  <!-- A choice among several that can be picked together (the kinds in a category's rule): a pill, filled with the accent when on. -->
+  <Style x:Key="SettingsChip" TargetType="ToggleButton">
+    <Setter Property="FocusVisualStyle" Value="{StaticResource SettingsFocus}"/>
+    <Setter Property="Foreground" Value="{DynamicResource SettingsTextPrimary}"/><Setter Property="FontSize" Value="12"/><Setter Property="Cursor" Value="Hand"/>
+    <Setter Property="Height" Value="26"/><Setter Property="Padding" Value="11,0"/><Setter Property="Margin" Value="0,0,6,6"/>
+    <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ToggleButton">
+      <Border x:Name="Chrome" CornerRadius="13" Background="{DynamicResource SettingsInput}" BorderBrush="{DynamicResource SettingsInputBorder}" BorderThickness="1" Padding="{TemplateBinding Padding}">
+        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+      </Border>
+      <ControlTemplate.Triggers>
+        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Chrome" Property="Background" Value="{DynamicResource SettingsFillHover}"/></Trigger>
+        <Trigger Property="IsChecked" Value="True"><Setter TargetName="Chrome" Property="Background" Value="{DynamicResource SettingsAccentFill}"/><Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource SettingsAccentFill}"/><Setter Property="Foreground" Value="White"/></Trigger>
+        <MultiTrigger><MultiTrigger.Conditions><Condition Property="IsChecked" Value="True"/><Condition Property="IsMouseOver" Value="True"/></MultiTrigger.Conditions><Setter TargetName="Chrome" Property="Background" Value="{DynamicResource SettingsAccentHover}"/><Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource SettingsAccentHover}"/></MultiTrigger>
+      </ControlTemplate.Triggers>
+    </ControlTemplate></Setter.Value></Setter>
+  </Style>
+  <!-- A setting with two states said in words, small enough to sit in a list's row: on, the accent on a pale wash of it; off, a
+       thin outline. A click changes it. -->
+  <Style x:Key="SettingsStateChip" TargetType="ToggleButton">
+    <Setter Property="FocusVisualStyle" Value="{StaticResource SettingsFocus}"/>
+    <Setter Property="Foreground" Value="{DynamicResource SettingsTextSecondary}"/><Setter Property="FontSize" Value="11.5"/><Setter Property="Cursor" Value="Hand"/>
+    <Setter Property="Height" Value="22"/><Setter Property="Padding" Value="9,0"/>
+    <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ToggleButton">
+      <Border x:Name="Chrome" CornerRadius="11" Background="Transparent" BorderBrush="{DynamicResource SettingsBorder}" BorderThickness="1" Padding="{TemplateBinding Padding}">
+        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+      </Border>
+      <ControlTemplate.Triggers>
+        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Chrome" Property="Background" Value="{DynamicResource SettingsFillHover}"/><Setter Property="Foreground" Value="{DynamicResource SettingsTextPrimary}"/></Trigger>
+        <Trigger Property="IsChecked" Value="True"><Setter TargetName="Chrome" Property="Background" Value="{DynamicResource SettingsAccentTint}"/><Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource SettingsAccentTint}"/><Setter Property="Foreground" Value="{DynamicResource SettingsAccentText}"/></Trigger>
+      </ControlTemplate.Triggers>
+    </ControlTemplate></Setter.Value></Setter>
+  </Style>
   <Style x:Key="SettingsStepper" TargetType="RepeatButton">
     <Setter Property="FocusVisualStyle" Value="{StaticResource SettingsStepperFocus}"/>
     <Setter Property="Width" Value="21"/><Setter Property="Height" Value="26"/><Setter Property="Focusable" Value="True"/><Setter Property="Delay" Value="400"/><Setter Property="Interval" Value="80"/>

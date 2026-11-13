@@ -65,6 +65,8 @@ internal sealed class KugouCdpConnection : IMediaPlayerConnection
     // The ports are read only while KuGou runs: without it every 3 seconds would read the port tables for nothing.
     private async Task<Owner?> FindAsync(CancellationToken token)
     {
+        // While KuGou does not run, the answer comes from the snapshot the players share (ProcessSnapshot.AnyRecent).
+        if (!ProcessSnapshot.AnyRecent("KuGou.exe")) return null;
         var kugou = ProcessSnapshot.Ids("KuGou.exe");
         if (kugou.Count == 0) return null;
         foreach (var candidate in Candidates(kugou))

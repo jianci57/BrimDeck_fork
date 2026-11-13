@@ -373,7 +373,8 @@ internal sealed class HidBatteries(Dispatcher dispatcher, Action<DeviceSource, I
         else foreach (var info in hidpp) claimed.Add(info.Path);
         if (ask)
             foreach (var group in infos.Where(info => info.Vendor == Razer.Vendor).GroupBy(info => info.Product))
-                if (Razer.Find(group.Key) is { } model && !Aside(Razer.Vendor)) Try(() => ReadRazer(model, [.. group], claimed));
+                // Basilisk Ultimate, cable and receiver, measured answering battery queries with Synapse 4 running.
+                if (Razer.Find(group.Key) is { } model && (model.Product is 0x0086 or 0x0088 || !Aside(Razer.Vendor))) Try(() => ReadRazer(model, [.. group], claimed));
         // The devices (GroupKey) a dongle protocol has read this pass.
         var answered = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         // The ROG Omni receivers, each read as a whole (its pairing table, then its paired devices).
@@ -645,6 +646,7 @@ internal sealed class HidBatteries(Dispatcher dispatcher, Action<DeviceSource, I
             Dongles.Protocol.Asus => ReadAsus,
             Dongles.Protocol.SteelSeries => SteelSeriesMouse,
             Dongles.Protocol.RapooGen1 => RapooGen1,
+            Dongles.Protocol.Aula => Aula,
             _ => null
         };
 
@@ -689,13 +691,30 @@ internal sealed class HidBatteries(Dispatcher dispatcher, Action<DeviceSource, I
         return [Mouse("compx", info, "VXE", battery)];
     }
 
+    // VGN's keyboards, and ATK's, which answer the same frame (Dongles.AtkKeyboards). The Z87 Pro's dongle calls itself
+    // "ATK Z87 Dongle", so the keyboard's own model name is given where the table has it rather than the dongle's.
     private static IEnumerable<DeviceBattery> Vgn(HidInfo info, HashSet<string> claimed)
     {
         using var device = new HidDevice(info);
         var read = Hid.Transact<object>([device], () => device.Write(Dongles.VgnRequest()), r => Dongles.VgnBattery(r) is { } b ? b : null, 500);
         if (read is not BatteryRead battery) return [];
         claimed.Add(info.Path);
-        return [Mouse("vgn", info, "VGN", battery, DeviceKind.Keyboard)];
+        bool atk = info.Vendor == Dongles.AtkVendor;
+        return [Mouse(atk ? "atkkb" : "vgn", info, atk ? "ATK" : "VGN", battery, DeviceKind.Keyboard, atk ? Dongles.AtkKeyboard(info.Product) : null)];
+    }
+
+    // The AULA F87 PRO's 2.4 GHz receiver (Dongles.AulaRequest): command 0x05 on its 0xFF02 collection. The receiver answers a
+    // request with echoes of it, and the 0x0A report that carries the charge comes with the request after it. One request goes
+    // out each pass, in the same exchange as the other keyboards (no wait between two requests that would hold up the devices
+    // read after this one): the first pass after the receiver arrives finds only the echoes, and the passes after it the
+    // charge. The keyboard is the only device behind the receiver, so no target goes in the frame.
+    private static IEnumerable<DeviceBattery> Aula(HidInfo info, HashSet<string> claimed)
+    {
+        using var device = new HidDevice(info);
+        var read = Hid.Transact<object>([device], () => device.Write(Dongles.AulaRequest(0x05)), r => Dongles.AulaBattery(r) is { } b ? b : null, 500);
+        if (read is not BatteryRead battery) return [];
+        claimed.Add(info.Path);
+        return [Mouse("aula", info, "AULA", battery, DeviceKind.Keyboard, "AULA F87 PRO")];
     }
 
     // The feature-report brands: set the request, wait, get the reply.

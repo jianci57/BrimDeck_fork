@@ -13,9 +13,9 @@ namespace BrimDeck.Core;
 // - AJAZZ / AJ179 (XCTECH 249A:5C2F receiver, documented wired 248A:5C2E/5D2E/5E2E): interrupt report framing after
 //   Rockeyxx/aj179-linux (MIT; see ThirdPartyNotices.txt) and a read-only PoC on a 249A:5C2F / M041 dongle — not the AJ 8K
 //   Feature 0xF7 path.
-// - SteelSeries, HyperX and MCHOSE headsets, MCHOSE mice, VGN keyboards, Endgame Gear, VAXEE, Nordic receivers and the
-//   PlayStation controllers: written from the documented bytes alone (HeadsetControl, the Linux drivers and the vendors' own
-//   web drivers are look-only).
+// - SteelSeries, HyperX and MCHOSE headsets, MCHOSE mice, VGN keyboards (and ATK's on the same frame, measured here),
+//   Endgame Gear, VAXEE, Nordic receivers and the PlayStation controllers: written from the documented bytes alone
+//   (HeadsetControl, the Linux drivers and the vendors' own web drivers are look-only).
 // - After HaloBattery (https://github.com/HeyOkay/HaloBattery, MIT; see ThirdPartyNotices.txt): the Compx 17-byte frame's
 //   reply rules (pulsar.py), the 0x83 feature exchange of WLmouse, G-Wolves, LAMZU and the MCHOSE A5 Pro Max with its model
 //   lists, the MCHOSE RealTek and G7 exchanges (mchose.py), the HyperX Cloud III, III S and Alpha 2 requests, the NZXT Lift
@@ -238,6 +238,24 @@ public static class Razer
 // The 2.4 GHz mice of the Chinese brands, each a frame on a vendor collection.
 public static class Dongles
 {
+    // AULA (狼蛛) keyboards on their 2.4 GHz receiver (VID 0x3554, the F87 PRO's 0xFA09, usage page 0xFF02, usage 0x0002,
+    // report id 0x13, 20 bytes): [report id, command, 0x01, 0x00, zeros, checksum], the checksum the low byte of the sum of the
+    // nineteen bytes before it. These are the frames the AULA F87 PRO software writes, read from its HID sessions. Command 0x05
+    // asks for the receiver's state; the receiver answers with an 0x0A report: [0x13, 0x0A, 0x01, 0x00, length (4), source
+    // command (0x05), percent, ...]. Only that answer is a reading.
+    public const int AulaVendor = 0x3554;
+    public const int AulaF87Pro = 0xFA09;
+    public static byte[] AulaRequest(byte command)
+    {
+        var frame = new byte[20];
+        frame[0] = 0x13; frame[1] = command; frame[2] = 0x01;
+        int sum = 0; for (int i = 0; i < 19; i++) sum += frame[i];
+        frame[19] = (byte)sum;
+        return frame;
+    }
+    public static BatteryRead? AulaBattery(byte[] reply)
+        => reply.Length >= 7 && reply[0] == 0x13 && reply[1] == 0x0A && reply[5] == 0x05 && reply[6] <= 100 ? new(reply[6]) : null;
+
     // ATK, VXE and VGN on Nordic receivers (VID 0x373B, usage page 0xFF05, report 0x08, 64 bytes): [checksum, 0x72, parameter
     // length, sequence, target (1 the mouse behind a receiver), command, payload length, payload...], the checksum the low byte
     // of the sum of the bytes after it. Battery is command 0x07.
@@ -284,6 +302,16 @@ public static class Dongles
     public static byte[] VgnRequest() { var frame = new byte[64]; frame[0] = 0x04; frame[3] = 0x1A; frame[4] = 0x06; return frame; }
     public static BatteryRead? VgnBattery(byte[] reply) => reply.Length >= 10 && reply[0] == 0x04 && reply[3] == 0x1A && reply[8] <= 100 ? new(reply[8], reply[9] != 0) : null;
 
+    // ATK's keyboards answer that same frame on the same page: the Z87 Pro's dongle (373B:1012, "ATK Z87 Dongle", usage page
+    // 0xFF1C, usage 0x0092, 64-byte reports) answered 04 00 00 1A 06 00 00 00 5C ... to it on a keyboard at 92 %, which is what
+    // VgnBattery reads. Measured; the sibling keyboards of the family are not, so only this pair is sent to.
+    public static readonly (int Product, string Name)[] AtkKeyboards = [(0x1012, "ATK Z87 Pro")];
+    public static string? AtkKeyboard(int product)
+    {
+        foreach (var (id, name) in AtkKeyboards) if (id == product) return name;
+        return null;
+    }
+
     // Endgame Gear (VID 0x3367, usage page 0xFF01, feature 0xA1): A1 B4; byte 1 is 0x01 for a reading, the percentage at 16.
     public const int EndgameVendor = 0x3367;
     public static byte[] EndgameRequest(int length) { var frame = new byte[Math.Max(2, length)]; frame[0] = 0xA1; frame[1] = 0xB4; return frame; }
@@ -320,6 +348,8 @@ public static class Dongles
     // product pairs, on the 17-byte collection, are sent to.
     public static readonly (int Vendor, int Product)[] CompxFramed =
     [
+        // ATK Wireless Charging dongle: measured on its 17-byte 0xFF02 / usage 2 collection.
+        (AtkVendor, 0x12DA),
         // ATK receivers (F1 Pro Max 8K and 1K, F1 V3 Ultimate+, F1 Ultimate 2.0, A9 Air GEM) and mice on their cables.
         (AtkVendor, 0x101B), (AtkVendor, 0x101A), (AtkVendor, 0x1303), (AtkVendor, 0x11D9), (AtkVendor, 0x11E4), (AtkVendor, 0x1278),
         (AtkVendor, 0x1015), (AtkVendor, 0x12A9), (AtkVendor, 0x1293),
@@ -677,7 +707,7 @@ public static class Dongles
     public enum Protocol
     {
         BitMouse, Compx, Vgn, Endgame, Vaxee, Inphic, Mchose, Ajazz, CompxFramed, F83, Nordic, MchoseRealtek, Gmouse, Lingbao, Nzxt, Cherry, Hecate,
-        Asus, SteelSeries, RapooGen1
+        Asus, SteelSeries, RapooGen1, Aula
     }
 
     // The Compx receivers atkctl documents (the ATK A9 Ultra), by vendor, product and usage page.
@@ -698,6 +728,7 @@ public static class Dongles
         int inputLength = 0, int outputLength = 0, int collection = -1)
     {
         if (IsAjazz(vendor, product)) return AjazzCollection(iface, usagePage, usage, inputLength, outputLength) ? Protocol.Ajazz : null;
+        if (vendor == AulaVendor && product == AulaF87Pro) return usagePage == 0xFF02 && usage == 0x0002 && inputLength >= 20 && outputLength >= 20 ? Protocol.Aula : null;
         if (IsCompxFramed(vendor, product)) return CompxFramedCollection(usagePage, usage, inputLength, outputLength) ? Protocol.CompxFramed : null;
         if (F83Find(vendor, product) is { } f83) return F83Collection(f83, iface, usagePage, featureLength) ? Protocol.F83 : null;
         if (Gmouse.Contains((vendor, product))) return usagePage == 0xFF01 && usage == 0x0010 && outputLength >= 65 ? Protocol.Gmouse : null;
@@ -713,6 +744,9 @@ public static class Dongles
         if (vendor == AtkVendor && usagePage == 0xFF05) return Protocol.BitMouse;
         if (CompxVerified.Contains((vendor, product, usagePage))) return Protocol.Compx;
         if (vendor == VgnVendor && usagePage == 0xFF1C && product == 0x5088) return Protocol.Vgn;
+        // ATK's keyboards on the same page, answered with VGN's frame (AtkKeyboards): only a product measured here, and only its
+        // keyboard collection.
+        if (vendor == AtkVendor && AtkKeyboard(product) is not null) return usagePage == 0xFF1C && usage == 0x0092 && outputLength >= 64 ? Protocol.Vgn : null;
         if (vendor == EndgameVendor && usagePage == 0xFF01) return Protocol.Endgame;
         if (vendor == VaxeeVendor && usagePage == 0xFF05) return Protocol.Vaxee;
         if (vendor == InphicVendor && product is 0x5B2E or 0x5B2F && featureLength >= 33) return Protocol.Inphic;

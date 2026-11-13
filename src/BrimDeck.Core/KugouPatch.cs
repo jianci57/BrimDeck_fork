@@ -21,6 +21,14 @@ public static class KugouPatch
         new(H(""), H("E8F62EB7FD"), H("9090909090"), H("418B1F8D8B00FCFFFF")),
         new(H(""), H("0F44DA"), H("909090"), H("807F1700790A488B4C2460")));
 
+    // Whether a running KuGou without full control is restarted to get it, once for each start of KuGou. An unchanged file is
+    // changed and KuGou restarts. A KuGou that started before the file was changed loaded it unchanged and restarts too. One
+    // that started after it has the port, so it is left alone while it is not connected: before the connection is made, and
+    // while it quits, when its processes end one by one after the connection closes.
+    public static bool RestartDue(LibcefPatchState? state, bool fullControl, DateTime? started, DateTime? written) =>
+        state is LibcefPatchState.Original or LibcefPatchState.Partial
+        || state is LibcefPatchState.Patched && !fullControl && started is { } at && written is { } changed && at < changed;
+
     public static LibcefPatchState Classify(System.IO.Stream file) => Profile.Classify(file);
     public static void Write(System.IO.Stream file, bool patch) => Profile.Write(file, patch);
 }

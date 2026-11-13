@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows.Threading;
@@ -6,8 +6,8 @@ using BrimDeck.Core;
 
 namespace BrimDeck.Native;
 
-// Reads the system for the monitor page on a thread of its own, only while a panel shows the page and for a short while
-// after, so the page costs nothing while it is not looked at. The structure follows ftop's SystemSampler by Nongfsq
+// Reads the system for the monitor page on a thread of its own, only while a panel shows the page and for a while after (the
+// memory mode's ReadingsLinger), so the page costs nothing while it is not looked at. The structure follows ftop's SystemSampler by Nongfsq
 // (https://github.com/Nongfsq/ftop, MIT License; see ThirdPartyNotices.txt): one provider per module keeps the counters
 // it needs for deltas and returns a Reading; nothing here throws; listing processes, the costliest reading, runs every
 // other tick. The readings themselves are the Windows ones Task Manager shows.
@@ -15,8 +15,6 @@ namespace BrimDeck.Native;
 // thread with providers of its own, and the old one ends should the driver ever answer (ReadingAbandoned).
 internal sealed class SystemSampler : IDisposable
 {
-    // Reopening the page within this time finds the sampler still running and the readings current.
-    private static readonly TimeSpan Linger = TimeSpan.FromSeconds(10);
     // After a pause the counters are read once and again after this short window, so the page has figures almost at once.
     private const int PrimeMilliseconds = 300;
     // The network readings the sparklines draw, oldest first: a minute at one reading a second.
@@ -25,9 +23,15 @@ internal sealed class SystemSampler : IDisposable
     private readonly DispatcherTimer _linger;
     private readonly AutoResetEvent _wake = new(false);
     private Thread? _thread;
+    // Starting a replacement and shutting down agree on which threads still own the shared buffers.
+    private readonly object _lifetime = new();
+    private int _running;
+    private bool _cleaned;
     // Raised when a thread is replaced: only the thread of the current generation reads.
     private int _generation;
     private volatile bool _wanted, _disposed, _listProcesses, _primeProcesses, _primeCounters;
+    // The memory mode keeps the process list's buffer and the programs' icons while the readings pause (MemoryPlan.KeepCaches).
+    private volatile bool _keepCaches;
     private volatile int _intervalMilliseconds = 1000;
     // The providers belong to the sampling thread, which creates them: adding the performance counters can take tens of
     // milliseconds, which the panel must not wait for. Only HoldProcesses reaches them from the UI thread. Each kind of counter has a
@@ -52,6 +56,9 @@ internal sealed class SystemSampler : IDisposable
     // the machine's charge reading needs without any of the rest.
     // _gpuWanted: the graphics adapters' counters, for the page, the row's GPU reading and the power.
     private volatile bool _temperatures, _storageWanted, _driveTemperatures, _powerWanted, _batteryWanted, _gpuWanted;
+    // Where the adapters' usage comes from (DeckSettings.MonitorGpuUsage), set on the UI thread and read on the sampling thread.
+    private volatile GpuUsageSource _gpuUsage;
+    public GpuUsageSource GpuUsage { set => _gpuUsage = value; }
     // The whole machine's power and the machine's battery (PowerProvider, BatteryProvider), made on the sampling thread.
     private PowerProvider? _power;
     private BatteryProvider? _battery;
@@ -89,14 +96,16 @@ internal sealed class SystemSampler : IDisposable
     public SystemSampler(Dispatcher dispatcher, Func<(string? Key, string? Name)> gpuChoice)
     {
         _dispatcher = dispatcher; _gpuChoice = gpuChoice;
-        _linger = new DispatcherTimer(DispatcherPriority.Background, dispatcher) { Interval = Linger };
+        _linger = new DispatcherTimer(DispatcherPriority.Background, dispatcher) { Interval = MemoryPlan.For(MemoryMode.Balanced).ReadingsLinger };
         // Once paused the readings grow old, so they are dropped: a page opened later shows dashes until new ones arrive
         // instead of old figures as if they were current.
-        _linger.Tick += (_, _) => { _linger.Stop(); _wanted = false; Latest = null; };
+        _linger.Tick += (_, _) => { _linger.Stop(); _wanted = false; Latest = null; _wake.Set(); };
     }
 
     // The newest readings while the sampler runs; null once it has paused. Raised on the UI thread.
     public MonitorSnapshot? Latest { get; private set; }
+    // Paused: nothing asks for readings and the linger has run out, so the thread, if started, waits.
+    public bool Resting => !_wanted;
     public event Action<MonitorSnapshot>? Updated;
     // The saved choice of graphics adapter was found under an older key (the first) and is to be saved under its key now (the
     // second). Raised on the UI thread.
@@ -104,9 +113,26 @@ internal sealed class SystemSampler : IDisposable
     // While set, rows already in the process lists keep their rank (the pointer is over a list).
     public bool HoldProcesses { get => _processes.Hold; set => _processes.Hold = value; }
 
+    // The memory mode's rules (MemoryPlan): reopening the page within ReadingsLinger finds the sampler still running and the readings
+    // current. Called on the UI thread.
+    public void UsePlan(MemoryPlan plan)
+    {
+        if (_disposed) return;
+        _linger.Interval = plan.ReadingsLinger;
+        bool releaseCaches = _keepCaches && !plan.KeepCaches;
+        _keepCaches = plan.KeepCaches;
+        // A resting thread has already applied the previous plan and is asleep; let it apply this one too.
+        if (releaseCaches && !_wanted) _wake.Set();
+    }
+
+    // Starts the sampling thread without reading, so the counters and the adapters' descriptions are set up before the page first
+    // opens (the smooth memory mode). Called on the UI thread.
+    public void Warm() { if (!_disposed && _thread is null) StartThread(0); }
+
     // Called on the UI thread whenever a panel opens or closes the page or shows or hides the readings in its collapsed row.
-    // processes: the expanded page is open, so the process list is read too.
-    public void SetDemand(bool wanted, int intervalSeconds, bool processes)
+    // processes: the expanded page is open, so the process list is read too. immediate: a sampler no longer wanted stops at once, as it
+    // has already lingered (App.LingerPageExtras).
+    public void SetDemand(bool wanted, int intervalSeconds, bool processes, bool immediate = false)
     {
         if (_disposed) return;
         _intervalMilliseconds = Math.Clamp(intervalSeconds, 1, 2) * 1000;
@@ -115,6 +141,7 @@ internal sealed class SystemSampler : IDisposable
         // The page opened while the collapsed row kept the sampler running: the processes are read at once and again shortly,
         // instead of waiting up to two readings for a list.
         if (_listProcesses && !listing && _wanted) { _primeProcesses = true; _wake.Set(); }
+        if (!wanted && immediate) { _linger.Stop(); _wanted = false; Latest = null; _wake.Set(); return; }
         if (!wanted) { if (_wanted && !_linger.IsEnabled) _linger.Start(); return; }
         _linger.Stop();
         if (_wanted) return;
@@ -125,11 +152,17 @@ internal sealed class SystemSampler : IDisposable
 
     private void StartThread(int generation)
     {
-        var thread = new Thread(() => Run(generation)) { IsBackground = true, Name = "BrimDeck system monitor", Priority = ThreadPriority.BelowNormal };
-        // The shell's icon lookup (ProcessIcons) needs a single-threaded apartment.
-        thread.SetApartmentState(ApartmentState.STA);
-        _thread = thread;
-        thread.Start();
+        lock (_lifetime)
+        {
+            if (_disposed) return;
+            var thread = new Thread(() => Run(generation)) { IsBackground = true, Name = "BrimDeck system monitor", Priority = ThreadPriority.BelowNormal };
+            // The shell's icon lookup (ProcessIcons) needs a single-threaded apartment.
+            thread.SetApartmentState(ApartmentState.STA);
+            var previous = _thread;
+            _thread = thread; _running++;
+            try { thread.Start(); }
+            catch { _thread = previous; _running--; throw; }
+        }
     }
 
     // A guarded reading on the thread of this generation did not answer (SensorGuard): another thread takes over, and the reading
@@ -180,15 +213,22 @@ internal sealed class SystemSampler : IDisposable
             try { return new PdhQuery(); }
             catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException or BadImageFormatException) { Debug.WriteLine(ex); return null; }
         }
+        // Keep this generation's owners locally: a replacement overwrites the published fields while this thread
+        // is still inside its driver. Its finally must release these, never the new thread's providers.
+        PdhQuery? cpuPdh = null, gpuPdh = null, zonesPdh = null, meterPdh = null;
+        PowerProvider? power = null;
+        GpuTemperatures? gpuTemperatures = null;
+        try
+        {
         Action stuck = () => Replace(generation);
-        _cpuPdh = Query(); _gpuPdh = Query(); _zonesPdh = Query(); _meterPdh = Query();
-        _cpu = new CpuProvider(_cpuPdh);
-        _gpu = new GpuProvider(_gpuPdh);
+        _cpuPdh = cpuPdh = Query(); _gpuPdh = gpuPdh = Query(); _zonesPdh = zonesPdh = Query(); _meterPdh = meterPdh = Query();
+        _cpu = new CpuProvider(cpuPdh);
+        _gpu = new GpuProvider(gpuPdh);
         _drivers = new GpuDrivers(stuck);
         _sensors = new SensorClient();
-        _zones = new ThermalZones(_zonesPdh, stuck);
-        _power = new PowerProvider(_meterPdh, stuck);
-        _gpuTemperatures = new GpuTemperatures(stuck);
+        _zones = new ThermalZones(zonesPdh, stuck);
+        _power = power = new PowerProvider(meterPdh, stuck);
+        _gpuTemperatures = gpuTemperatures = new GpuTemperatures(stuck);
         _battery = new BatteryProvider();
         bool primed = false, first = false;
         while (!_disposed && Volatile.Read(ref _generation) == generation)
@@ -224,7 +264,7 @@ internal sealed class SystemSampler : IDisposable
                 // resolved again here: a reading taken before the user chose another adapter would otherwise bring the old one back.
                 _dispatcher.BeginInvoke(DispatcherPriority.Background, () =>
                 {
-                    if (_disposed || !_wanted) return;
+                    if (_disposed || !_wanted || Volatile.Read(ref _generation) != generation) return;
                     Latest = WithGpu(snapshot, Volatile.Read(ref _autoGpu), out _);
                     Updated?.Invoke(Latest);
                 });
@@ -237,6 +277,19 @@ internal sealed class SystemSampler : IDisposable
                 // A reading that fails in an unexpected way is skipped; the page keeps its last figures.
                 Debug.WriteLine(ex);
                 _wake.WaitOne(_intervalMilliseconds);
+            }
+        }
+        }
+        finally
+        {
+            try
+            {
+                Release(power); Release(gpuTemperatures);
+                Release(cpuPdh); Release(gpuPdh); Release(zonesPdh); Release(meterPdh);
+            }
+            finally
+            {
+                ThreadFinished();
             }
         }
     }
@@ -254,12 +307,14 @@ internal sealed class SystemSampler : IDisposable
     }
 
     // Paused: the histories start over, and what only the readings need is let go until they start again: the process table's buffer
-    // (a megabyte or more), the last list and the programs' icons, read again with the first list.
+    // (a megabyte or more), the last list and the programs' icons, read again with the first list. The smooth memory mode keeps the
+    // buffer and the icons (MemoryPlan.KeepCaches).
     private void Rest()
     {
         _history.Clear(); _cpuHistory.Clear(); _gpuHistories.Clear(); _powerHistory.Clear(); _powerStats.Reset(); _powerSource = null; _cpuPower.Clear(); _gpuPower.Clear();
         _power!.Sample(false, false, 0, [], default, false); _storage.Rest(); _bridges.Rest();
-        _lastProcesses = Reading<ProcessList>.Unavailable(Why.Waiting); _processes.Dispose(); ProcessIcons.Clear();
+        _lastProcesses = Reading<ProcessList>.Unavailable(Why.Waiting);
+        if (!_keepCaches) { _processes.Dispose(); ProcessIcons.Clear(); }
         _cpu!.Forget();
     }
 
@@ -314,7 +369,7 @@ internal sealed class SystemSampler : IDisposable
         IReadOnlyList<StorageDrive> storage = _storageWanted ? _storage.Sample(now, _driveTemperatures) : [];
         Remember(_cpuHistory, cpu.OrDefault?.Usage);
         // The usage each adapter's driver gives, where it gives one (GpuDrivers); the curves follow the figure shown.
-        var adapters = gpus.TryGet(out var read) ? Remember(_drivers!.Read(read, now, temperatures)) : [];
+        var adapters = gpus.TryGet(out var read) ? Remember(_drivers!.Read(read, now, temperatures, _gpuUsage)) : [];
         if (!_gpuWanted) _gpuHistories.Clear();
         // The machine's power and battery: read only while something shows them; the history and the peak start over once none does.
         var power = Reading<PowerSample>.Unavailable(Why.Waiting);
@@ -342,6 +397,7 @@ internal sealed class SystemSampler : IDisposable
                     }
                 }
             }
+            catch (ReadingAbandoned) { throw; }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
                 Debug.WriteLine(ex);
@@ -442,14 +498,38 @@ internal sealed class SystemSampler : IDisposable
         history.Enqueue(Math.Clamp(value, 0, 1));
     }
 
+    private void ThreadFinished()
+    {
+        lock (_lifetime) { _running--; if (_disposed && _running == 0) Cleanup(); }
+    }
+
+    // Called under _lifetime only after every generation has left its readings.
+    private void Cleanup()
+    {
+        if (_cleaned) return;
+        _cleaned = true;
+        Release(_frames); Release(_processes); Release(_network); Release(_wake);
+    }
+
+    private static void Release(IDisposable? resource)
+    {
+        try { resource?.Dispose(); }
+        catch (Exception ex) when (ex is not OutOfMemoryException) { Debug.WriteLine(ex); }
+    }
+
     public void Dispose()
     {
-        if (_disposed) return;
-        _disposed = true; _wanted = false; _linger.Stop();
-        _frames.Dispose();
-        _wake.Set();
-        // The thread may be inside a reading; it ends on its own as a background thread if it does not stop in time.
-        if (_thread?.Join(1000) != false) { _cpuPdh?.Dispose(); _gpuPdh?.Dispose(); _zonesPdh?.Dispose(); _meterPdh?.Dispose(); _power?.Dispose(); _processes.Dispose(); _network.Dispose(); _gpuTemperatures?.Dispose(); _wake.Dispose(); }
+        Thread? thread;
+        lock (_lifetime)
+        {
+            if (_disposed) return;
+            _disposed = true; _wanted = false; _linger.Stop();
+            _wake.Set();
+            thread = _thread;
+            if (_running == 0) Cleanup();
+        }
+        // A blocked driver keeps its own resources. When it answers, Run's finally does the cleanup even after this wait times out.
+        if (thread is not null && thread != Thread.CurrentThread) thread.Join(1000);
     }
 }
 
@@ -787,7 +867,7 @@ internal sealed class ProcessProvider : IDisposable
         string image = entry.AppKey ?? entry.Name;
         if (_apps.TryGetValue(image, out var known) && known.Path is not null) return known;
         string plain = entry.Name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? entry.Name[..^4] : entry.Name;
-        string? path = _unreadable.Contains(entry.Pid) ? null : ImagePath(entry.Pid);
+        string? path = _unreadable.Contains(entry.Pid) ? null : AppIdentity.ImagePath(entry.Pid) is { Length: > 0 } read ? read : null;
         if (path is null) { _unreadable.Add(entry.Pid); return _apps[image] = known.Name is { } kept ? (null, kept) : (null, plain); }
         string name = plain;
         try
@@ -797,18 +877,6 @@ internal sealed class ProcessProvider : IDisposable
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) { }
         return _apps[image] = (path, name);
-    }
-
-    private static string? ImagePath(int pid)
-    {
-        var process = OpenProcess(0x1000, false, pid);
-        if (process == IntPtr.Zero) return null;
-        try
-        {
-            var text = new char[1024]; int size = text.Length;
-            return QueryFullProcessImageNameW(process, 0, text, ref size) ? new string(text, 0, size) : null;
-        }
-        finally { CloseHandle(process); }
     }
 
     private bool Read()
@@ -829,7 +897,4 @@ internal sealed class ProcessProvider : IDisposable
     public void Dispose() { if (_buffer != IntPtr.Zero) { Marshal.FreeHGlobal(_buffer); _buffer = IntPtr.Zero; } }
 
     [DllImport("ntdll.dll")] private static extern int NtQuerySystemInformation(int informationClass, IntPtr buffer, int length, out int returnLength);
-    [DllImport("kernel32.dll", SetLastError = true)] private static extern IntPtr OpenProcess(uint access, bool inherit, int processId);
-    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)] private static extern bool QueryFullProcessImageNameW(IntPtr process, int flags, char[] name, ref int size);
-    [DllImport("kernel32.dll")] private static extern bool CloseHandle(IntPtr handle);
 }

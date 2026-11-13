@@ -1,5 +1,3 @@
-using System.ComponentModel;
-using System.Diagnostics;
 using System.IO;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -73,6 +71,8 @@ public sealed class WindowsHost : IDisposable
         // Reorders of the desktop's children only, which are the top-level windows; other events for windows only, not
         // for carets or cursors.
         if (winEvent == 0x8004 ? window != DesktopWindow : idObject != 0 || idChild != 0) return;
+        // A window coming to the front may be a program just started: the players' shared process list is taken anew.
+        if (winEvent == 0x0003) ProcessSnapshot.Expire();
         if (_orderCheckPending) return;
         _orderCheckPending = true;
         _timer.Dispatcher.BeginInvoke(() => { _orderCheckPending = false; WatchOrder(_window()); });
@@ -291,15 +291,9 @@ public sealed class WindowsHost : IDisposable
         buffer[..Math.Max(0, GetClassName(window, ref Unsafe.As<char, ushort>(ref MemoryMarshal.GetReference(buffer)), buffer.Length))];
     private static string ProcessName(IntPtr window)
     {
-        try
-        {
-            GetWindowThreadProcessId(window, out var pid);
-            using var process = Process.GetProcessById((int)pid);
-            return process.ProcessName;
-        }
-        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or Win32Exception) { return "pid " + pid_of(window); }
+        GetWindowThreadProcessId(window, out var pid);
+        return AppIdentity.NameAndPath((int)pid).Name is { Length: > 0 } name ? name : "pid " + pid;
     }
-    private static uint pid_of(IntPtr window) { GetWindowThreadProcessId(window, out var pid); return pid; }
     // Notes of buried panels, in the data folder. The current file is kept and a full one moved aside, so earlier
     // notes survive a rotation: zorder.log, then zorder.1.log, zorder.2.log, up to three.
     private const long OrderLogLimit = 262144;
@@ -498,15 +492,8 @@ public sealed class WindowsHost : IDisposable
     {
         if (window != cachedWindow || pid != cachedPid)
         {
-            cachedWindow = window; cachedPid = pid; cachedName = ""; cachedPath = "";
-            try
-            {
-                using var process = Process.GetProcessById((int)pid);
-                cachedName = process.ProcessName;
-                try { cachedPath = process.MainModule?.FileName ?? ""; }
-                catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or NotSupportedException) { }
-            }
-            catch (Exception ex) when (ex is ArgumentException or InvalidOperationException) { }
+            cachedWindow = window; cachedPid = pid;
+            (cachedName, cachedPath) = AppIdentity.NameAndPath((int)pid);
         }
         processName = cachedName; imagePath = cachedPath;
     }

@@ -4,7 +4,7 @@ namespace BrimDeck.Core;
 // counts the time its graphics engine is busy, the figure AIDA64, HWiNFO's "GPU Core Load" and nvidia-smi show; Windows counts
 // each engine apart and shows the busiest, which reads lower when work spreads over several engines or is the driver's own. The
 // engines' own figures stay Windows' (GpuSample.Engines): no driver gives them all. Where no driver answers, the usage stays the
-// busiest engine.
+// busiest engine, as it does when the usage is set to be Windows' (GpuUsageSource).
 public static class GpuDriverReadings
 {
     public const uint Nvidia = 0x10DE, Amd = 0x1002, Intel = 0x8086;
@@ -14,11 +14,12 @@ public static class GpuDriverReadings
         Nvidia => Loc.T("NVIDIA 驱动", "NVIDIA driver"), Amd => Loc.T("AMD 驱动", "AMD driver"), Intel => Loc.T("Intel 驱动", "Intel driver"), _ => null
     };
 
-    // The adapter with the driver's usage (percent), board power (watts) and temperature (°C) where they were read. An integrated
-    // adapter's power is inside the processor package already (PowerInputs.Cpu), so it is never taken: it would be counted twice.
-    public static GpuSample Apply(GpuSample gpu, double? percent, double? watts, double? celsius = null)
+    // The adapter with the driver's usage (percent, unless the usage is to be Windows'), board power (watts) and temperature (°C)
+    // where they were read. An integrated adapter's power is inside the processor package already (PowerInputs.Cpu), so it is never
+    // taken: it would be counted twice.
+    public static GpuSample Apply(GpuSample gpu, double? percent, double? watts, double? celsius = null, GpuUsageSource source = GpuUsageSource.Driver)
     {
-        if (percent is { } usage && double.IsFinite(usage))
+        if (source == GpuUsageSource.Driver && percent is { } usage && double.IsFinite(usage))
             gpu = gpu with { Usage = Math.Clamp(usage / 100, 0, 1), UsageSource = SourceName(gpu.VendorId) };
         if (watts is { } power && PowerResolver.Plausible(power) && gpu.Kind != GpuKind.Integrated) gpu = gpu with { DriverWatts = power };
         // Zero is what a driver gives without a sensor, as the graphics kernel does (GpuTemperatures).
@@ -60,3 +61,7 @@ public sealed class GpuDriverGate
         foreach (var luid in _busyAt.Keys.Where(luid => !kept.Contains(luid)).ToList()) _busyAt.Remove(luid);
     }
 }
+
+// Where an adapter's usage comes from (DeckSettings.MonitorGpuUsage): its driver where it gives one, or always Windows' busiest
+// engine, as Task Manager shows it, for a driver whose figure is wrong. The power and the temperature are read the same either way.
+public enum GpuUsageSource { Driver, Windows }

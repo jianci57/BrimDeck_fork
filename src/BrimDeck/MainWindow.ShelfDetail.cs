@@ -138,14 +138,16 @@ public partial class MainWindow
         if (_shelfDetail is not null) { CloseDetail(); return true; }
         return false;
     }
-    // Closing the panel ends the search, the typing and the details; the chosen categories stay.
+    // Closing the panel ends the search, the typing and the details; the chosen categories stay. The page is built again at the next
+    // opening only when one of them was ended: a page closed as it was built opens as it is.
     private void ResetShelf()
     {
+        bool ended = _shelfEdit is not null || _shelfDetail is not null || _shelfSearching || _shelfQuery.Length > 0 || _picked.Count > 0;
         if (_shelfEdit is not null || _shelfSearching) EndTyping();
         _shelfEdit = null; _shelfDetail = null; _shelfSearching = false; _shelfQuery = ""; _picked.Clear();
         if (_searchBox is not null) _searchBox.Text = "";
         _shelfMenu?.SetCurrentValue(ContextMenu.IsOpenProperty, false);
-        if (IsShelfPage) _shelfStale = true;
+        if (ended && IsShelfPage) _shelfStale = true;
     }
 
     // ---- Typing ----
@@ -385,7 +387,7 @@ public partial class MainWindow
         var grid = new Grid { VerticalAlignment = VerticalAlignment.Top };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); grid.ColumnDefinitions.Add(new ColumnDefinition());
         double icon = layout.Tier == ShelfTier.Compact ? 32 : 48;
-        var image = new Image { Source = ShelfFiles.Icon(file.Path, large: true), Width = icon, Height = icon, VerticalAlignment = VerticalAlignment.Top, Opacity = exists ? 1 : .45, Margin = new Thickness(0, 2, 14, 0) };
+        var image = new Image { Source = ShelfFiles.Icon(file.Path), Width = icon, Height = icon, VerticalAlignment = VerticalAlignment.Top, Opacity = exists ? 1 : .45, Margin = new Thickness(0, 2, 14, 0) };
         RenderOptions.SetBitmapScalingMode(image, BitmapScalingMode.HighQuality);
         grid.Children.Add(image);
         var text = new StackPanel();
@@ -406,7 +408,7 @@ public partial class MainWindow
         facts.Add((Loc.T("时间", "Time"), clip.Copied.ToLocalTime().ToString(Loc.T("M月d日 HH:mm", "MMM d, HH:mm"), CultureInfo.CurrentCulture), null));
         facts.Add(clip.Kind == ClipKind.Image ? (Loc.T("尺寸", "Size"), $"{clip.PixelWidth} × {clip.PixelHeight}", null)
             : (Loc.T("长度", "Length"), Loc.T($"{clip.Text.Length} 字 · {Shelf.LineCount(clip.Text)} 行", $"{clip.Text.Length} chars · {Shelf.LineCount(clip.Text)} lines"), null));
-        facts.Add((Loc.T("分类", "Category"), CategoryName(ShelfSide.Clipboard, clip.Category), target => OpenMenu(CategoryChoices(ShelfSide.Clipboard, [clip.Id], clip.Category), target)));
+        facts.Add((Loc.T("分类", "Category"), CategoryNames(ShelfSide.Clipboard, clip.Categories), target => OpenMenu(CategoryChoices(ShelfSide.Clipboard, [clip.Id]), target)));
         return facts;
     }
     private List<(string Label, string Value, Action<FrameworkElement>? Change)> FileFacts(TransferFile file)
@@ -416,10 +418,12 @@ public partial class MainWindow
         var facts = new List<(string, string, Action<FrameworkElement>?)> { (Loc.T("大小", "Size"), size, null) };
         if (exists && ShelfFiles.Modified(file.Path) is { } modified) facts.Add((Loc.T("修改", "Modified"), modified.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture), null));
         facts.Add((Loc.T("加入", "Added"), Shelf.When(file.Added, DateTimeOffset.Now), null));
-        facts.Add((Loc.T("分类", "Category"), CategoryName(ShelfSide.Files, file.Category), target => OpenMenu(CategoryChoices(ShelfSide.Files, [file.Id], file.Category), target)));
+        facts.Add((Loc.T("分类", "Category"), CategoryNames(ShelfSide.Files, file.Categories), target => OpenMenu(CategoryChoices(ShelfSide.Files, [file.Id]), target)));
         return facts;
     }
-    private string CategoryName(ShelfSide side, Guid? id) => id is { } known && ShelfData.Categories(side).FirstOrDefault(c => c.Id == known) is { } category ? Shelf.CategoryName(category) : Loc.T("无", "None");
+    // The categories an entry is in, in their order, or "无".
+    private string CategoryNames(ShelfSide side, List<Guid> ids) => ShelfData.Categories(side).Where(c => ids.Contains(c.Id)).Select(Shelf.CategoryName).ToList() is { Count: > 0 } names
+        ? string.Join(Loc.T("、", ", "), names) : Loc.T("无", "None");
 
     private StackPanel ClipActions(ClipEntry clip)
     {
@@ -459,7 +463,7 @@ public partial class MainWindow
             var menu = NewMenu();
             menu.Items.Add(Item(Loc.T("粘贴", "Paste"), () => PasteFiles([file]), MenuIcons.Paste));
             menu.Items.Add(Item(Loc.T("复制路径", "Copy path"), () => CopyPath(file), MenuIcons.FilePath));
-            if (FilingMenu(ShelfSide.Files, [file.Id], file.Category) is { } filing) { menu.Items.Add(Separator()); menu.Items.Add(filing); }
+            if (FilingMenu(ShelfSide.Files, [file.Id]) is { } filing) { menu.Items.Add(Separator()); menu.Items.Add(filing); }
             menu.Items.Add(Separator());
             AddRemoval(menu, [file]);
             OpenMenu(menu, more);
@@ -602,20 +606,23 @@ public partial class MainWindow
     private void AddFiling(ContextMenu menu, ClipEntry clip)
     {
         menu.Items.Add(Separator());
-        bool favorite = clip.Category == ShelfData.Favorites;
+        bool favorite = clip.Categories.Contains(ShelfData.Favorites);
         menu.Items.Add(Item(favorite ? Loc.T("移出常用", "Remove from favorites") : Loc.T("加入常用", "Add to favorites"),
-            () => Assign(ShelfSide.Clipboard, [clip.Id], favorite ? null : ShelfData.Favorites), StarData));
-        if (FilingMenu(ShelfSide.Clipboard, [clip.Id], clip.Category) is { } filing) menu.Items.Add(filing);
+            () => SetCategory(ShelfSide.Clipboard, [clip.Id], ShelfData.Favorites, add: !favorite), StarData));
+        if (FilingMenu(ShelfSide.Clipboard, [clip.Id]) is { } filing) menu.Items.Add(filing);
     }
-    // "加入分类" with the user's categories, or nothing when the user has made none.
-    private MenuItem? FilingMenu(ShelfSide side, IReadOnlyList<Guid> ids, Guid? current)
+    // "加入分类" with the user's categories, or nothing when the user has made none. An entry can be in several: a category all the
+    // entries are in is checked, and choosing it takes them out of it; choosing another puts them in it as well.
+    private MenuItem? FilingMenu(ShelfSide side, IReadOnlyList<Guid> ids)
     {
         var own = ShelfData.OwnCategories(side).ToList();
         if (own.Count == 0) return null;
+        var lists = CategoriesOf(side, ids);
+        bool All(Guid id) => lists.Count > 0 && lists.All(list => list.Contains(id));
         // The check column only when the entries are in one of these categories.
-        bool inOwn = own.Any(category => category.Id == current);
-        var items = own.Select(category => (object)Item(category.Name, () => Assign(side, ids, category.Id), check: inOwn ? current == category.Id : null, dot: category.Color)).ToList();
-        if (inOwn) { items.Add(Separator()); items.Add(Item(Loc.T("移出分类", "Remove from category"), () => Assign(side, ids, null), check: false)); }
+        bool inOwn = own.Any(category => All(category.Id));
+        var items = own.Select(category => (object)Item(category.Name, () => SetCategory(side, ids, category.Id, add: !All(category.Id)),
+            check: inOwn ? All(category.Id) : null, dot: category.Color)).ToList();
         return Submenu(Loc.T("加入分类", "Add to category"), MenuIcons.Category, items);
     }
     private ContextMenu FileMenu(TransferFile file)
@@ -624,7 +631,7 @@ public partial class MainWindow
         if (!ShelfFiles.Exists(file.Path))
         {
             menu.Items.Add(Item(Loc.T("查看详情", "Details"), () => OpenDetail(ShelfSide.Files, file.Id), MenuIcons.Details));
-            if (FilingMenu(ShelfSide.Files, [file.Id], file.Category) is { } lost) menu.Items.Add(lost);
+            if (FilingMenu(ShelfSide.Files, [file.Id]) is { } lost) menu.Items.Add(lost);
             menu.Items.Add(Separator());
             menu.Items.Add(Item(Loc.T("移除", "Remove"), () => RemoveFiles([file]), MenuIcons.Remove));
             return menu;
@@ -641,20 +648,23 @@ public partial class MainWindow
             menu.Items.Add(Separator());
             menu.Items.Add(Item(Loc.T("查看详情", "Details"), () => OpenDetail(ShelfSide.Files, file.Id), MenuIcons.Details));
         }
-        if (FilingMenu(ShelfSide.Files, files.Select(f => f.Id).ToList(), many ? null : file.Category) is { } filing) { if (many) menu.Items.Add(Separator()); menu.Items.Add(filing); }
+        if (FilingMenu(ShelfSide.Files, files.Select(f => f.Id).ToList()) is { } filing) { if (many) menu.Items.Add(Separator()); menu.Items.Add(filing); }
         menu.Items.Add(Separator());
         AddRemoval(menu, files);
         return menu;
     }
-    // The details' "分类": every category, "常用" too, the one the entry is in checked, and "无".
-    private ContextMenu CategoryChoices(ShelfSide side, IReadOnlyList<Guid> ids, Guid? current)
+    // The details' "分类": every category, "常用" too, those the entry is in checked; choosing one puts it in or takes it out.
+    // "无" takes it out of all of them.
+    private ContextMenu CategoryChoices(ShelfSide side, IReadOnlyList<Guid> ids)
     {
         var menu = NewMenu();
-        menu.Items.Add(Item(Loc.T("无", "None"), () => Assign(side, ids, null), check: current is null));
+        var lists = CategoriesOf(side, ids);
+        bool In(Guid id) => lists.Count > 0 && lists.All(list => list.Contains(id));
+        menu.Items.Add(Item(Loc.T("无", "None"), () => { foreach (var list in lists) list.Clear(); _app.Shelf.Edited(); }, check: lists.All(list => list.Count == 0)));
         foreach (var category in ShelfData.Categories(side))
             menu.Items.Add(category.Id == ShelfData.Favorites
-                ? Item(Shelf.CategoryName(category), () => Assign(side, ids, category.Id), check: current == category.Id, star: true)
-                : Item(category.Name, () => Assign(side, ids, category.Id), check: current == category.Id, dot: category.Color));
+                ? Item(Shelf.CategoryName(category), () => SetCategory(side, ids, category.Id, add: !In(category.Id)), check: In(category.Id), star: true)
+                : Item(category.Name, () => SetCategory(side, ids, category.Id, add: !In(category.Id)), check: In(category.Id), dot: category.Color));
         return menu;
     }
     // The user's categories, with their counts, when they do not fit beside "全部" and "常用".
@@ -662,7 +672,7 @@ public partial class MainWindow
     {
         var menu = NewMenu();
         var selected = side == ShelfSide.Clipboard ? _clipTab : _fileTab;
-        string Number(Guid id) => (side == ShelfSide.Clipboard ? ShelfData.Clips.Count(c => c.Category == id) : ShelfData.Files.Count(f => f.Category == id)).ToString(CultureInfo.InvariantCulture);
+        string Number(Guid id) => (side == ShelfSide.Clipboard ? ShelfData.Clips.Count(c => c.Categories.Contains(id)) : ShelfData.Files.Count(f => f.Categories.Contains(id))).ToString(CultureInfo.InvariantCulture);
         void Choose(Guid id) { if (side == ShelfSide.Clipboard) _clipTab = id; else { _fileTab = id; _picked.Clear(); } RenderShelf(); }
         // The check column only when one of them is the one shown, so the menu has no empty column at its left.
         var own = ShelfData.OwnCategories(side).ToList();

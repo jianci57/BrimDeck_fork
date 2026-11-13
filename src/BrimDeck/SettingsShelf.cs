@@ -6,13 +6,15 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using BrimDeck.Core;
+using BrimDeck.Native;
 
 namespace BrimDeck;
 
 // The clipboard and file transfer's settings, in their own group ("中转站"). The page's size is set with the other pages under
-// "展开外观". "剪贴板": whether and for how long the clipboard is recorded (the history stays on this computer, encrypted for the
-// current Windows user), its categories and the phrases; "文件中转": its categories. The panel only uses the categories and
-// phrases; they are made and changed here. Entries in a category and phrases are kept whatever the history rule.
+// "展开外观". "剪贴板": whether the clipboard is recorded (the history stays on this computer, encrypted for the current Windows
+// user, until BrimDeck exits), its categories and the phrases; "文件中转": its categories. The panel only uses the categories and
+// phrases; they are made and changed here, each category with what goes in by itself (SettingsShelfRules) and, on the clipboard,
+// whether what is in it is kept. "文件中转" also sets whether files dragged out are copied or moved.
 public partial class SettingsWindow
 {
     internal const int ClipboardSettingsPage = 13, TransferSettingsPage = 14;
@@ -40,40 +42,73 @@ public partial class SettingsWindow
     {
         WatchShelf();
         var record = Toggle(Loc.T("记录剪贴板", "Record the clipboard"), S.ClipboardRecord, value => { Change(s => s.ClipboardRecord = value); ShowPage(_page); },
-            help: Loc.T("记录复制的文字和图片，保存在本机并加密存放。密码管理器标记为不记录的内容不会保存。",
-                "Keeps the text and pictures you copy, encrypted on this computer. What password managers mark as private is never kept."));
-        var retention = new ComboBox { Width = 150, Style = (Style)FindResource("SettingsCombo") };
-        var choices = new[] { (ClipRetention.Week, Loc.T("7 天", "7 days")), (ClipRetention.Month, Loc.T("30 天", "30 days")),
-            (ClipRetention.Recent500, Loc.T("最近 500 条", "Latest 500")), (ClipRetention.UntilExit, Loc.T("退出时清除", "Until exit")) };
-        retention.ItemsSource = choices.Select(choice => choice.Item2).ToList();
-        retention.SelectedIndex = Math.Max(0, Array.FindIndex(choices, choice => choice.Item1 == S.ClipboardRetention));
-        retention.IsEnabled = S.ClipboardRecord;
-        AutomationProperties.SetName(retention, Loc.T("保留历史记录", "Keep history"));
-        PopupMotion.Attach(retention);
-        retention.SelectionChanged += (_, _) => { if (retention.SelectedIndex >= 0) Change(s => s.ClipboardRetention = choices[retention.SelectedIndex].Item1); };
-        var excluded = new TextBox { Style = (Style)FindResource("SettingsField"), Width = 220, Text = string.Join(", ", S.ClipboardExcluded), IsEnabled = S.ClipboardRecord };
-        AutomationProperties.SetName(excluded, Loc.T("不记录的应用", "Apps not recorded"));
-        excluded.LostKeyboardFocus += (_, _) =>
-        {
-            var names = excluded.Text.Split([',', '，', ';', '；'], StringSplitOptions.RemoveEmptyEntries).Select(name => name.Trim()).ToList();
-            if (!names.SequenceEqual(S.ClipboardExcluded)) Change(s => s.ClipboardExcluded = names);
-        };
-        Group(record,
-            Row(Loc.T("保留历史记录", "Keep history"), retention, help: () => Loc.T("放进分类的内容和常用语一直保留，只在删除时移除。", "Entries in a category and phrases are kept until you delete them.")),
-            Row(Loc.T("不记录的应用", "Apps not recorded"), excluded, help: () => Loc.T("填写进程名，用逗号分隔，例如 KeePass, 1Password。", "Process names separated by commas, for example KeePass, 1Password.")));
-        SectionTitle(Loc.T("分类", "Categories"), help: () => Loc.T("放进分类的内容一直保留，不按保留规则清理。拖动调整顺序，面板中按这个顺序显示。“常用”是内置分类，排在最前。",
-            "Entries in a category are kept, whatever the history rule. Drag to reorder; the panel shows them in this order. Favorites is built in and comes first."));
+            help: Loc.T("记录复制的文字和图片，保存在本机并加密存放，退出 BrimDeck 时清除。放进“常用”或设为一直保留的分类的内容不会清除。",
+                "Keeps the text and pictures you copy, encrypted on this computer, until BrimDeck exits. What is in Favorites or in a category set to keep stays."));
+        Group(record, _excludedHost = new Border { Child = ExcludedAppsContent() });
+        SectionTitle(Loc.T("分类", "Categories"), help: () => Loc.T("一条内容可以放进多个分类。关闭“一直保留”的分类，其中的内容在退出 BrimDeck 时清除。单击筛选按钮设置自动放入的规则。拖动调整顺序。",
+            "An entry can be in several categories. What is in a category with Keep off is cleared when BrimDeck exits. The filter button sets what goes in by itself. Drag to reorder."));
         CategoryList(ShelfSide.Clipboard);
-        SectionTitle(Loc.T("常用语", "Phrases"), help: () => Loc.T("手写的文字，放在“常用”中，在面板中单击即可粘贴。", "Text you write here goes to Favorites; click it on the panel to paste it."));
-        PhraseList();
+        SectionTitle(Loc.T("常用", "Favorites"));
+        FavoritesList();
+    }
+
+    // Whether the apps not recorded are shown under their row, and the row itself, rebuilt alone when an app is added or removed.
+    private bool _excludedOpen;
+    private Border? _excludedHost;
+    private void RefreshExcludedApps() { if (_excludedHost is not null) _excludedHost.Child = ExcludedAppsContent(); }
+
+    // An app picked from the menu or a file is kept by its path, for its icon and name; one typed in earlier versions by its
+    // process name. Either way every process of that executable is left out.
+    private FrameworkElement ExcludedAppsContent() => AppListRow(Loc.T("不记录的应用", "Apps not recorded"),
+        () => Loc.T("从这些应用复制的内容不会记录。“添加应用”列出有窗口的应用，也可以浏览可执行文件。",
+            "What you copy from these apps is not recorded. \"Add app\" lists apps with windows, or browse for an executable."),
+        Loc.T("展开不记录的应用", "Show apps not recorded"), Loc.T("添加不记录的应用", "Add an app not to record"),
+        [.. S.ClipboardExcluded.Select(ExcludedAppLine)], ExcludedAppMenu, _excludedOpen, open => _excludedOpen = open, S.ClipboardRecord);
+
+    private FrameworkElement ExcludedAppLine(string entry)
+    {
+        string process = ClipboardExclusions.ProcessName(entry), path = ClipboardExclusions.IsPath(entry) ? entry : "";
+        string name = AppName(process, path);
+        return AppLine(name, FileName(process, path), path, path, () =>
+        {
+            Change(s => s.ClipboardExcluded.RemoveAll(other => string.Equals(ClipboardExclusions.ProcessName(other), process, StringComparison.OrdinalIgnoreCase)));
+            RefreshExcludedApps();
+        });
+    }
+
+    private void ExcludedAppMenu(Button anchor)
+    {
+        var menu = AppMenu(anchor);
+        var apps = RunningApps.WithWindows()
+            .Where(app => !ClipboardExclusions.Excludes(S.ClipboardExcluded, app.Name))
+            .Select(app => (App: app, Name: AppName(app.Name, app.Path)))
+            .OrderBy(entry => entry.Name, StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
+        foreach (var (app, name) in apps)
+            menu.Items.Add(AppMenuItem(name, FileName(app.Name, app.Path), app.Path, () => AddExcludedApp(app.Path.Length > 0 ? app.Path : app.Name)));
+        if (apps.Count == 0) menu.Items.Add(new MenuItem { Header = Loc.T("没有可添加的应用", "No apps to add"), IsEnabled = false });
+        AddBrowseItem(menu, Loc.T("选择不记录的应用", "Choose an app not to record"), AddExcludedApp);
+        menu.IsOpen = true;
+    }
+
+    private void AddExcludedApp(string entry)
+    {
+        if (ClipboardExclusions.Excludes(S.ClipboardExcluded, ClipboardExclusions.ProcessName(entry))) return;
+        Change(s => s.ClipboardExcluded.Add(entry));
+        RefreshExcludedApps();
     }
 
     // ---- 文件中转 ----
     private void TransferSettings()
     {
         WatchShelf();
-        SectionTitle(Loc.T("分类", "Categories"), help: () => Loc.T("拖动调整顺序。删除分类时，其中的文件回到“全部”，原文件不受影响。",
-            "Drag to reorder. Deleting a category puts its files back in All; the original files are not touched."));
+        Group(MusicChoice(Loc.T("拖出文件", "Drag files out"), S.TransferDragOut,
+            [(TransferDragOut.Copy, Loc.T("复制", "Copy")), (TransferDragOut.Move, Loc.T("移动", "Move"))],
+            value => Change(s => s.TransferDragOut = value), width: 216,
+            help: Loc.T("选择“移动”时，文件移到新位置后从列表中移除。聊天软件、浏览器等只接受复制的地方仍会复制。",
+                "With Move, files moved to a new place leave the list. Chat apps, browsers and other places that only take copies still get copies.")));
+        SectionTitle(Loc.T("分类", "Categories"), help: () => Loc.T("一个文件可以放进多个分类。单击筛选按钮设置自动放入的规则。拖动调整顺序。原文件不受影响。",
+            "A file can be in several categories. The filter button sets what goes in by itself. Drag to reorder. The original files are not touched."));
         CategoryList(ShelfSide.Files);
     }
 
@@ -119,18 +154,18 @@ public partial class SettingsWindow
         list.Children.Add(rows);
         if (side == ShelfSide.Files && rows.Children.Count == 0)
         {
-            var empty = TextLine(Loc.T("还没有分类。", "No categories yet."), 12.5, TextSecondary); empty.Margin = new Thickness(0, 12, 0, 12);
+            var empty = TextLine(Loc.T("还没有分类。", "No categories yet."), 12.5, TextTertiary); empty.Margin = new Thickness(0, 13, 0, 13);
             list.Children.Add(empty);
         }
         Target.Children.Add(new Border { Child = list, BorderBrush = UI.Brush(Divider), BorderThickness = new Thickness(0, 1, 0, 0) });
-        var add = ActionButton(Loc.T("新建分类", "New category"), () => AddCategory(side));
-        add.HorizontalAlignment = HorizontalAlignment.Left; add.Margin = new Thickness(0, 10, 0, 28);
+        var add = AddLink(Loc.T("新建分类", "New category"), () => AddCategory(side));
+        add.Margin = new Thickness(0, 6, 0, 26);
         AutomationProperties.SetName(add, side == ShelfSide.Clipboard ? Loc.T("新建剪贴板分类", "New clipboard category") : Loc.T("新建文件中转分类", "New file transfer category"));
         Target.Children.Add(add);
     }
     private string CountText(ShelfSide side, Guid id)
     {
-        int count = side == ShelfSide.Clipboard ? ShelfData.Clips.Count(clip => clip.Category == id) : ShelfData.Files.Count(file => file.Category == id);
+        int count = side == ShelfSide.Clipboard ? ShelfData.Clips.Count(clip => clip.Categories.Contains(id)) : ShelfData.Files.Count(file => file.Categories.Contains(id));
         return side == ShelfSide.Clipboard ? Loc.T($"{count} 条", count == 1 ? "1 entry" : $"{count} entries") : Loc.T($"{count} 个", count == 1 ? "1 file" : $"{count} files");
     }
     // "常用": no handle, no color and no delete; it is always first.
@@ -141,17 +176,19 @@ public partial class SettingsWindow
         star.Fill = UI.Brush(TextSecondary); star.HorizontalAlignment = HorizontalAlignment.Center; star.VerticalAlignment = VerticalAlignment.Center;
         Grid.SetColumn(star, 1); row.Children.Add(star);
         var name = TextLine(Loc.T("常用", "Favorites"), 13, TextPrimary); name.VerticalAlignment = VerticalAlignment.Center; name.Margin = new Thickness(4, 0, 0, 0);
-        Grid.SetColumn(name, 2); row.Children.Add(name);
-        var note = TextLine(Loc.T("内置", "Built in"), 12, TextTertiary); note.VerticalAlignment = VerticalAlignment.Center; note.HorizontalAlignment = HorizontalAlignment.Right;
-        Grid.SetColumn(note, 2); row.Children.Add(note);
+        Grid.SetColumn(name, 2); Grid.SetColumnSpan(name, 2); row.Children.Add(name);
+        var always = AlwaysKept();
+        Grid.SetColumn(always, 4); row.Children.Add(always);
         var count = TextLine(CountText(ShelfSide.Clipboard, ShelfData.Favorites), 12, TextTertiary); count.VerticalAlignment = VerticalAlignment.Center; count.Margin = new Thickness(12, 0, 0, 0);
-        Grid.SetColumn(count, 3); row.Children.Add(count);
+        Grid.SetColumn(count, 5); row.Children.Add(count);
         return row;
     }
+    // Handle, color, name (180 wide), what the category does by itself, "一直保留" (the clipboard's), count, the filter button, delete.
+    private const double CategoryNameWidth = 180, KeepColumnWidth = 116;
     private static Grid CategoryColumns()
     {
         var row = new Grid { Height = CategoryRowHeight, Background = Brushes.Transparent };
-        foreach (var width in new[] { new GridLength(22), new GridLength(44), new GridLength(1, GridUnitType.Star), GridLength.Auto, new GridLength(36) })
+        foreach (var width in new[] { new GridLength(22), new GridLength(44), new GridLength(CategoryNameWidth), new GridLength(1, GridUnitType.Star), new GridLength(KeepColumnWidth), GridLength.Auto, new GridLength(36), new GridLength(36) })
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = width });
         return row;
     }
@@ -192,27 +229,43 @@ public partial class SettingsWindow
             Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, () => { name.Focus(); name.SelectAll(); name.BringIntoView(); });
         }
         Grid.SetColumn(name, 2); row.Children.Add(name);
+        var summary = CategorySummary(side, category);
+        Grid.SetColumn(summary, 3); row.Children.Add(summary);
+        if (side == ShelfSide.Clipboard)
+        {
+            var keep = KeepSwitch(category);
+            Grid.SetColumn(keep, 4); row.Children.Add(keep);
+        }
         var count = TextLine(CountText(side, category.Id), 12, TextTertiary); count.VerticalAlignment = VerticalAlignment.Center; count.Margin = new Thickness(12, 0, 0, 0);
-        Grid.SetColumn(count, 3); row.Children.Add(count);
-        // Deleting puts the entries back in "全部", where the history rule may then clear them, so it asks first.
+        Grid.SetColumn(count, 5); row.Children.Add(count);
+        bool open = _openCategory == category.Id;
+        var options = CategoryOptionsButton(side, category, open);
+        Grid.SetColumn(options, 6); row.Children.Add(options);
+        // Deleting puts the entries only in this category back in "全部", where they go with the history, so it asks first. Entries
+        // also in another category stay there.
         var remove = GlyphButton("M 0,0 L 8,8 M 8,0 L 0,8", 8, 8, Loc.T("删除 ", "Delete ") + category.Name, () =>
         {
-            int inside = side == ShelfSide.Clipboard ? ShelfData.Clips.Count(clip => clip.Category == category.Id) : ShelfData.Files.Count(file => file.Category == category.Id);
+            bool Alone(List<Guid> ids) => ids.Count == 1 && ids[0] == category.Id;
+            int alone = side == ShelfSide.Clipboard ? ShelfData.Clips.Count(clip => Alone(clip.Categories)) : ShelfData.Files.Count(file => Alone(file.Categories));
             string what = side == ShelfSide.Clipboard
-                ? Loc.T($"将删除分类“{category.Name}”。其中的 {inside} 条内容回到“全部”，之后按保留规则清理。", $"This deletes {category.Name}. Its {inside} entries go back to All, where the history rule applies to them.")
-                : Loc.T($"将删除分类“{category.Name}”。其中的 {inside} 个文件回到“全部”，原文件不受影响。", $"This deletes {category.Name}. Its {inside} files go back to All; the original files are not touched.");
-            if (inside > 0 && !Confirm(Loc.T("删除分类", "Delete category"), what, Loc.T("删除", "Delete"))) return;
+                ? Loc.T($"将删除分类“{category.Name}”。只在这个分类中的 {alone} 条内容回到“全部”，退出 BrimDeck 时清除。", $"This deletes {category.Name}. The {alone} entries only in it go back to All and are cleared when BrimDeck exits.")
+                : Loc.T($"将删除分类“{category.Name}”。只在这个分类中的 {alone} 个文件回到“全部”，原文件不受影响。", $"This deletes {category.Name}. The {alone} files only in it go back to All; the original files are not touched.");
+            if (alone > 0 && !Confirm(Loc.T("删除分类", "Delete category"), what, Loc.T("删除", "Delete"))) return;
             Shelf.DeleteCategory(ShelfData, side, category.Id);
             ShelfEdited(); ShowPage(_page);
         });
+        remove.ToolTip = null;
         remove.Width = 24; remove.Height = 26; remove.HorizontalAlignment = HorizontalAlignment.Right;
-        Grid.SetColumn(remove, 4); row.Children.Add(remove);
-        var border = new Border { Child = row, Height = CategoryRowHeight, BorderBrush = UI.Brush(_palette.RowDivider), BorderThickness = new Thickness(0), Tag = category.Id, RenderTransform = new TranslateTransform() };
+        Grid.SetColumn(remove, 7); row.Children.Add(remove);
+        // The category's options open under its row, as the apps' quota configuration does; a drag closes them first.
+        var body = new StackPanel(); body.Children.Add(row);
+        if (open) body.Children.Add(CategoryOptions(side, category));
+        var border = new Border { Child = body, Height = open ? double.NaN : CategoryRowHeight, BorderBrush = UI.Brush(_palette.RowDivider), BorderThickness = new Thickness(0), Tag = category.Id, RenderTransform = new TranslateTransform() };
         AttachDrag(handle, category.Name, () => rows, CategoryRowHeight, list =>
         {
             Shelf.Reorder(ShelfData, side, [.. list.Children.OfType<Border>().Where(b => b.Tag is Guid).Select(b => (Guid)b.Tag)]);
             ShelfEdited();
-        });
+        }, () => CloseCategoryOptions(rows));
         return border;
     }
     private void AddCategory(ShelfSide side)
@@ -224,7 +277,10 @@ public partial class SettingsWindow
         ShelfEdited(); ShowPage(_page);
     }
 
-    private void PhraseList()
+    // Everything in "常用", newest first: what was added from the panel and the phrases written here. Text can be changed in place;
+    // the cross deletes a phrase (it exists only here) and takes anything else out of "常用", back to its other categories or the
+    // history.
+    private void FavoritesList()
     {
         var list = new StackPanel();
         void Add(FrameworkElement row)
@@ -233,38 +289,66 @@ public partial class SettingsWindow
             list.Children.Add(row);
         }
         if (_phraseEdit == Guid.Empty) Add(PhraseEditor(null));
-        foreach (var phrase in ShelfData.Clips.Where(clip => clip.Manual))
-            Add(_phraseEdit == phrase.Id ? PhraseEditor(phrase) : PhraseRow(phrase));
+        foreach (var entry in ShelfData.Clips.Where(clip => clip.Categories.Contains(ShelfData.Favorites)))
+            Add(_phraseEdit == entry.Id ? PhraseEditor(entry) : FavoriteRow(entry));
         if (list.Children.Count == 0)
         {
-            var empty = TextLine(Loc.T("还没有常用语。", "No phrases yet."), 12.5, TextSecondary); empty.Margin = new Thickness(0, 12, 0, 12);
+            var empty = TextLine(Loc.T("还没有内容。", "Nothing here yet."), 12.5, TextTertiary); empty.Margin = new Thickness(0, 13, 0, 13);
             list.Children.Add(empty);
         }
         Target.Children.Add(new Border { Child = list, BorderBrush = UI.Brush(Divider), BorderThickness = new Thickness(0, 1, 0, 0) });
-        var add = ActionButton(Loc.T("新建常用语", "New phrase"), () => { _phraseEdit = Guid.Empty; ShowPage(_page); });
-        add.HorizontalAlignment = HorizontalAlignment.Left; add.Margin = new Thickness(0, 10, 0, 28); add.IsEnabled = _phraseEdit is null;
+        var add = AddLink(Loc.T("新建常用语", "New phrase"), () => { _phraseEdit = Guid.Empty; ShowPage(_page); });
+        add.Margin = new Thickness(0, 6, 0, 26); add.IsEnabled = _phraseEdit is null;
         Target.Children.Add(add);
     }
-    private Grid PhraseRow(ClipEntry phrase)
+    private Grid FavoriteRow(ClipEntry entry)
     {
         var row = new Grid { Height = 40, Background = Brushes.Transparent };
-        row.ColumnDefinitions.Add(new ColumnDefinition()); row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        var (first, more) = Shelf.FirstLine(phrase.Text);
-        var text = TextLine(more > 0 ? first + Loc.T($"  +{more} 行", $"  +{more} lines") : first, 13, TextPrimary);
-        text.VerticalAlignment = VerticalAlignment.Center; text.TextTrimming = TextTrimming.CharacterEllipsis; text.Margin = new Thickness(2, 0, 12, 0);
-        row.Children.Add(text);
-        var edit = GlyphButton("M 10.5,2.5 L 13.5,5.5 L 6,13 H 3 V 10 Z", 12, 12, Loc.T("编辑常用语", "Edit phrase"), () => { _phraseEdit = phrase.Id; ShowPage(_page); });
-        edit.Width = 28; edit.Height = 28; edit.IsEnabled = _phraseEdit is null;
-        Grid.SetColumn(edit, 1); row.Children.Add(edit);
-        var remove = GlyphButton("M 0,0 L 8,8 M 8,0 L 0,8", 8, 8, Loc.T("删除常用语", "Delete phrase"), () =>
+        foreach (var width in new[] { GridLength.Auto, new GridLength(1, GridUnitType.Star), GridLength.Auto, new GridLength(36), new GridLength(36) })
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = width });
+        string label;
+        if (entry.Kind == ClipKind.Image)
         {
-            if (!Confirm(Loc.T("删除常用语", "Delete phrase"), Loc.T($"将删除常用语“{first}”。", $"This deletes the phrase \"{first}\"."), Loc.T("删除", "Delete"))) return;
-            _shelfOwnEdit = true;
-            try { _app.Shelf.Remove([phrase]); } finally { _shelfOwnEdit = false; }
+            label = Loc.T("图片", "Picture");
+            // A 48 x 28 window on the picture, filled and cropped, so a long thin one does not shrink to a line.
+            var thumb = new Border { Width = 48, Height = 28, CornerRadius = new CornerRadius(4), ClipToBounds = true, Background = UI.Brush(_palette.Inset),
+                Margin = new Thickness(0, 0, 10, 0), VerticalAlignment = VerticalAlignment.Center,
+                Child = new Image { Source = _app.Shelf.Picture(entry.Id, 96), Stretch = Stretch.UniformToFill, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } };
+            row.Children.Add(thumb);
+            var size = TextLine($"{entry.PixelWidth} × {entry.PixelHeight}", 13, TextPrimary); size.VerticalAlignment = VerticalAlignment.Center;
+            Grid.SetColumn(size, 1); row.Children.Add(size);
+        }
+        else
+        {
+            var (first, more) = Shelf.FirstLine(entry.Text);
+            label = first;
+            var text = TextLine(more > 0 ? first + Loc.T($"  +{more} 行", $"  +{more} lines") : first, 13, TextPrimary);
+            text.VerticalAlignment = VerticalAlignment.Center; text.TextTrimming = TextTrimming.CharacterEllipsis; text.Margin = new Thickness(0, 0, 12, 0);
+            Grid.SetColumn(text, 1); row.Children.Add(text);
+        }
+        // Where it came from: a phrase written here, or the time it was copied.
+        var from = TextLine(entry.Manual ? Loc.T("常用语", "Phrase") : Shelf.When(entry.Copied, DateTimeOffset.Now), 12, TextTertiary);
+        from.VerticalAlignment = VerticalAlignment.Center; from.Margin = new Thickness(0, 0, 8, 0);
+        Grid.SetColumn(from, 2); row.Children.Add(from);
+        if (entry.Kind != ClipKind.Image)
+        {
+            var edit = GlyphButton("M 10.5,2.5 L 13.5,5.5 L 6,13 H 3 V 10 Z", 12, 12, Loc.T("编辑", "Edit"), () => { _phraseEdit = entry.Id; ShowPage(_page); });
+            edit.ToolTip = null; edit.Width = 28; edit.Height = 28; edit.IsEnabled = _phraseEdit is null; edit.HorizontalAlignment = HorizontalAlignment.Center;
+            Grid.SetColumn(edit, 3); row.Children.Add(edit);
+        }
+        var remove = GlyphButton("M 0,0 L 8,8 M 8,0 L 0,8", 8, 8, entry.Manual ? Loc.T("删除常用语", "Delete phrase") : Loc.T("移出常用", "Remove from favorites"), () =>
+        {
+            if (entry.Manual)
+            {
+                if (!Confirm(Loc.T("删除常用语", "Delete phrase"), Loc.T($"将删除常用语“{label}”。", $"This deletes the phrase \"{label}\"."), Loc.T("删除", "Delete"))) return;
+                _shelfOwnEdit = true;
+                try { _app.Shelf.Remove([entry]); } finally { _shelfOwnEdit = false; }
+            }
+            else { entry.Categories.Remove(ShelfData.Favorites); ShelfEdited(); }
             ShowPage(_page);
         });
-        remove.Width = 28; remove.Height = 28; remove.Margin = new Thickness(2, 0, 4, 0);
-        Grid.SetColumn(remove, 2); row.Children.Add(remove);
+        remove.ToolTip = null; remove.Width = 24; remove.Height = 26; remove.HorizontalAlignment = HorizontalAlignment.Right;
+        Grid.SetColumn(remove, 4); row.Children.Add(remove);
         return row;
     }
     // A phrase written or changed in place of its row; Ctrl+Enter saves, Esc cancels.

@@ -129,24 +129,35 @@ def hero(render, out):
     arrow_pressed, hot_pressed = cursor(scale, pressed=True)
 
     expand, switch, collapse, end = marks["expand"], marks["switch"], marks["collapse"], marks["end"]
-    monitor_switch = marks["monitorSwitch"]
+    monitor_switch, shelf_switch, devices_switch = marks["monitorSwitch"], marks["shelfSwitch"], marks["devicesSwitch"]
     button, monitor_button = marks["musicButton"], marks["monitorButton"]
-    music, monitor = marks["musicPanel"], marks["monitorPanel"]
+    shelf_button, devices_button = marks["shelfButton"], marks["devicesButton"]
+    music, monitor, shelf, devices = marks["musicPanel"], marks["monitorPanel"], marks["shelfPanel"], marks["devicesPanel"]
     start = (660, 262)
+
+    def visit(at, target, panel, across, down):
+        """The pointer goes to a page's button, presses it at `at`, then rests on the page that opens."""
+        rest = (panel["x"] + panel["width"] * across, down)
+        return [(at - .35, target["x"] + 2, target["y"] + 2), (at + .35, target["x"] + 2, target["y"] + 2), (at + .95, *rest)], rest
+
+    to_music, on_music = visit(switch, button, music, .56, 168)
+    to_monitor, on_monitor = visit(monitor_switch, monitor_button, monitor, .3, 150)
+    to_shelf, on_shelf = visit(shelf_switch, shelf_button, shelf, .4, 150)
+    to_devices, on_devices = visit(devices_switch, devices_button, devices, .62, devices["height"] - 22)
     keys = [
         (0.0, *start),
         (expand - .15, stage_w / 2 + 4, 17),
         (expand + .15, stage_w / 2 + 4, 20),
         (expand + .9, 250, 150),
-        (switch - .35, button["x"] + 2, button["y"] + 2),
-        (switch + .35, button["x"] + 2, button["y"] + 2),
-        (switch + .95, music["x"] + music["width"] * .56, 168),
-        (monitor_switch - .9, music["x"] + music["width"] * .56, 168),
-        (monitor_switch - .35, monitor_button["x"] + 2, monitor_button["y"] + 2),
-        (monitor_switch + .35, monitor_button["x"] + 2, monitor_button["y"] + 2),
-        (monitor_switch + .95, monitor["x"] + monitor["width"] * .3, 150),
-        (collapse - .6, monitor["x"] + monitor["width"] * .3, 150),
-        (collapse, monitor["x"] + monitor["width"] * .4, monitor["height"] + 34),
+        *to_music,
+        (monitor_switch - .9, *on_music),
+        *to_monitor,
+        (shelf_switch - .9, *on_monitor),
+        *to_shelf,
+        (devices_switch - .9, *on_shelf),
+        *to_devices,
+        (collapse - .6, *on_devices),
+        (collapse, devices["x"] + devices["width"] * .6, devices["height"] + 34),
         (end, *start),
     ]
     times = [f["time"] for f in frames]
@@ -168,7 +179,7 @@ def hero(render, out):
         canvas = background.copy()
         canvas.alpha_composite(frame_at(t), (round(ox * scale), 0))
         x, y = path_at(keys, t)
-        pressed = any(s - .08 <= t <= s + .06 for s in (switch, monitor_switch))
+        pressed = any(s - .08 <= t <= s + .06 for s in (switch, monitor_switch, shelf_switch, devices_switch))
         sprite, spot = (arrow_pressed, hot_pressed) if pressed else (arrow, hot)
         canvas.alpha_composite(sprite, (round((ox + x) * scale) - spot[0], round(y * scale) - spot[1]))
         output.append(rounded(canvas, round(12 * scale)))
@@ -236,10 +247,10 @@ def window_shot(render, out, name, scale=1.5, margin=40, radius=8):
 def main():
     render, out = Path(sys.argv[1]), Path(sys.argv[2])
     out.mkdir(parents=True, exist_ok=True)
-    for name in ["usage", "details", "music", "monitor"]:
+    for name in ["usage", "details", "music", "monitor", "devices", "clipboard"]:
         if (render / f"{name}.png").exists():
             still(render, out, name)
-    for name in ["compact-notch", "compact-notch-lyrics", "compact-capsule", "compact-line", "compact-alert", "compact-monitor"]:
+    for name in ["compact-notch", "compact-notch-lyrics", "compact-capsule", "compact-line", "compact-alert", "compact-monitor", "compact-devices"]:
         if (render / f"{name}.png").exists():
             still(render, out, name, margin=(36, 0, 36, 30), radius=10)
     if (render / "clocks.json").exists():

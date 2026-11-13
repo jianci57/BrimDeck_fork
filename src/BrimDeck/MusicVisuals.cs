@@ -686,12 +686,16 @@ internal sealed class QuotaCarousel : GlideCarousel
     // For screen readers: its name, every ring's tooltip line, rotating or not.
     protected override AutomationPeer OnCreateAutomationPeer() => new DrawnPeer(this, AutomationControlType.Text, () => AutomationProperties.GetName(this).Replace("\n", Loc.T("；", "; ")));
     // One ring with its application's letter inside, at the size the system readings' dials carry theirs for this height, in the secondary text color.
-    // With a second share (QuotaRing.Inner) it is two rings of the same stroke about one centre, and the letter goes inside the inner one.
-    internal static Grid Ring((double Used, double? Inner, string Color, string Tip, string Letter) item, double size, double thickness, double scale)
+    // With more shares (QuotaRing.Shares) the rings stand one inside the other about one centre, and the letter goes inside the
+    // innermost. Two keep the one ring's stroke, 2 DIP apart, leaving 8 DIP in a 20 DIP ring for the letter; three would leave
+    // nothing that way, so three take a 1.5 DIP stroke 1 DIP apart, which leaves 7.
+    internal static Grid Ring((IReadOnlyList<double?> Shares, string Color, string Tip, string Letter) item, double size, double thickness, double scale)
     {
-        double pairGap = Math.Max(.5, BrimDeck.Core.CompactMusicLayout.Half(2 * scale));
-        var ring = item.Inner is { } inner ? UI.PairRing(item.Used, inner, item.Color, size, thickness, pairGap) : UI.Ring(item.Used, item.Color, size, thickness);
-        double hole = item.Inner is null ? size - 2 * thickness : size - 2 * (2 * thickness + pairGap);
+        int count = Math.Max(1, item.Shares.Count);
+        double gap = Math.Max(.5, BrimDeck.Core.CompactMusicLayout.Half((count >= 3 ? 1 : 2) * scale));
+        if (count >= 3) thickness = Math.Max(.5, BrimDeck.Core.CompactMusicLayout.Half(1.5 * scale));
+        var ring = count == 1 ? UI.Ring(item.Shares.Count == 0 ? 0 : item.Shares[0] ?? 0, item.Color, size, thickness) : UI.NestedRings(item.Shares, item.Color, size, thickness, gap);
+        double hole = size - 2 * (count * thickness + (count - 1) * gap);
         // Empty without the setting (DeckSettings.QuotaRingLetters): the ring is then as it was without letters.
         if (item.Letter.Length > 0
             && RingLetter.Create(item.Letter, Math.Max(1, BrimDeck.Core.CompactMusicLayout.Half(7 * scale)), size, Math.Max(1, hole),
@@ -704,7 +708,7 @@ internal sealed class QuotaCarousel : GlideCarousel
     // count: the whole rings the window holds (CompactSpacing.Window); gap: the row's gap, which the rings keep between them too.
     // flowing: the window as wide as the room gives it, not whole rings (the surface is being dragged; CompactSpacing.ShareFlowing),
     // with the ring it cuts faded over cut DIPs; nothing glides then.
-    public QuotaCarousel(IReadOnlyList<(double Used, double? Inner, string Color, string Tip, string Letter)> items, double size, double thickness, double rowScale, double gap, int count, double edge,
+    public QuotaCarousel(IReadOnlyList<(IReadOnlyList<double?> Shares, string Color, string Tip, string Letter)> items, double size, double thickness, double rowScale, double gap, int count, double edge,
         TimeSpan elapsed = default, bool animate = true, double? flowing = null, double cut = 0)
     {
         // Ring positions, the window and the travel all use whole device pixels. Layout rounding would otherwise widen each gap

@@ -1,6 +1,8 @@
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Documents;
+using System.Windows.Shapes;
 using BrimDeck.Core;
 
 namespace BrimDeck;
@@ -20,25 +22,24 @@ public sealed partial class SettingsWindow
 
     private void SensorsSettings()
     {
+        // The guide's link follows the sentence it explains, in the same line of text.
         var intro = TextLine(Loc.T("安装 PawnIO 并启用后，可以直接从处理器读取 CPU 温度和功耗。适用于读不到这两项的电脑。",
             "With PawnIO installed and this turned on, the CPU's temperature and power are read from the processor itself. For PCs that show neither."), 12.5, TextSecondary);
-        intro.TextWrapping = TextWrapping.Wrap; intro.Margin = new Thickness(0, 0, 0, 6);
+        intro.TextWrapping = TextWrapping.Wrap; intro.Margin = new Thickness(0, 0, 0, 24);
+        intro.Inlines.Add(new Run(" "));
+        intro.Inlines.Add(InlineLink(Loc.T("了解详情 ↗", "Learn more ↗"), Updates.GitHubUpdates.RepositoryUrl + Loc.T("/blob/main/docs/zh-CN/enhanced-sensors.md", "/blob/main/docs/en-US/enhanced-sensors.md")));
         _content.Children.Add(intro);
-        var guide = Link(Loc.T("了解详情 ↗", "Learn more ↗"), Updates.GitHubUpdates.RepositoryUrl + Loc.T("/blob/main/docs/zh-CN/enhanced-sensors.md", "/blob/main/docs/en-US/enhanced-sensors.md"));
-        guide.HorizontalAlignment = HorizontalAlignment.Left; guide.Margin = new Thickness(0, 0, 0, 22);
-        _content.Children.Add(guide);
 
-        var pawnIo = new StackPanel { Orientation = Orientation.Horizontal };
-        var service = new StackPanel { Orientation = Orientation.Horizontal };
-        var pawnIoState = TextLine("", 12.5, TextTertiary);
-        var serviceState = TextLine("", 12.5, TextTertiary);
-        serviceState.TextWrapping = TextWrapping.Wrap;
+        // Each step: its name at the left, with a second line only for the version or a hint; at the right, its state as a dot and
+        // a word, then the button that changes it.
+        var pawnIo = new StepState(this);
+        var service = new StepState(this);
         var reading = TextLine("", 12.5, TextSecondary);
         var readingRow = Row(Loc.T("当前读数", "Reading now"), reading);
         SectionTitle(Loc.T("第一步：PawnIO 驱动", "Step 1: PawnIO driver"));
-        Group(Row("PawnIO", pawnIo, pawnIoState));
+        Group(Row("PawnIO", pawnIo.Root, pawnIo.Detail));
         SectionTitle(Loc.T("第二步：传感器服务", "Step 2: Sensor service"));
-        Group(Row(Loc.T("传感器服务", "Sensor service"), service, serviceState), readingRow);
+        Group(Row(Loc.T("传感器服务", "Sensor service"), service.Root, service.Detail), readingRow);
         var fallback = TextLine(Loc.T("未启用时，也会读取正在运行的 HWiNFO（需打开共享内存）或 LibreHardwareMonitor（需打开远程网页服务）。",
             "Until then, a running HWiNFO (with shared memory on) or LibreHardwareMonitor (with its remote web server on) is read too."), 12, TextTertiary);
         fallback.TextWrapping = TextWrapping.Wrap;
@@ -49,77 +50,133 @@ public sealed partial class SettingsWindow
             int generation = ++_sensorsGeneration;
             var state = Native.SensorSetup.State;
             string? version = Native.SensorSetup.PawnIoVersion;
-            pawnIo.Children.Clear(); service.Children.Clear();
             if (version is null)
             {
-                pawnIoState.Text = Loc.T("未安装", "Not installed");
                 var install = ActionButton(Loc.T("安装", "Install"), InstallPawnIo, primary: true);
                 AutomationProperties.SetName(install, Loc.T("安装 PawnIO", "Install PawnIO"));
-                pawnIo.Children.Add(install);
+                pawnIo.Show(Step.Off, Loc.T("未安装", "Not installed"), install);
             }
             else
             {
-                pawnIoState.Text = Loc.T("已安装", "Installed") + (version.Length > 0 ? " · " + version : "");
-                var remove = ActionButton(Loc.T("卸载", "Uninstall"), UninstallPawnIo);
+                var remove = ActionButton(Loc.T("卸载", "Uninstall"), UninstallPawnIo); remove.Style = (Style)FindResource("SettingsOutlineButton");
                 AutomationProperties.SetName(remove, Loc.T("卸载 PawnIO", "Uninstall PawnIO"));
                 remove.IsEnabled = !_sensorsBusy;
-                pawnIo.Children.Add(remove);
+                pawnIo.Show(Step.Done, Loc.T("已安装", "Installed"), remove,
+                    version.Length > 0 ? Loc.T("版本 ", "Version ") + version : null);
             }
-            serviceState.Foreground = UI.Brush(_sensorsFailure is not null ? _palette.Negative : TextTertiary);
-            readingRow.Visibility = Visibility.Collapsed;
-            if (_sensorsBusy) serviceState.Text = Loc.T("正在处理…", "Working…");
-            else if (_sensorsFailure is { } failure) serviceState.Text = failure;
-            else serviceState.Text = state switch
+
+            bool installed = Native.SensorSetup.ServiceInstalled;
+            Button action;
+            if (installed)
             {
-                Native.SensorSetupState.NoPawnIo when Native.SensorSetup.ServiceInstalled => Loc.T("PawnIO 未安装，服务无法读数", "PawnIO is not installed, so the service reads nothing"),
-                Native.SensorSetupState.NoPawnIo => Loc.T("需要先安装 PawnIO", "Install PawnIO first"),
-                Native.SensorSetupState.NotEnabled => Loc.T("未启用", "Off"),
-                _ => Loc.T("已启用", "On")
-            };
-            if (Native.SensorSetup.ServiceInstalled)
+                action = ActionButton(Loc.T("停用", "Turn off"), DisableSensors); action.Style = (Style)FindResource("SettingsOutlineButton");
+                AutomationProperties.SetName(action, Loc.T("停用传感器服务", "Turn off the sensor service"));
+            }
+            else
             {
-                var disable = ActionButton(Loc.T("停用", "Turn off"), DisableSensors);
-                AutomationProperties.SetName(disable, Loc.T("停用传感器服务", "Turn off the sensor service"));
-                disable.IsEnabled = !_sensorsBusy;
-                service.Children.Add(disable);
-                readingRow.Visibility = Visibility.Visible;
+                action = ActionButton(Loc.T("启用", "Turn on"), EnableSensors, primary: true);
+                AutomationProperties.SetName(action, Loc.T("启用传感器服务", "Turn on the sensor service"));
+            }
+            action.IsEnabled = !_sensorsBusy && (installed || state != Native.SensorSetupState.NoPawnIo);
+            if (_sensorsBusy) service.Show(Step.Off, Loc.T("正在处理…", "Working…"), action);
+            else if (_sensorsFailure is { } failure)
+                service.Show(installed ? Step.Done : Step.Off, installed ? Loc.T("已启用", "On") : Loc.T("未启用", "Off"), action, failure, Step.Failed);
+            else if (installed && state == Native.SensorSetupState.NoPawnIo)
+                service.Show(Step.Caution, Loc.T("无法读数", "Not reading"), action, Loc.T("PawnIO 未安装", "PawnIO is not installed"), Step.Caution);
+            else if (installed) service.Show(Step.Done, Loc.T("已启用", "On"), action);
+            else if (state == Native.SensorSetupState.NoPawnIo)
+                service.Show(Step.Off, Loc.T("未启用", "Off"), action, Loc.T("需要先安装 PawnIO", "Install PawnIO first"));
+            else service.Show(Step.Off, Loc.T("未启用", "Off"), action);
+
+            readingRow.Visibility = installed ? Visibility.Visible : Visibility.Collapsed;
+            if (installed)
+            {
                 reading.Text = Loc.T("读取中…", "Reading…");
+                reading.SetResourceReference(TextBlock.ForegroundProperty, "SettingsTextSecondary");
                 // The service is started and asked off the window's thread; a newer fill drops an older answer.
                 _ = Task.Run(Native.SensorClient.ReadOnce).ContinueWith(task =>
                 {
                     if (generation != _sensorsGeneration || !IsLoaded) return;
-                    reading.Text = ReadingText(task.IsCompletedSuccessfully ? task.Result : null);
+                    var (text, read) = ReadingText(task.IsCompletedSuccessfully ? task.Result : null);
+                    reading.Text = text;
+                    if (!read) reading.Foreground = UI.Brush(_palette.Negative);
                 }, TaskScheduler.FromCurrentSynchronizationContext());
-            }
-            else
-            {
-                var enable = ActionButton(Loc.T("启用", "Turn on"), EnableSensors, primary: true);
-                AutomationProperties.SetName(enable, Loc.T("启用传感器服务", "Turn on the sensor service"));
-                enable.IsEnabled = !_sensorsBusy && state != Native.SensorSetupState.NoPawnIo;
-                service.Children.Add(enable);
             }
         }
         Fill();
         _refreshSensors = Fill;
     }
 
-    // What the service reads now, or why it reads nothing.
-    private static string ReadingText(SensorReport? report)
+    private enum Step { Off, Done, Caution, Failed }
+
+    // A step's state at the right of its row (a dot and a word, then its button) and the second line under its name, shown only
+    // when there is something to add.
+    private sealed class StepState
     {
-        if (report is null) return Loc.T("服务没有响应", "The service did not answer");
-        if (report.Version < SensorReport.CurrentVersion) return Loc.T("服务版本较旧，请停用后重新启用", "The service is out of date: turn it off and on again");
+        private readonly SettingsWindow _owner;
+        private readonly Ellipse _dot = new() { Width = 7, Height = 7, Margin = new Thickness(0, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center };
+        private readonly TextBlock _word;
+        public StackPanel Root { get; } = new() { Orientation = Orientation.Horizontal };
+        public TextBlock Detail { get; }
+
+        public StepState(SettingsWindow owner)
+        {
+            _owner = owner;
+            _word = owner.TextLine("", 12.5, owner.TextSecondary); _word.VerticalAlignment = VerticalAlignment.Center;
+            Detail = owner.TextLine("", 12, owner.TextTertiary); Detail.TextWrapping = TextWrapping.Wrap; Detail.Margin = new Thickness(0, 4, 0, 0);
+            Root.Children.Add(_dot); Root.Children.Add(_word); Root.Children.Add(new Border());
+        }
+
+        public void Show(Step step, string word, Button button, string? detail = null, Step detailTone = Step.Off)
+        {
+            _dot.Fill = UI.Brush(Color(step));
+            _word.Text = word;
+            // The buttons share one width, so the dots and words of both steps end at the same place.
+            button.MinWidth = 64;
+            Root.Children.RemoveAt(2); button.Margin = new Thickness(16, 0, 0, 0); button.VerticalAlignment = VerticalAlignment.Center; Root.Children.Add(button);
+            Detail.Text = detail ?? "";
+            Detail.Visibility = detail is null ? Visibility.Collapsed : Visibility.Visible;
+            Detail.Foreground = UI.Brush(detailTone == Step.Off ? _owner.TextTertiary : Color(detailTone));
+        }
+
+        private string Color(Step step) => step switch
+        {
+            Step.Done => _owner._palette.Positive,
+            Step.Caution => _owner.CautionColor,
+            Step.Failed => _owner._palette.Negative,
+            _ => _owner.TextTertiary
+        };
+    }
+
+    // A link inside a line of text: the accent color, underlined under the pointer or with keyboard focus.
+    private Hyperlink InlineLink(string text, string url)
+    {
+        var link = new Hyperlink(new Run(text)) { Foreground = UI.Brush(_palette.Link), TextDecorations = null, ToolTip = url, Cursor = System.Windows.Input.Cursors.Hand };
+        void Underline() => link.TextDecorations = link.IsMouseOver || link.IsKeyboardFocused ? TextDecorations.Underline : null;
+        link.MouseEnter += (_, _) => Underline(); link.MouseLeave += (_, _) => Underline();
+        link.GotKeyboardFocus += (_, _) => Underline(); link.LostKeyboardFocus += (_, _) => Underline();
+        link.Click += (_, _) => UI.OpenUrl(url);
+        AutomationProperties.SetName(link, text.TrimEnd(' ', '↗'));
+        return link;
+    }
+
+    // What the service reads now, or why it reads nothing; Read is false for the latter.
+    private static (string Text, bool Read) ReadingText(SensorReport? report)
+    {
+        if (report is null) return (Loc.T("服务没有响应", "The service did not answer"), false);
+        if (report.Version < SensorReport.CurrentVersion) return (Loc.T("服务版本较旧，请停用后重新启用", "The service is out of date: turn it off and on again"), false);
         return report.Status switch
         {
-            SensorStatus.NoDriver => Loc.T("PawnIO 驱动未运行", "The PawnIO driver is not running"),
-            SensorStatus.NoModule => Loc.T("缺少 PawnIO 模块，请停用后重新启用", "PawnIO's modules are missing: turn it off and on again"),
-            SensorStatus.Unsupported => Loc.T("不支持此处理器", "This processor is not supported"),
-            SensorStatus.Failed => Loc.T("读取失败", "Could not read"),
+            SensorStatus.NoDriver => (Loc.T("PawnIO 驱动未运行", "The PawnIO driver is not running"), false),
+            SensorStatus.NoModule => (Loc.T("缺少 PawnIO 模块，请停用后重新启用", "PawnIO's modules are missing: turn it off and on again"), false),
+            SensorStatus.Unsupported => (Loc.T("不支持此处理器", "This processor is not supported"), false),
+            SensorStatus.Failed => (Loc.T("读取失败", "Could not read"), false),
             _ => string.Join(" · ", new[]
             {
                 report.Package is { } celsius ? "CPU " + Temperatures.Format(celsius) + " °C" : null,
                 report.PackageWatts is { } watts ? PowerFormat.Watts(watts) + " W" : null,
                 report.Cores.Count > 0 ? (report.CoresAreCcds ? "CCD " : Loc.T("核心 ", "cores ")) + Temperatures.Format(report.Cores.Min()) + "–" + Temperatures.Format(report.Cores.Max()) + " °C" : null
-            }.Where(part => part is not null)) is { Length: > 0 } text ? text : Loc.T("处理器没有给出读数", "The processor gave no reading")
+            }.Where(part => part is not null)) is { Length: > 0 } text ? (text, true) : (Loc.T("处理器没有给出读数", "The processor gave no reading"), false)
         };
     }
 

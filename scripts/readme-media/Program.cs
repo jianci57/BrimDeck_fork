@@ -19,7 +19,10 @@ namespace ReadmeMedia;
 // replaced by a handler that always fails, and media detection is never started. The panel window stays transparent
 // and off screen; each image is taken from its visual tree with RenderTargetBitmap.
 //
-// Usage: ReadmeMedia <output folder> [zh-CN|en-US] [stills,themes,monitor,hero,settings]  (settings only when named)
+// The clipboard is never watched (ShelfService.Apply is not called) and no device is asked for its battery (the devices' sources
+// are never made): both pages draw the invented entries below.
+//
+// Usage: ReadmeMedia <output folder> [zh-CN|en-US] [stills,themes,monitor,devices,shelf,hero,settings]  (settings only when named)
 internal static class Program
 {
     internal const BindingFlags Any = BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic;
@@ -77,6 +80,7 @@ internal sealed class Renderer(App app, string output, string language, string[]
 {
     private bool Wants(string scene) => scenes.Length == 0 || scenes.Contains(scene);
     private MainWindow _deck = null!;
+    private object _shelf = null!;
     private FrameworkElement _stage = null!;
     private DeckSettings _settings = null!;
     private readonly DateTimeOffset _now = DateTimeOffset.Now;
@@ -94,54 +98,72 @@ internal sealed class Renderer(App app, string output, string language, string[]
         Loc.Use(language); _english = Loc.IsEnglish;
         var folder = Path.Combine(Path.GetTempPath(), "BrimDeck.ReadmeMedia." + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(folder);
-        var offline = new HttpClient(new Offline());
-        _settings = BuildSettings();
-        Program.SetProperty(app, "Settings", _settings);
-        Program.SetProperty(app, "Store", new SettingsStore(folder));
-        Program.SetProperty(app, "Prices", new Pricing(folder, offline));
-        Program.SetProperty(app, "Secrets", new ProviderSecrets(folder));
-        Program.SetProperty(app, "Usage", new UsageService(new NoDesktop(), DataLocations.Resolve(folder, folder, folder, folder, folder, folder), offline));
-        // The panel subscribes to the lyrics as it is made; this one finds none offline and reads no Apple Music cache.
-        Program.SetProperty(app, "Lyrics", new LyricsService(offline, () => [], Path.Combine(folder, "apple-music-lyrics.json")));
-        // The toolbar reads the update notice on every render.
-        var backend = Type.GetType("BrimDeck.Updates.GitHubUpdates, BrimDeck")!.GetMethod("Create", [typeof(string)])!.Invoke(null, [folder]);
-        Program.SetProperty(app, "Updates", new AppUpdates((IAppUpdateBackend)backend!, folder));
+        try
+        {
+            var offline = new HttpClient(new Offline());
+            _settings = BuildSettings();
+            Program.SetProperty(app, "Settings", _settings);
+            Program.SetProperty(app, "Store", new SettingsStore(folder));
+            Program.SetProperty(app, "Prices", new Pricing(folder, offline));
+            Program.SetProperty(app, "Secrets", new ProviderSecrets(folder));
+            Program.SetProperty(app, "Usage", new UsageService(new NoDesktop(), DataLocations.Resolve(folder, folder, folder, folder, folder, folder), offline));
+            // The panel subscribes to the lyrics as it is made; this one finds none offline and reads no Apple Music cache.
+            Program.SetProperty(app, "Lyrics", new LyricsService(offline, () => [], Path.Combine(folder, "apple-music-lyrics.json")));
+            // The toolbar reads the update notice on every render.
+            var backend = Type.GetType("BrimDeck.Updates.GitHubUpdates, BrimDeck")!.GetMethod("Create", [typeof(string)])!.Invoke(null, [folder]);
+            Program.SetProperty(app, "Updates", new AppUpdates((IAppUpdateBackend)backend!, folder));
+            // The clipboard and file transfer: the service is made on an empty folder of this run and never told to record.
+            _shelf = Activator.CreateInstance(Type.GetType("BrimDeck.ShelfService, BrimDeck")!, Program.Any, null, [folder, Dispatcher.CurrentDispatcher], null)!;
+            Program.SetProperty(app, "Shelf", _shelf);
+            FillShelf(folder);
+            // The devices: the object the panels read, made without its constructor, so none of its sources exists. Disposed, it
+            // ignores every demand; its roster holds the invented readings.
+            var devices = System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(Type.GetType("BrimDeck.Native.DeviceBatteries, BrimDeck")!);
+            var roster = new DeviceRoster();
+            foreach (var group in InventedDevices().GroupBy(device => device.Source)) roster.Set(group.Key, [.. group]);
+            Program.SetField(devices, "_roster", roster);
+            Program.SetField(devices, "_disposed", true);
+            Program.SetProperty(devices, "Settled", true);
+            Program.SetProperty(app, "Devices", devices);
 
-        _deck = new MainWindow(app) { Opacity = 0, IsHitTestVisible = false };
-        Program.SetProperty(app, "Deck", _deck);
-        // The window's own Loaded handler starts media detection, pointer tracking and the first read of real data;
-        // none of that may run here. Loaded may also never come while the displays are off, so nothing waits for it.
-        var store = typeof(UIElement).GetProperty("EventHandlersStore", Program.Any)!.GetValue(_deck);
-        var handlers = (RoutedEventHandlerInfo[]?)store?.GetType().GetMethod("GetRoutedEventHandlers", Program.Any)!.Invoke(store, [FrameworkElement.LoadedEvent]);
-        foreach (var handler in handlers ?? []) _deck.RemoveHandler(FrameworkElement.LoadedEvent, handler.Handler);
-        // Foreground-window changes would re-apply the settings in the middle of a capture.
-        Program.SetField(Program.Field(_deck, "_host")!, "ContextChanged", null);
-        // Keep the transparent window off screen; ApplySettings centres it on the primary screen each time.
-        _deck.LocationChanged += (_, _) => { if (_deck.Left > -10000) _deck.Left = -20000; };
-        // The one-minute read would overwrite the invented state. The timer itself still runs for the countdown ring.
-        Program.SetField(Program.Field(_deck, "_refresh")!, "Tick", null);
-        _deck.ApplySettings();
-        await Settle();
-        _stage = (FrameworkElement)_deck.Content;
+            _deck = new MainWindow(app) { Opacity = 0, IsHitTestVisible = false };
+            Program.SetProperty(app, "Deck", _deck);
+            // The window's own Loaded handler starts media detection, pointer tracking and the first read of real data;
+            // none of that may run here. Loaded may also never come while the displays are off, so nothing waits for it.
+            var store = typeof(UIElement).GetProperty("EventHandlersStore", Program.Any)!.GetValue(_deck);
+            var handlers = (RoutedEventHandlerInfo[]?)store?.GetType().GetMethod("GetRoutedEventHandlers", Program.Any)!.Invoke(store, [FrameworkElement.LoadedEvent]);
+            foreach (var handler in handlers ?? []) _deck.RemoveHandler(FrameworkElement.LoadedEvent, handler.Handler);
+            // Foreground-window changes would re-apply the settings in the middle of a capture.
+            Program.SetField(Program.Field(_deck, "_host")!, "ContextChanged", null);
+            // Keep the transparent window off screen; ApplySettings centres it on the primary screen each time.
+            _deck.LocationChanged += (_, _) => { if (_deck.Left > -10000) _deck.Left = -20000; };
+            // The one-minute read would overwrite the invented state. The timer itself still runs for the countdown ring.
+            Program.SetField(Program.Field(_deck, "_refresh")!, "Tick", null);
+            _deck.ApplySettings();
+            await Settle();
+            _stage = (FrameworkElement)_deck.Content;
 
-        _cover = Cover();
-        (_track, _other) = Tracks();
-        _deck.SetSnapshots(Snapshots());
-        Program.Call(_deck, "ApplyMediaUpdate", [typeof(MediaTrack), typeof(IReadOnlyList<MediaTrack>), typeof(BitmapSource), typeof(bool)], _track, new List<MediaTrack> { _track, _other }, _cover, false);
-        Program.SetField(_deck, "_trackNoticeUntil", default(DateTimeOffset));
-        _deck.ApplySettings();
-        await Settle();
+            _cover = Cover();
+            (_track, _other) = Tracks();
+            _deck.SetSnapshots(Snapshots());
+            Program.Call(_deck, "ApplyMediaUpdate", [typeof(MediaTrack), typeof(IReadOnlyList<MediaTrack>), typeof(BitmapSource), typeof(bool)], _track, new List<MediaTrack> { _track, _other }, _cover, false);
+            Program.SetField(_deck, "_trackNoticeUntil", default(DateTimeOffset));
+            _deck.ApplySettings();
+            await Settle();
 
-        if (Wants("stills")) await Stills();
-        if (Wants("themes")) await Themes();
-        if (Wants("monitor")) await Monitor();
-        if (Wants("hero")) await Hero();
-        // The "配额与统计" page: one row per application with its sources, name and colours.
-        // Not used by the README at present; rendered only when asked for by name.
-        if (scenes.Contains("settings")) await SettingsPage("settings", 3);
-        // The music page at its presets and at the ends of its size range; for checking layout changes, not for the README.
-        if (scenes.Contains("music-sizes")) await MusicSizes();
-        Directory.Delete(folder, true);
+            if (Wants("stills")) await Stills();
+            if (Wants("themes")) await Themes();
+            if (Wants("monitor")) await Monitor();
+            if (Wants("devices")) await DevicesScene();
+            if (Wants("shelf")) await ShelfScene();
+            if (Wants("hero")) await Hero();
+            // The "配额与统计" page: one row per application with its sources, name and colours.
+            // Not used by the README at present; rendered only when asked for by name.
+            if (scenes.Contains("settings")) await SettingsPage("settings", 3);
+            // The music page at its presets and at the ends of its size range; for checking layout changes, not for the README.
+            if (scenes.Contains("music-sizes")) await MusicSizes();
+        }
+        finally { Directory.Delete(folder, true); }
     }
 
     private DeckSettings BuildSettings()
@@ -152,6 +174,10 @@ internal sealed class Renderer(App app, string output, string language, string[]
             MusicWidth = 440, MusicHeight = 200, OpenDelay = 0, CloseDelay = 3_600_000, AnimationDuration = 360, Animations = true,
             Maximized = WindowBehavior.Normal, Borderless = WindowBehavior.Normal, Exclusive = WindowBehavior.Normal,
             MusicTrackNotice = false, QuotaAlerts = true, UsageAutoSync = true, MusicText = CompactMusicText.None,
+            // The file transfer's count joins the collapsed row only in the image that is about it (DevicesScene).
+            NotchTransfer = false, CapsuleTransfer = false,
+            // Off by default; the monitor page's image shows them.
+            MonitorTemperatures = true,
             Apps =
             [
                 new AppEntry { QuotaSource = ProviderId.Claude, UsageSource = ProviderId.Claude },
@@ -279,8 +305,101 @@ internal sealed class Renderer(App app, string output, string language, string[]
         [02:22.00]Leave a light on for me
         """;
 
+    // Wireless devices that do not exist: a mouse, a keyboard getting low, earbuds with their case, a controller charging and a headset.
+    private static List<DeviceBattery> InventedDevices() =>
+    [
+        new("demo:mouse", "MX Master 3S", DeviceKind.Mouse, DeviceSource.Logitech, 82),
+        new("demo:keyboard", "ATK Z87 Pro", DeviceKind.Keyboard, DeviceSource.Hid, 23),
+        new("bt:A1B2C3D4E5F6", "AirPods Pro", DeviceKind.Earbuds, DeviceSource.Apple, 71)
+        {
+            Parts = [new PartBattery(BatteryPart.Left, 74, false), new PartBattery(BatteryPart.Right, 71, false), new PartBattery(BatteryPart.Case, 55, false)]
+        },
+        new("demo:controller", Loc.T("Xbox 无线控制器", "Xbox Wireless Controller"), DeviceKind.Controller, DeviceSource.Gaming, 64) { Charging = true },
+        new("demo:headset", "Arctis Nova 7", DeviceKind.Headphones, DeviceSource.SteelSeries, 9)
+    ];
+
+    // The clipboard's entries and the file transfer's files. The files are empty files of this run, made with the sizes shown;
+    // their icons are the ones this computer shows for their types, as the monitor page's process icons are.
+    private void FillShelf(string folder)
+    {
+        var data = (ShelfData)_shelf.GetType().GetProperty("Data", Program.Any)!.GetValue(_shelf)!;
+        string[] colors = ["#9CB9FF", "#98DBB0", "#E5A385", "#B9A8FF"];
+        var work = Shelf.AddCategory(data, ShelfSide.Clipboard, Loc.T("工作", "Work"), colors);
+        var code = Shelf.AddCategory(data, ShelfSide.Clipboard, Loc.T("代码", "Code"), colors);
+        work.Color = colors[1]; code.Color = colors[3];
+        ClipEntry Clip(ClipKind kind, string text, double minutes, string source, params Guid[] categories) => new()
+        {
+            Kind = kind, Text = text, Copied = _now.AddMinutes(-minutes), Source = source, Categories = [.. categories]
+        };
+        var picture = Clip(ClipKind.Image, "", 9, "mspaint");
+        picture.PixelWidth = 1280; picture.PixelHeight = 720;
+        Program.Call(_shelf, "WritePicture", [typeof(Guid), typeof(byte[])], picture.Id, Png(Cover(1280, 720)));
+        var phrase = Clip(ClipKind.Text, Loc.T("您好，邮件已收到，我会在今天内回复。", "Thanks, I have your message and will reply today."), 2880, "");
+        phrase.Manual = true; phrase.Categories.Add(ShelfData.Favorites);
+        data.Clips.AddRange(
+        [
+            Clip(ClipKind.Text, Loc.T("周三上午十点评审 1.3.0 的更新说明", "Review the 1.3.0 release notes on Wednesday at 10"), 1, "notepad", work.Id),
+            Clip(ClipKind.Link, "https://github.com/MoFeng2223/BrimDeck/releases", 4, "chrome"),
+            Clip(ClipKind.Code, "var total = entries.Sum(entry => entry.Tokens);\nvar average = total / 7;\nreturn average;", 6, "Code", code.Id),
+            picture,
+            Clip(ClipKind.Color, "#9CB9FF", 15, "Code"),
+            Clip(ClipKind.Text, Loc.T("会议室 3，带上打印好的排期表\n需要投影仪", "Room 3, bring the printed schedule\nA projector is needed"), 32, "notepad", work.Id),
+            Clip(ClipKind.Code, "git fetch origin && git rebase origin/dev", 47, "WindowsTerminal", code.Id),
+            phrase
+        ]);
+
+        var send = Shelf.AddCategory(data, ShelfSide.Files, Loc.T("待发送", "To send"), colors);
+        var setup = Shelf.AddCategory(data, ShelfSide.Files, Loc.T("安装包", "Installers"), colors);
+        send.Color = colors[2]; setup.Color = colors[0];
+        var files = Path.Combine(folder, "files");
+        Directory.CreateDirectory(files);
+        const long KB = 1024, MB = 1024 * 1024;
+        (string Name, long Size, Guid? Category)[] invented =
+        [
+            (Loc.T("发布说明 1.3.0.docx", "Release notes 1.3.0.docx"), 86 * KB, send.Id),
+            (Loc.T("界面截图.png", "Screenshot.png"), (long)(1.4 * MB), send.Id),
+            ("BrimDeck-1.3.0-Portable-x64.zip", 58 * MB, setup.Id),
+            (Loc.T("季度数据.xlsx", "Quarterly figures.xlsx"), 312 * KB, null),
+            (Loc.T("演示录屏.mp4", "Demo recording.mp4"), 24 * MB, null),
+            (Loc.T("会议纪要.txt", "Meeting notes.txt"), 4 * KB, null)
+        ];
+        for (int i = 0; i < invented.Length; i++)
+        {
+            var (name, size, category) = invented[i];
+            var path = Path.Combine(files, name);
+            using (var stream = File.Create(path)) stream.SetLength(size);
+            data.Files.Add(new TransferFile { Path = path, Added = _now.AddMinutes(-3 - i * 11), Categories = category is { } id ? [id] : [] });
+        }
+    }
+
+    private static byte[] Png(BitmapSource image)
+    {
+        var encoder = new PngBitmapEncoder();
+        encoder.Frames.Add(BitmapFrame.Create(image));
+        using var stream = new MemoryStream();
+        encoder.Save(stream);
+        return stream.ToArray();
+    }
+
     // A made-up album cover: an evening sky over the sea.
-    private static BitmapSource Cover()
+    private static BitmapSource Cover() => Cover(512, 512);
+
+    // The same drawing at another size, for the picture in the clipboard.
+    private static BitmapSource Cover(int width, int height)
+    {
+        var visual = new DrawingVisual();
+        using (var dc = visual.RenderOpen())
+        {
+            dc.PushTransform(new ScaleTransform(width / 512.0, height / 512.0));
+            dc.DrawImage(Square(), new Rect(0, 0, 512, 512));
+            dc.Pop();
+        }
+        var bitmap = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
+        bitmap.Render(visual); bitmap.Freeze();
+        return bitmap;
+    }
+
+    private static BitmapSource Square()
     {
         const int size = 512;
         var visual = new DrawingVisual();
@@ -325,12 +444,17 @@ internal sealed class Renderer(App app, string output, string language, string[]
         await Settle(); SetSyncRing(.4);
         await Save("usage", scale);
 
+        // Opening the details and each app added to them dissolve the page into its new content (MainWindow.RenderUsage); without
+        // animations it is drawn at once, rather than captured half faded in.
+        _settings.Animations = false;
         Program.Call(_deck, "OpenModelDetails", [typeof(ProviderId), typeof(int)], ProviderId.Claude, 7);
         foreach (var id in new[] { ProviderId.Codex, ProviderId.Cursor, ProviderId.Antigravity })
             Program.Call(_deck, "ToggleModelApp", [typeof(ProviderId)], id);
         await Settle();
         await Save("details", scale);
         Program.Call(_deck, "ShowModelDetails", [typeof(bool)], false);
+        await Settle();
+        _settings.Animations = true;
 
         SelectPage(DeckPage.Music);
         await Settle();
@@ -359,8 +483,9 @@ internal sealed class Renderer(App app, string output, string language, string[]
         await ClockStyles();
     }
 
-    // The quota notice replaces the collapsed row and is cut off when the row is too short (the reset time goes first), so it
-    // is shown on a notch just wide enough for the whole notice plus a 12 DIP margin, with the same invented data.
+    // The quota notice replaces the collapsed row and scrolls through it when the row is too short, so it is shown on a notch
+    // just wide enough for the whole notice plus a 12 DIP margin, with the same invented data. A notice that fits is the row of
+    // its parts itself; one that scrolls is a clipping Canvas around that row (MainWindow.LayoutCompactAlert).
     private async Task QuotaAlert(double scale)
     {
         var claude = _settings.Apps[0];
@@ -372,23 +497,24 @@ internal sealed class Renderer(App app, string output, string language, string[]
                 claude, Loc.T("5 小时", "5-hour"), 91.0, (DateTimeOffset?)_now.AddHours(2).AddMinutes(13).AddSeconds(30));
             await Settle();
         }
+        // The notch otherwise takes the width of its usual content, whatever width is set.
+        _settings.NotchAutoWidth = false;
         double fit = 0;
-        for (double width = CollapsedLimits.NotchWidthDefault; width <= CollapsedLimits.NotchWidthMax && fit == 0; width += 2)
+        for (double width = CollapsedLimits.NotchWidthDefault; width <= CollapsedLimits.NotchWidthDefault + 400 && fit == 0; width += 2)
         {
             await Show(width);
-            var regions = alert.Children.OfType<FrameworkElement>().ToList();
-            if (regions.Count == 4 && regions.All(region => !region.ClipToBounds)) fit = width;
+            if (alert.Children.Count == 1 && alert.Children[0] is System.Windows.Controls.StackPanel) fit = width;
         }
         if (fit == 0) throw new InvalidOperationException("No notch width shows the whole quota notice.");
         await Show(fit + 12);
         await Save("compact-alert", scale);
         Program.Call(_deck, "ClearAlert", []);
-        _settings.NotchWidth = CollapsedLimits.NotchWidthDefault; Refresh();
+        _settings.NotchWidth = CollapsedLimits.NotchWidthDefault; _settings.NotchAutoWidth = true; Refresh();
         await Settle();
     }
 
-    // Compact → usage page → music page → system monitor page → compact, with the configured animations. The panel's own animations run
-    // slower while they are captured; frame times are recorded on the normal time scale.
+    // Compact → usage page → music page → system monitor page → clipboard and file transfer → devices → compact, with the configured
+    // animations. The panel's own animations run slower while they are captured; frame times are recorded on the normal time scale.
     private async Task Hero()
     {
         const double scale = 1.5;
@@ -398,18 +524,18 @@ internal sealed class Renderer(App app, string output, string language, string[]
         _deck.SetExpanded(false, true);
         await Settle(); SetSyncRing(.3);
 
-        await Record(1.6, 1, scale);
+        await Record(1.2, 1, scale);
         _marks["expand"] = _clock;
         _deck.SetExpanded(true);
         await Record(.5, slow, scale);
-        await Record(2.4, 1, scale, fps: 4);
+        await Record(2.0, 1, scale, fps: 4);
 
         _marks["musicButton"] = Point(_deck.FindName("MusicPageButton"));
         _marks["switch"] = _clock;
         SelectPage(DeckPage.Music);
         await Record(.5, slow, scale);
         _marks["musicPanel"] = Bounds();
-        await Record(2.8, 1, scale);
+        await Record(2.2, 1, scale);
 
         // As in Monitor(): App.Exiting keeps the real sampler from starting. The page gets the invented reading as soon as it
         // is built and draws it without easing, as a page that opens on the latest reading does.
@@ -428,13 +554,31 @@ internal sealed class Renderer(App app, string output, string language, string[]
         };
         await Record(.5, slow, scale);
         _marks["monitorPanel"] = Bounds();
-        await Record(2.8, 1, scale);
+        await Record(2.4, 1, scale);
         _onFrame = null;
+
+        // The clipboard and file transfer at its default size, then the devices at the usage page's size, where each device has
+        // its ring; in the page switch's order.
+        (_settings.ClipboardWidth, _settings.ClipboardHeight) = ShelfSizes.Default;
+        _marks["shelfButton"] = Point(_deck.FindName("ShelfPageButton"));
+        _marks["shelfSwitch"] = _clock;
+        SelectPage(DeckPage.Clipboard);
+        await Record(.5, slow, scale);
+        _marks["shelfPanel"] = Bounds();
+        await Record(2.4, 1, scale, fps: 4);
+
+        _settings.DevicesWidth = 760; _settings.DevicesHeight = 240;
+        _marks["devicesButton"] = Point(_deck.FindName("DevicesPageButton"));
+        _marks["devicesSwitch"] = _clock;
+        SelectPage(DeckPage.Devices);
+        await Record(.5, slow, scale);
+        _marks["devicesPanel"] = Bounds();
+        await Record(2.0, 1, scale, fps: 4);
 
         _marks["collapse"] = _clock;
         _deck.SetExpanded(false);
         await Record(.6, slow, scale);
-        await Record(1.2, 1, scale);
+        await Record(1.0, 1, scale);
         _marks["end"] = _clock;
         SelectPage(DeckPage.Usage);
         Program.SetProperty(app, "Exiting", false);
@@ -511,12 +655,18 @@ internal sealed class Renderer(App app, string output, string language, string[]
         var folder = Path.Combine(Path.GetTempPath(), "BrimDeck.ReadmeThemes." + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(folder);
         File.WriteAllText(Path.Combine(folder, "warm-paper.json"), CustomTheme);
-        string[] ids = [PanelThemes.Dark, PanelThemes.Light, "night-owl", "dracula", PanelThemes.Demo, "warm-paper"];
+        string[] ids = [PanelThemes.Dark, PanelThemes.Light, PanelThemes.IslandHoliday2, PanelThemes.PixelBlocks, PanelThemes.Demo, "warm-paper"];
+        // 海岛假日 2 has a day and a night look by the local time; the image shows the day one whenever it is made: the day is
+        // set to begin an hour before now and to last twelve hours.
+        var dawn = TimeSpan.FromHours((DateTime.Now.Hour + 23) % 24);
+        _settings.ThemeDaylight = PanelThemes.FormatDaylight(dawn, TimeSpan.FromHours((dawn.Hours + 12) % 24));
         var theme = Type.GetType("BrimDeck.PanelTheme, BrimDeck")!;
         theme.GetField("_loaded", Program.Any)!.SetValue(null, true);
         theme.GetProperty("UserThemes", Program.Any)!.SetValue(null, PanelThemes.LoadFolder(folder));
         var use = theme.GetMethod("Use", Program.Any)!;
         _settings.Width = 620; _settings.Height = 200;
+        // A change of theme dissolves from the old look into the new one (MainWindow.ThemeFade); without animations it is drawn at once.
+        _settings.Animations = false;
         SelectPage(DeckPage.Usage);
         _deck.SetExpanded(true, true);
         var list = new List<object>();
@@ -532,9 +682,9 @@ internal sealed class Renderer(App app, string output, string language, string[]
         }
         File.WriteAllText(Path.Combine(output, "themes.json"), JsonSerializer.Serialize(list, new JsonSerializerOptions { WriteIndented = true }));
         Directory.Delete(folder, true);
-        _settings.PanelTheme = PanelThemes.Dark;
+        _settings.PanelTheme = PanelThemes.Dark; _settings.ThemeDaylight = "";
         use.Invoke(null, [_settings, false, false]);
-        _settings.Width = 760; _settings.Height = 240;
+        _settings.Width = 760; _settings.Height = 240; _settings.Animations = true;
         _deck.SetExpanded(false, true); Refresh();
         await Settle();
     }
@@ -564,6 +714,53 @@ internal sealed class Renderer(App app, string output, string language, string[]
         await Save("compact-monitor", scale);
         _settings.NotchMonitor = false; _settings.NotchMusic = true; Refresh();
         Program.SetProperty(app, "Exiting", false);
+        _settings.Animations = true;
+        await Settle();
+    }
+
+    // The devices page, and the notch with the devices' rings and the file transfer's count. App.Exiting keeps the panel's demand
+    // from reaching the devices object.
+    private async Task DevicesScene()
+    {
+        const double scale = 2;
+        Program.SetProperty(app, "Exiting", true);
+        // The page switch slides its highlight to the new page; without animations it is drawn there at once.
+        _settings.Animations = false;
+        // The usage page's size, so the images show at the same scale in the README.
+        _settings.DevicesWidth = 760; _settings.DevicesHeight = 240;
+        SelectPage(DeckPage.Devices);
+        _deck.SetExpanded(true, true);
+        await Settle();
+        await Save("devices", scale);
+        SelectPage(DeckPage.Usage);
+
+        // The equalizer at the end of the row, after the file count and the devices.
+        var order = _settings.NotchOrder;
+        _settings.NotchOrder = [.. order.Where(part => part != CompactPart.Equalizer), CompactPart.Equalizer];
+        _settings.NotchDevices = true; _settings.NotchTransfer = true; _settings.NotchMusic = false;
+        _deck.SetExpanded(false, true); Refresh();
+        await Settle();
+        await Save("compact-devices", scale);
+        _settings.NotchOrder = order;
+        _settings.NotchDevices = false; _settings.NotchTransfer = false; _settings.NotchMusic = true; Refresh();
+        Program.SetProperty(app, "Exiting", false);
+        _settings.Animations = true;
+        await Settle();
+    }
+
+    // The clipboard and file transfer page, at the usage page's size.
+    private async Task ShelfScene()
+    {
+        const double scale = 2;
+        _settings.ClipboardWidth = 760; _settings.ClipboardHeight = 240;
+        // As in DevicesScene: the page switch's highlight is drawn on the new page at once.
+        _settings.Animations = false;
+        SelectPage(DeckPage.Clipboard);
+        _deck.SetExpanded(true, true);
+        await Settle();
+        await Save("clipboard", scale);
+        SelectPage(DeckPage.Usage);
+        _deck.SetExpanded(false, true);
         _settings.Animations = true;
         await Settle();
     }
@@ -598,14 +795,14 @@ internal sealed class Renderer(App app, string output, string language, string[]
             cores.Add(new CoreSample(i, fast ? 0 : 1, fast ? CoreTier.Performance : CoreTier.Efficiency, fast ? i + 1 : i - performance.Length + 1, usage,
                 fast ? 3600 + usage * 1700 : 2800 + usage * 1500, fast ? 5400 : 4200));
         }
-        var cpu = new CpuSample(cores, 4300);
+        var cpu = new CpuSample(cores, 4300) { Temperature = Math.Round(62 + 1.5 * Drift(tick, 70)) };
         const ulong GB = 1UL << 30, MB = 1UL << 20;
         var memory = new MemorySample(32 * GB, (ulong)((18.4 + .1 * Jump(tick, 60)) * GB), (ulong)(24.6 * GB), (ulong)(37.8 * GB), (ulong)(8.9 * GB));
         var network = new NetworkSample(Down(tick), Up(tick));
         double gpuUsage = Gpu(tick);
         var gpu = new GpuSample(gpuUsage, (ulong)(5.2 * GB))
         {
-            Name = "NVIDIA GeForce RTX 4070", DedicatedTotal = 12 * GB, SharedBytes = (ulong)(0.4 * GB),
+            Name = "NVIDIA GeForce RTX 4070", DedicatedTotal = 12 * GB, SharedBytes = (ulong)(0.4 * GB), Temperature = Math.Round(57 + 1.5 * Drift(tick, 71)),
             Engines = [new("3D", gpuUsage), new("Copy", Math.Max(0, .07 + .04 * Jump(tick, 41))), new("VideoDecode", Math.Max(0, .21 + .08 * Jump(tick, 42))),
                 new("VideoEncode", 0), new("Compute", Math.Max(0, .03 + .02 * Jump(tick, 43)))]
         };
@@ -638,9 +835,31 @@ internal sealed class Renderer(App app, string output, string language, string[]
         ];
         var processes = new ProcessList(ProcessSample.Folded(apps, ProcessSort.Cpu), ProcessSample.Folded(apps, ProcessSort.Memory));
         double[] History(Func<int, double> reading) => [.. Enumerable.Range(tick - 59, 60).Select(reading)];
+        // Two solid-state drives, the first split into two letters; a laptop on mains, charging; and the power the processor and
+        // the graphics card report, which the page calls an estimate.
+        StorageDrive Drive(int number, string model, double celsius, params (string Letter, string Label, double Total, double Free)[] volumes) =>
+            new(number, model, [.. volumes.Select(volume => new StorageVolume(volume.Letter, volume.Label, (ulong)(volume.Total * GB), (ulong)(volume.Free * GB)))])
+            { SolidState = true, Temperature = new DiskTemperature(model, celsius) };
+        double CpuWatts(int t) => 18 + 42 * Cpu(t);
+        double GpuWatts(int t) => 14 + 96 * Gpu(t);
+        double Watts(int t) => CpuWatts(t) + GpuWatts(t);
+        var power = History(Watts);
         return new MonitorSnapshot(DateTimeOffset.Now, count, cpu, memory, network, gpu, processes)
         {
-            CpuHistory = History(Cpu), GpuHistory = History(Gpu), DownHistory = History(Down), UpHistory = History(Up)
+            CpuHistory = History(Cpu), GpuHistory = History(Gpu), DownHistory = History(Down), UpHistory = History(Up),
+            Storage =
+            [
+                Drive(0, "Samsung SSD 990 PRO 1TB", 41, ("C:", Loc.T("系统", "System"), 256, 88), ("D:", Loc.T("数据", "Data"), 675, 312)),
+                Drive(1, "WD_BLACK SN850X 2TB", 37, ("E:", Loc.T("素材", "Media"), 1863, 1124))
+            ],
+            Power = new PowerSample(Watts(tick), PowerOrigin.Estimated, PowerSource.Components,
+                [new PowerPart("cpu", "CPU", CpuWatts(tick), "RAPL"), new PowerPart("gpu", "NVIDIA GeForce RTX 4070", GpuWatts(tick), "nvidia-smi")]),
+            PowerHistory = power, PowerSummary = new PowerSummary(power.Max(), power.Average(), power.Length, power.Length),
+            Battery = new BatterySample(82, BatteryState.Charging, 1)
+            {
+                Watts = 46.5, HasRate = true, TimeToFull = TimeSpan.FromMinutes(38), RemainingWh = 61.5, FullWh = 75, DesignWh = 80, Health = 75.0 / 80,
+                AcOnline = true, Mode = PowerMode.Balanced
+            }
         };
     }
 

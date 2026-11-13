@@ -9,10 +9,30 @@ internal static class KugouTests
         Engine(check);
         Profile(check, "KuGou", KugouPatch.Profile, 12233);
         Profile(check, "NetEase", NeteasePatch.Profile, 21631);
+        RestartDue(check);
         await LyricsLookup(check);
         check("KuGou's session is shown under its name and found by its process",
             MediaAppTarget.DisplayName("kugou", _ => null) == "酷狗音乐" && new MediaTrack { Source = "酷狗音乐" }.IsKugou && new MediaTrack { SongId = "kugou:" + new string('a', 32) }.IsKugou
             && MediaAppTarget.Plays(new MediaAppOwner(null, MediaAppTarget.ProcessName("kugou"), "kugou"), new MediaAppProcess(1, "KuGou", null, "kugou")));
+    }
+
+    private static void RestartDue(Action<string, bool> check)
+    {
+        var changed = new DateTime(2026, 11, 9, 8, 0, 0, DateTimeKind.Utc);
+        check("An unchanged file restarts KuGou, running or not",
+            KugouPatch.RestartDue(LibcefPatchState.Original, false, changed.AddHours(1), changed)
+            && KugouPatch.RestartDue(LibcefPatchState.Partial, false, null, changed));
+        check("A KuGou started before the file was changed restarts",
+            KugouPatch.RestartDue(LibcefPatchState.Patched, false, changed.AddMinutes(-5), changed));
+        check("A KuGou started after the change is not restarted while it quits or before it connects",
+            !KugouPatch.RestartDue(LibcefPatchState.Patched, false, changed.AddHours(1), changed)
+            && !KugouPatch.RestartDue(LibcefPatchState.Patched, false, changed.AddDays(3), changed));
+        check("A connected KuGou, a stopped one, an unknown write time and an unsupported file never restart",
+            !KugouPatch.RestartDue(LibcefPatchState.Patched, true, changed.AddMinutes(-5), changed)
+            && !KugouPatch.RestartDue(LibcefPatchState.Patched, false, null, changed)
+            && !KugouPatch.RestartDue(LibcefPatchState.Patched, false, changed.AddMinutes(-5), null)
+            && !KugouPatch.RestartDue(LibcefPatchState.Unsupported, false, changed.AddMinutes(-5), changed)
+            && !KugouPatch.RestartDue(null, false, changed.AddMinutes(-5), changed));
     }
 
     // Three sites with prefix and suffix context, placed far apart in an otherwise empty file, so each window is found by its

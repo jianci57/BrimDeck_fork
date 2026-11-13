@@ -67,6 +67,12 @@ public static class MediaAppTarget
         return registered(appId) is { Length: > 0 } name ? name : id;
     }
 
+    // Whether a source is left out: its session's id is an ignored one, or it is the process an ignored id names. The process
+    // name also covers a player read through its own connection with no session (NetEase's log, QQ's pipe, KuGou's port).
+    public static bool Ignores(IEnumerable<IgnoredMediaApp> ignored, string appId, string processName) => ignored.Any(app =>
+        appId.Length > 0 && string.Equals(app.AppId, appId, StringComparison.OrdinalIgnoreCase)
+        || processName.Length > 0 && ProcessName(app.AppId) is { Length: > 0 } named && string.Equals(named, processName, StringComparison.OrdinalIgnoreCase));
+
     public static bool Belongs(MediaAppOwner owner, MediaAppWindow window)
     {
         if (owner.ProcessId is { } pid) return window.ProcessId == pid;

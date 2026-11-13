@@ -33,6 +33,13 @@ public partial class MainWindow
     // drawn on the frames that follow.
     private void BeginThemeFade(bool daylight)
     {
+        // A snapshot lies over, rather than replacing, the live surface. Stacking translucent copies changes its alpha.
+        // Clear any earlier snapshots too when the new theme/settings make the surface see-through.
+        if (Island.SurfaceOpacity < 1 || Island.BackgroundOpacity < 1 || Settings.SurfaceTransparency > 0 || Settings.PanelOpacity < 100)
+        {
+            EndThemeFade();
+            return;
+        }
         // Pictures still fading are left to finish on their own, under the new ones.
         _themeFade = null; _materialFade = null;
         if (!IsVisible || !Soft.Enabled || _preview || Island.ActualWidth < 1 || Island.ActualHeight < 1 || PresentationSource.FromVisual(Island) is null) return;
@@ -41,10 +48,11 @@ public partial class MainWindow
         // The material: a copy of the island's own shape, dressed as it is now, without its content.
         var material = new IslandBorder
         {
-            Width = width, Height = height, CornerRadius = Island.CornerRadius, ShoulderRadius = Island.ShoulderRadius, MaterialOpacity = Island.MaterialOpacity,
+            Width = width, Height = height, CornerRadius = Island.CornerRadius, ShoulderRadius = Island.ShoulderRadius, MaterialOpacity = Island.MaterialOpacity, SurfaceOpacity = Island.SurfaceOpacity,
             // The island's background opacity too, whatever it is, so the copy looks exactly as the surface does.
             BackgroundOpacity = Island.BackgroundOpacity,
-            Background = new SolidColorBrush(_surface.Color)
+            // The brush's opacity too, whatever it is, so the copy looks exactly as the surface does.
+            Background = new SolidColorBrush(_surface.Color) { Opacity = _surface.Opacity }
         };
         PanelTheme.Dress(material, dpiScale: VisualTreeHelper.GetDpi(Island).DpiScaleX);
         _materialFade = Fade(Picture(material, width, height), daylight ? DaylightFadeMs : ThemeFadeMs);

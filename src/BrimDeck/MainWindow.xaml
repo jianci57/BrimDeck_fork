@@ -63,6 +63,8 @@
               <!-- What a rebuilt usage or media page replaced, while it leaves (PageHandover). It spans the header row too and is
                    placed where the old content was: the next page's header row may be taller or shorter. -->
               <Grid Grid.Row="0" Grid.RowSpan="2" x:Name="LeavingContent"/>
+              <!-- The music page's drag trail and the action it would run (MainWindow.MusicGestures.cs). -->
+              <Canvas Grid.Row="0" Grid.RowSpan="2" x:Name="GestureLayer" IsHitTestVisible="False" ClipToBounds="True"/>
             </Grid>
               <!-- Keep the toolbar outside the fixed page layout so neither resize direction clips its controls. -->
               <Grid x:Name="Toolbar" Height="{Binding Height.Value, ElementName=ToolbarRow}" VerticalAlignment="Top">

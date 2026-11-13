@@ -112,14 +112,19 @@ internal sealed class ClipboardWatch : IDisposable
         return output.Length > MaxBytes ? null : (output.ToArray(), image.PixelWidth, image.PixelHeight);
     }
     // Screenshots copied only as a bitmap are read with every pixel's alpha at 0, which would show black and paste as fully
-    // transparent: such a picture is taken as opaque.
+    // transparent: such a picture is taken as opaque. The pixels are read a band of rows at a time, up to the first one that is
+    // not transparent: an ordinary picture is told by its first band, without a copy of all of it (64 MB for the largest kept).
     private static BitmapSource Opaque(BitmapSource image)
     {
         if (image.Format != PixelFormats.Bgra32) return image;
-        int stride = image.PixelWidth * 4;
-        var pixels = new byte[stride * image.PixelHeight];
-        image.CopyPixels(pixels, stride, 0);
-        for (int i = 3; i < pixels.Length; i += 4) if (pixels[i] != 0) return image;
+        int stride = image.PixelWidth * 4, rows = Math.Clamp(65536 / stride, 1, image.PixelHeight);
+        var band = new byte[stride * rows];
+        for (int top = 0; top < image.PixelHeight; top += rows)
+        {
+            int height = Math.Min(rows, image.PixelHeight - top);
+            image.CopyPixels(new Int32Rect(0, top, image.PixelWidth, height), band, stride, 0);
+            for (int i = 3, end = stride * height; i < end; i += 4) if (band[i] != 0) return image;
+        }
         return new FormatConvertedBitmap(image, PixelFormats.Bgr32, null, 0);
     }
 
@@ -144,9 +149,7 @@ internal sealed class ClipboardWatch : IDisposable
         var owner = GetClipboardOwner();
         if (owner == IntPtr.Zero) return "";
         GetWindowThreadProcessId(owner, out uint pid);
-        if (pid == 0) return "";
-        try { using var process = System.Diagnostics.Process.GetProcessById((int)pid); return process.ProcessName; }
-        catch (Exception error) when (error is ArgumentException or InvalidOperationException or Win32Exception) { return ""; }
+        return pid == 0 ? "" : AppIdentity.NameAndPath((int)pid).Name;
     }
 
     public void Dispose()

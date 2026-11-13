@@ -9,7 +9,7 @@ namespace BrimDeck;
 // really does.
 public partial class SettingsWindow
 {
-    internal const int DebugPage = 15;
+    internal const int DebugPage = 16;
 
     private void DebugSettings()
     {

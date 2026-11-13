@@ -319,7 +319,7 @@ public sealed partial class SettingsWindow
     private void ShowSavedTheme(bool reload)
     {
         _themesFresh = !reload; ShowPage(ThemePage);
-        _preview = true; _previewPage = S.UsagePage ? DeckPage.Usage : DeckPage.Music; _app.Deck.Preview(true);
+        _preview = true; _app.Deck.Preview(true);
     }
 
     // Chooses a theme file just written to the folder (read again by the caller), keeping what was changed under the theme being left.

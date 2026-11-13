@@ -2,7 +2,7 @@
 
 On many PCs Windows gives no CPU temperature or CPU power: desktops often have no usable ACPI thermal zone, and some AMD PCs have no energy meter. Reading them takes the processor's own registers, which only a kernel driver can reach. Enhanced sensors use the open-source driver [PawnIO](https://pawnio.eu): BrimDeck's sensor service reads them from the processor itself.
 
-Where: Settings › System monitor › Enhanced sensors.
+Where: Settings › Enhanced sensors. For where the other readings come from, see [System monitor readings](system-monitor.md).
 
 ## What it adds
 

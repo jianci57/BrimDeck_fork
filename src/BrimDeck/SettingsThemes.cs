@@ -84,7 +84,7 @@ public sealed partial class SettingsWindow
             {
                 if (PanelThemes.NormalizeId(S.PanelTheme) == id) return;
                 Change(s => ChooseTheme(s, id));
-                _preview = true; _previewPage = S.UsagePage ? DeckPage.Usage : DeckPage.Music; _app.Deck.Preview(true);
+                _preview = true; _app.Deck.Preview(true);
                 // The cards stay as they are, the radio group moving the check; only the details change. A choice that did not
                 // take (the settings could not be updated) rebuilds the page to show what is saved.
                 if (PanelThemes.NormalizeId(S.PanelTheme) != id || _themeDetails is null || !_content.Children.Contains(_themeDetails)) { _themesFresh = true; ShowPage(ThemePage); return; }

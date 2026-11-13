@@ -26,6 +26,8 @@ internal static class Program
             if (args is ["--only", "drawn"]) { DrawnAutomationTests.Run(Check); return Finish(); }
             if (args is ["--only", "settings"]) { SettingsFocusTests.Run(Check); BrimDeck.MainWindow.CheckPageCapsuleFit(Check); return Finish(); }
             if (args is ["--only", "fonts"]) { FontFollowTests.Run(Check); return Finish(); }
+            if (args is ["--only", "surface"]) { CheckSurfaceOpacity(); CheckSettledClip(); return Finish(); }
+            if (args is ["--only", "resources", var appAssembly]) { ResourceLifetimeTests.Run(Check, appAssembly); return Finish(); }
             // "--hosted": only the checks that hold on a CI runner (a virtual machine with a session but no display output, GPU,
             // battery or devices, and no promise about speed). Everything left out reads this machine's hardware, so its outcome
             // says something about the machine, not the code. Without the flag every check runs.
@@ -35,6 +37,7 @@ internal static class Program
             if (hosted) Console.WriteLine("EXCLUDED on a hosted runner: window capture (not yet known to work on a virtual display).");
             else CaptureChecks.Run(Check);
             CheckSettledClip();
+            CheckSurfaceOpacity();
             CheckPageToolTips();
             LayoutRetryTests.Run(Check);
             DrawnAutomationTests.Run(Check);
@@ -111,12 +114,12 @@ internal static class Program
             Check("GPU auto shows a discrete adapter", GpuChoice.Auto(gpus, 0)?.Kind == GpuKind.Discrete);
         // The drivers' own usage: asked twice, as Intel's counters need two readings; an adapter Windows saw idle is not asked.
         var drivers = new GpuDrivers(() => { });
-        drivers.Read(gpus, 0, true);
+        drivers.Read(gpus, 0, true, GpuUsageSource.Driver);
         Thread.Sleep(1000);
-        foreach (var gpu in drivers.Read(gpus, 1, true))
+        foreach (var gpu in drivers.Read(gpus, 1, true, GpuUsageSource.Driver))
             Console.WriteLine($"GPU driver: {gpu.Name ?? "(unnamed)"} usage {gpu.Usage:P0} from {gpu.UsageSource ?? "Windows engines"}, engines {gpu.EngineUsage:P0}"
                 + (gpu.DriverWatts is { } watts ? $", {watts:0.0} W" : "") + (gpu.DriverTemperature is { } heat ? $", {heat:0} °C" : ""));
-        Check("GPU driver usage is a share, and only for an adapter Windows saw working", drivers.Read(gpus, 2, true).All(gpu => gpu.Usage is >= 0 and <= 1
+        Check("GPU driver usage is a share, and only for an adapter Windows saw working", drivers.Read(gpus, 2, true, GpuUsageSource.Driver).All(gpu => gpu.Usage is >= 0 and <= 1
             && (gpu.UsageSource is null || gpu.EngineUsage > 0)));
     }
     private static string Gigabytes(Reading<ulong> bytes) => bytes.TryGet(out var value) ? $"{value / 1e9:0.00} GB" : "?";
@@ -148,6 +151,32 @@ internal static class Program
                 Check($"the {name} at rest draws nothing past its rounded outline at {scale * 100:0}% ({outside} faint edge pixels, strongest alpha {strongest})",
                     strongest <= 64 && outside <= 16);
             }
+    }
+
+    // The two merged controls compose on the painted surface, while child content keeps its own opacity.
+    private static void CheckSurfaceOpacity()
+    {
+        foreach (double background in new[] { 1d, .4, 0d })
+            foreach (double surface in new[] { 1d, .6 })
+                foreach (double material in new[] { 0d, 1d })
+                {
+                    var island = new BrimDeck.IslandBorder
+                    {
+                        Width = 120, Height = 60, Background = System.Windows.Media.Brushes.Black,
+                        BackgroundOpacity = background, SurfaceOpacity = surface, MaterialOpacity = material,
+                        RimWidth = 0, Gradient = System.Windows.Media.Brushes.Black,
+                        Child = new Border { Width = 10, Height = 10, Background = System.Windows.Media.Brushes.White,
+                            HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
+                    };
+                    island.Measure(new Size(120, 60)); island.Arrange(new Rect(0, 0, 120, 60)); island.UpdateLayout();
+                    var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap(120, 60, 96, 96, System.Windows.Media.PixelFormats.Pbgra32);
+                    bitmap.Render(island);
+                    var pixels = new byte[120 * 60 * 4]; bitmap.CopyPixels(pixels, 120 * 4, 0);
+                    int alpha = pixels[(10 * 120 + 10) * 4 + 3], text = pixels[(30 * 120 + 60) * 4 + 3];
+                    int expected = background == 0 ? 1 : (int)Math.Round(255 * background * surface);
+                    Check($"merged opacity {background}/{surface}, material {material}: background {alpha}, child {text}",
+                        Math.Abs(alpha - expected) <= 2 && text == 255);
+                }
     }
 
     // A page left without the pointer moving closes the tooltips opened over it, and only those (BrimDeck.PageToolTips).

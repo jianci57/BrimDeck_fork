@@ -307,21 +307,12 @@ internal sealed class FrameRates : IDisposable
         if (_names.TryGetValue(pid, out var known)) return known;
         string name = pid == 0 ? "—" : $"PID {pid}";
         string? file = null;
-        IntPtr process = OpenProcess(0x1000 /* PROCESS_QUERY_LIMITED_INFORMATION */, false, pid);
-        if (process != IntPtr.Zero)
+        if (AppIdentity.ImagePath(pid) is { Length: > 0 } path)
         {
-            try
-            {
-                var path = new char[1024]; int size = path.Length;
-                if (QueryFullProcessImageNameW(process, 0, path, ref size))
-                {
-                    file = new(path, 0, size);
-                    string? described = null;
-                    try { described = FileVersionInfo.GetVersionInfo(file).FileDescription?.Trim(); } catch (FileNotFoundException) { }
-                    name = described is { Length: > 0 } ? described : Path.GetFileNameWithoutExtension(file);
-                }
-            }
-            finally { CloseHandle(process); }
+            file = path;
+            string? described = null;
+            try { described = FileVersionInfo.GetVersionInfo(file).FileDescription?.Trim(); } catch (FileNotFoundException) { }
+            name = described is { Length: > 0 } ? described : Path.GetFileNameWithoutExtension(file);
         }
         if (_names.Count > 256) _names.Clear();
         return _names[pid] = (name, file);
@@ -695,7 +686,4 @@ internal sealed class FrameRates : IDisposable
     [DllImport("user32.dll")] private static extern bool EnumChildWindows(IntPtr parent, WindowProc proc, IntPtr data);
     [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr window);
     [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr window, out RECT rect);
-    [DllImport("kernel32.dll")] private static extern IntPtr OpenProcess(uint access, bool inherit, int pid);
-    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] private static extern bool QueryFullProcessImageNameW(IntPtr process, int flags, char[] name, ref int size);
-    [DllImport("kernel32.dll")] private static extern bool CloseHandle(IntPtr handle);
 }

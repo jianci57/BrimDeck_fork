@@ -22,6 +22,9 @@ public sealed class KimiSessions
         public int Errors;
     }
     private readonly Dictionary<string, CacheItem> _cache = new(StringComparer.OrdinalIgnoreCase);
+    // No file or start-date change needs another merge while now stays between the latest included record (inclusive)
+    // and the earliest future record (exclusive). Both bounds matter when the clock moves backwards; sessions follow the same bounds.
+    private (DateTimeOffset Start, DateTimeOffset From, DateTimeOffset? Until, List<TokenEntry> Entries, int Sessions)? _merged;
     // Requests and the system prompt can make a line very long; a line over this length is skipped without being parsed.
     // A usage record is far shorter, so a skipped line that held one counts as unreadable.
     public const int DefaultMaxLine = 1 << 20;
@@ -36,13 +39,12 @@ public sealed class KimiSessions
     {
         var root = Folder(home);
         snapshot.UsageAvailable = Directory.Exists(root);
-        if (!snapshot.UsageAvailable) { _cache.Clear(); snapshot.UsageNote = Loc.T("未找到本机 Kimi Code 会话记录。", "No local Kimi Code session records were found."); return; }
+        if (!snapshot.UsageAvailable) { _cache.Clear(); _merged = null; snapshot.UsageNote = Loc.T("未找到本机 Kimi Code 会话记录。", "No local Kimi Code session records were found."); return; }
         var options = new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true, AttributesToSkip = FileAttributes.ReparsePoint };
         var files = Directory.EnumerateFiles(root, "wire.jsonl", options)
             .Where(file => Path.GetFileName(Path.GetDirectoryName(Path.GetDirectoryName(file))) is { } agents && agents.Equals("agents", StringComparison.OrdinalIgnoreCase));
         var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var sessions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var entries = new Dictionary<string, TokenEntry>();
+        bool changed = _merged is not { } kept || kept.Start != start || now < kept.From || kept.Until is { } until && now >= until;
         int errors = 0;
         foreach (var file in files)
         {
@@ -54,71 +56,51 @@ public sealed class KimiSessions
                 if (!_cache.TryGetValue(file, out var cached) || start < cached.Cutoff || info.Length < cached.Length ||
                     info.Length == cached.Length && info.LastWriteTimeUtc != cached.Modified)
                     _cache[file] = cached = new CacheItem(start);
-                if (info.Length != cached.Length || info.LastWriteTimeUtc != cached.Modified) Parse(file, cached, info);
+                if (info.Length != cached.Length || info.LastWriteTimeUtc != cached.Modified) { Parse(file, cached, info); changed = true; }
                 errors += cached.Errors;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { errors++; changed |= _cache.Remove(file); }
+        }
+        foreach (var gone in _cache.Keys.Where(file => !visited.Contains(file)).ToList()) { _cache.Remove(gone); changed = true; }
+        if (changed || _merged is null)
+        {
+            var sessions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var entries = new Dictionary<string, TokenEntry>();
+            var from = DateTimeOffset.MinValue;
+            DateTimeOffset? next = null;
+            foreach (var (file, cached) in _cache)
+            {
                 bool any = false;
                 foreach (var entry in cached.Entries)
-                    if (entry.Time >= start && entry.Time <= now && entry.Total > 0) { entries.TryAdd(entry.Key, entry); any = true; }
+                {
+                    if (entry.Time < start || entry.Total <= 0) continue;
+                    if (entry.Time > now) { if (next is null || entry.Time < next.Value) next = entry.Time; continue; }
+                    if (entry.Time > from) from = entry.Time;
+                    entries.TryAdd(entry.Key, entry); any = true;
+                }
                 if (any) sessions.Add(Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(file)))!);
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { errors++; _cache.Remove(file); }
+            _merged = (start, from, next, entries.Values.OrderBy(e => e.Time).ToList(), sessions.Count);
         }
-        foreach (var gone in _cache.Keys.Where(file => !visited.Contains(file)).ToList()) _cache.Remove(gone);
-        snapshot.Entries = entries.Values.OrderBy(e => e.Time).ToList();
+        var merged = _merged.Value;
+        snapshot.Entries = merged.Entries;
         snapshot.UsageComplete = errors == 0;
-        snapshot.UsageNote = Loc.T($"本机 Kimi Code {start.LocalDateTime:yyyy-MM-dd} 起 · {sessions.Count} 个会话 · {snapshot.Entries.Count} 次模型请求",
-            $"Local Kimi Code since {start.LocalDateTime:yyyy-MM-dd} · " + Loc.Count(sessions.Count, "session", "sessions") + " · " + Loc.Count(snapshot.Entries.Count, "model request", "model requests"));
+        snapshot.UsageNote = Loc.T($"本机 Kimi Code {start.LocalDateTime:yyyy-MM-dd} 起 · {merged.Sessions} 个会话 · {snapshot.Entries.Count} 次模型请求",
+            $"Local Kimi Code since {start.LocalDateTime:yyyy-MM-dd} · " + Loc.Count(merged.Sessions, "session", "sessions") + " · " + Loc.Count(snapshot.Entries.Count, "model request", "model requests"));
         if (errors > 0) snapshot.UsageNote += Loc.T($" · {errors} 处记录未能读取", " · " + Loc.Count(errors, "record", "records") + " could not be read");
     }
 
-    // Reads complete lines after the remembered offset; a line still being written is left for the next refresh. A line over
-    // the limit is passed over in pieces: only its end is looked for, and the offset moves past it once that end is found.
+    // Reads the complete lines after the remembered offset (AppendedLines); a line over the limit that held a usage record
+    // counts as unreadable.
     private void Parse(string file, CacheItem item, FileInfo info)
     {
         using var stream = SharedFile.Open(file);
-        stream.Seek(item.Offset, SeekOrigin.Begin);
-        int capacity = Math.Min(Chunk, _maxLine);
-        var buffer = new byte[capacity];
-        long skipped = 0;
-        bool skipping = false, record = false;
-        int filled = 0, read;
-        while ((read = stream.Read(buffer, filled, capacity - filled)) > 0)
-        {
-            filled += read;
-            int start = 0, newline;
-            while ((newline = Array.IndexOf(buffer, (byte)'\n', start, filled - start)) >= 0)
-            {
-                if (skipping)
-                {
-                    if (record || buffer.AsSpan(start, newline - start).IndexOf(RecordType) >= 0) item.Errors++;
-                    skipping = record = false; item.Offset += skipped; skipped = 0;
-                }
-                else ParseLine(buffer.AsSpan(start, newline - start), file, item);
-                start = newline + 1;
-            }
-            item.Offset += start;
-            Buffer.BlockCopy(buffer, start, buffer, 0, filled - start);
-            filled -= start;
-            if (filled < capacity) continue;
-            if (capacity < _maxLine)
-            {
-                capacity = (int)Math.Min(_maxLine, capacity * 2L);
-                Array.Resize(ref buffer, capacity);
-            }
-            else
-            {
-                // The last bytes stay in the buffer, so a type name split between two reads is still found.
-                record |= buffer.AsSpan(0, filled).IndexOf(RecordType) >= 0;
-                skipping = true; skipped += filled - KeyTail;
-                Buffer.BlockCopy(buffer, filled - KeyTail, buffer, 0, KeyTail);
-                filled = KeyTail;
-            }
-        }
+        AppendedLines.Read(stream, ref item.Offset, Chunk, _maxLine, RecordKeys, line => ParseLine(line.Span, file, item), () => item.Errors++);
         item.Length = info.Length; item.Modified = info.LastWriteTimeUtc;
     }
 
     private static ReadOnlySpan<byte> RecordType => "\"usage.record\""u8;
-    private const int KeyTail = 13;
+    private static readonly byte[][] RecordKeys = [RecordType.ToArray()];
 
     private static void ParseLine(ReadOnlySpan<byte> line, string file, CacheItem item)
     {
