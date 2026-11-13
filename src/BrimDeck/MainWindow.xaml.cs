@@ -703,9 +703,12 @@ public partial class MainWindow : Window
         }
         if (expanded && IsSuppressed || _poweringOff) return;
         if (expanded && !_expanded) EndBoot();
-        // Only the panel under the pointer is open; the others close at once and give up the Escape key.
+        // Only the panel under the pointer is open; the others close at once and give up the Escape key. The close is
+        // this panel's taking of the surface, an explicit hand-over like a hotkey's: keyboard asks a deck showing a
+        // notice to record the close (its panel returns collapsed when the card clears) instead of only re-laying the
+        // card, which would leave _expanded standing and bring that panel back open — pinned — beside this one.
         if (expanded && !_preview)
-            foreach (var other in _app.Decks.Where(deck => deck != this && deck._expanded && !deck._preview).ToList()) other.SetExpanded(false);
+            foreach (var other in _app.Decks.Where(deck => deck != this && deck._expanded && !deck._preview).ToList()) other.SetExpanded(false, keyboard: true);
         if (expanded && !_expanded && !_preview) ApplyDefaultMusicPage();
         // A hand-over cut short by closing the panel leaves nothing behind for the next opening.
         if (expanded && !_expanded) _handover.Drop();
