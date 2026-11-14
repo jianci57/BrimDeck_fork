@@ -134,7 +134,7 @@ public partial class App
         var page = pages[place];
         if (Decks.FirstOrDefault(deck => deck.IsOpenForHotkey) is { } open)
         {
-            if (open.CurrentPage == page) open.CollapseFromHotkey(); else open.SelectPage(page);
+            if (open.PageForHotkey == page) open.CollapseFromHotkey(); else if (!open.IsExpanded) open.OpenFromHotkey(page); else open.SelectPage(page);
             return;
         }
         DeckUnderPointer().OpenFromHotkey(page);

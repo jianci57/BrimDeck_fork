@@ -29,6 +29,10 @@ public partial class MainWindow
     // at the top of the monitor and _windowOffset DIPs to the right of its left edge; the island is drawn with the same offset.
     private Rect HoverZoneOnStage()
     {
+        // While a notice shows, sensing follows the card (LayoutNoticeGeometry), not the user's surface: the poll
+        // sees what is actually drawn, and the interception keeps any entry from opening the panel over it.
+        if (_notice is not null && _noticeSurface.Width > 0 && _noticeSurface.Height > 0)
+            return new Rect(_noticeSurface.X - _windowOffset, _noticeSurface.Y, Math.Max(0, _noticeSurface.Width), Math.Max(0, _noticeSurface.Height));
         // A capsule docked with the bottom bridges to the line it is docked with (MainWindow.Edge.cs), the frame's edge.
         var zone = CollapsedHover.Zone(Collapsed.Style, Collapsed.Surface, Collapsed.Style == CompactStyle.Capsule && _frame.Edge != ScreenEdge.Top ? 0 : WorkDip.Y);
         return new Rect(zone.X - _windowOffset, zone.Y, Math.Max(0, zone.Width), Math.Max(0, zone.Height));

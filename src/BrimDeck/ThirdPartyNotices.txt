@@ -1340,3 +1340,14 @@ Apache License 2.0
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
    See the License for the specific language governing permissions and
    limitations under the License.
+
+NotchPeninsula (reference implementation, commit 6e8bea9b3c2d957777bd3deded2b3a11d66e90fd)
+https://github.com/GEORGEWWWU/NotchPeninsula
+
+The notifications page's access to the system's notifications (Native/NotificationReader.cs) follows
+this project's Notify/Toast.cs: the same UserNotificationListener access, capped waits and
+per-notification fault isolation. Reduced to BrimDeck's needs — no HTTP listener, no island, no
+notification removal.
+
+Licensed under the Apache License, Version 2.0. The license text is included above, under
+Material Symbols 0.48.3.
