@@ -477,7 +477,10 @@ internal static class ProcessIcons
 
     public static void Prepare(string? path)
     {
-        if (string.IsNullOrEmpty(path) || Cache.ContainsKey(path)) return;
+        // The placeholder is written before the shell is touched: two threads asking for the same path (the sampler's STA
+        // thread and the UI's background fetch) must not both enter the shell lookup — a shell icon call can block on the
+        // shell's apartment, and on 2026-11-04 it froze both threads at once (hang dump). The loser returns at once.
+        if (string.IsNullOrEmpty(path) || !Cache.TryAdd(path, null)) return;
         Interlocked.Increment(ref _prepared);
         ImageSource? icon = null;
         var info = new ShellFileInfo();

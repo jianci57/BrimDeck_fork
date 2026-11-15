@@ -137,6 +137,7 @@ public partial class App : Application
         _dataKey = DataKey();
         ApplyProfileRules();
         StartBackgroundUpdates();
+        ApplyNotificationSettings();
         // Only for a user who has the monitor page with its power line: the rest never open it.
         if (Settings.MonitorPage && Settings.ShowsExpanded(ExpandedItem.Power)) PowerWarm.Start(Dispatcher);
         WarmSettingsWriter();
@@ -266,6 +267,7 @@ public partial class App : Application
         ApplyHotkeys();
         ApplyTray();
         UpdateDeviceDemand();
+        ApplyNotificationSettings();
         // Statuses and notes are worded when the data is read, so a new language reads the data again.
         bool languageChanged = Loc.Normalize(settings.Language) != Loc.Language;
         if (languageChanged) UseLanguage();
@@ -508,7 +510,9 @@ public partial class App : Application
             _pageLinger = new DispatcherTimer(DispatcherPriority.Background, Dispatcher);
             _pageLinger.Tick += (_, _) => { _pageLinger.Stop(); _pageExtras = false; ApplyMonitorDemand(lingered: true); };
         }
-        if (!_pageLinger.IsEnabled) { _pageLinger.Interval = plan.ReadingsLinger; _pageLinger.Start(); }
+        // Updating an enabled timer also re-evaluates a linger started under the previous memory mode.
+        if (_pageLinger.Interval != plan.ReadingsLinger) _pageLinger.Interval = plan.ReadingsLinger;
+        if (!_pageLinger.IsEnabled) _pageLinger.Start();
     }
     internal void UpdateMonitorExtras()
     {
@@ -612,6 +616,7 @@ public partial class App : Application
     {
         Exiting = true; Lifetime.Cancel(); _save.Stop(); _trim?.Stop(); _release?.Stop(); FinishWriting(); StopBackgroundUpdates(); DisplayPower.Uninstall(); Microsoft.Win32.SystemEvents.UserPreferenceChanged -= SystemThemeChanged; _tray?.Dispose(); DisposeHotkeys(); WindowDrags?.Dispose(); _listener?.Unregister(null); _settingsEvent?.Dispose();
         if (Shelf is not null) { Shelf.Exit(); Shelf.Dispose(); }
+        _notifications?.Dispose();
         Media?.Dispose(); _restingMedia?.Dispose(); Monitor?.Dispose(); SensorGuard.Finish(); Devices?.Dispose(); DeviceReadStore.Finish(); Lyrics?.Dispose(); Prices?.Dispose(); _mutex?.Dispose(); base.OnExit(e);
     }
     [DllImport("shell32", CharSet = CharSet.Unicode)] private static extern int SetCurrentProcessExplicitAppUserModelID(string id);

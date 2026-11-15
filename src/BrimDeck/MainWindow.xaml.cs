@@ -173,7 +173,7 @@ public partial class MainWindow : Window
         _host.ContextChanged += context =>
         {
             _context = context;
-            if (_expanded && !_preview && _detailPopup is null && _popupReturnArea is null && MediaSourceButton.ContextMenu?.IsOpen != true && !ShelfHolds)
+            if (_expanded && !_preview && _notice is null && _detailPopup is null && _popupReturnArea is null && MediaSourceButton.ContextMenu?.IsOpen != true && !ShelfHolds)
             {
                 _expanded = false;
                 PanelClosed();
@@ -196,8 +196,8 @@ public partial class MainWindow : Window
         };
         // The user went to another window while a hotkey had given the panel the keyboard: it keeps the foreground it was given.
         Deactivated += (_, _) => ReleaseKeyboard(giveBack: false);
-        // Esc also leaves move mode (MainWindow.Move.cs).
-        SourceInitialized += (_, _) => { WindowsHost.ConfigureOverlay(this, Settings.WindowCapture); _escapeDismissal = new EscapeDismissal(this, () => { if (_moveArmed) CancelMove(); else if (!ShelfEscape()) SetExpanded(false, keyboard: true); }); };
+        // Esc also leaves move mode (MainWindow.Move.cs); while a notice shows it clears the notice first.
+        SourceInitialized += (_, _) => { WindowsHost.ConfigureOverlay(this, Settings.WindowCapture); _escapeDismissal = new EscapeDismissal(this, () => { if (_moveArmed) CancelMove(); else if (_notice is not null) ClearSystemNotice(); else if (!ShelfEscape()) SetExpanded(false, keyboard: true); }); };
         Loaded += async (_, _) =>
         {
             _virtualDesktops ??= new VirtualDesktopPresence(this);
@@ -210,13 +210,13 @@ public partial class MainWindow : Window
             if (_lead is null) { _app.AssignDisplays(); RestoreLastSeen(); await RefreshAutomaticallyAsync(); }
         };
         Closing += (_, e) => { if (!_app.Exiting && !_retiring) { e.Cancel = true; SetExpanded(false); } };
-        Closed += (_, _) => { CancelMove(); _escapeDismissal?.Dispose(); _virtualDesktops?.Dispose(); _host.Dispose(); _taskbarMirror.Dispose(); _hover.Stop(); _leave.Stop(); _pointerTrack.Stop(); _pageSwitchHold.Stop(); _clock.Stop(); _seconds.Stop(); _refresh.Stop(); _alertTimer.Stop(); _clipSettle?.Stop(); };
+        Closed += (_, _) => { CancelMove(); StopSystemNotification(); _escapeDismissal?.Dispose(); _escapeDismissal = null; _virtualDesktops?.Dispose(); _host.Dispose(); _taskbarMirror.Dispose(); _hover.Stop(); _leave.Stop(); _pointerTrack.Stop(); _pageSwitchHold.Stop(); _clock.Stop(); _seconds.Stop(); _refresh.Stop(); _alertTimer.Stop(); _clipSettle?.Stop(); };
         StateChanged += (_, _) => { if (WindowState == WindowState.Minimized) { WindowState = WindowState.Normal; SetExpanded(false); } };
         // The collapsed island opens on hover, so a right click there does nothing, except leave move mode.
         MouseWheel += PanelWheel;
         AttachMusicGestures();
         MouseRightButtonUp += (_, e) => { if (_moveArmed) { CancelMove(); e.Handled = true; return; } if (!_expanded || !Settings.RightClickSettings) return; _app.OpenSettings(); e.Handled = true; };
-        PreviewKeyDown += (_, e) => { if (e.Key == Key.Escape) { SetExpanded(false, keyboard: true); e.Handled = true; } };
+        PreviewKeyDown += (_, e) => { if (e.Key == Key.Escape) { if (_notice is not null) ClearSystemNotice(); else SetExpanded(false, keyboard: true); e.Handled = true; } };
         // A scale change moves the window to a rectangle Windows suggests; the island is centred again.
         // DpiChanged is a bubbling event: every Image raises it when its own DPI changes. Once the window has moved to a
         // monitor with another scale, each image the panel rebuilds while it is laid out reports a change, and laying out
@@ -376,6 +376,8 @@ public partial class MainWindow : Window
         // whose indicator is no longer called for.
         if (Topmost != KeepsAbove) { Topmost = KeepsAbove; if (!Topmost && !_expanded) _host.Front(false); }
         if (!Settings.QuotaAlerts && _alert is not null) ClearAlert();
+        // The notification switch, mode, theme and shape changes all pass here (MainWindow.Notice.cs).
+        ApplyNoticeSettings();
         ApplySyncSchedule();
         ApplyMusicSettings();
         ApplySecondClock();
@@ -630,6 +632,12 @@ public partial class MainWindow : Window
     // ApplySettings runs next. Pop-ups are closed rather than repainted.
     private void ApplyTheme()
     {
+        // The background's own opacity, as set on the theme page, applied to everything the island paints itself; text,
+        // icons and controls are child elements and keep their own, so the panel goes see-through without the content
+        // fading with it. High contrast keeps the panel opaque, or its system colors would blend into the windows behind it.
+        Island.BackgroundOpacity = Look.HighContrast ? 1.0 : Settings.PanelOpacity / 100.0;
+        // The marquees pick their edge-fade mode at creation time (MusicMarquee.Backdrop/InkFade), so they need to know now.
+        Look.IslandTransparent = Island.BackgroundOpacity < 1;
         double dpi = PresentationSource.FromVisual(this) is null ? 1 : VisualTreeHelper.GetDpi(this).DpiScaleX;
         if (_themeGeneration == Look.Generation && _themeDpi == dpi) return;
         // A new scale alone only redraws the scan lines or texture, which are laid out in device pixels.
@@ -637,14 +645,15 @@ public partial class MainWindow : Window
         _themeGeneration = Look.Generation; _themeDpi = dpi;
         // The resize hints take the theme's colors when they are drawn.
         _grips?.InvalidateVisual();
-        if (sameTheme) { Island.Pattern = Look.Texture(dpiScale: dpi) ?? Look.Scanlines(dpiScale: dpi); FitShadowCache(dpi); return; }
+        if (sameTheme) { Island.Pattern = Look.Texture(dpiScale: dpi) ?? Look.Scanlines(dpiScale: dpi); FitShadowCache(dpi); UpdateShadowMask(); return; }
         Foreground = UI.Brush(Look.Primary);
         Look.Dress(Island, dpiScale: dpi);
         if (IslandShadow.Effect is System.Windows.Media.Effects.DropShadowEffect shadow) Look.Dress(shadow);
         // Pixel art draws the island's text unsmoothed, as on a pixel screen, and casts a stepped shadow.
         Look.Text(Island);
         if (IslandShadow.Children.OfType<IslandBorder>().FirstOrDefault() is { } caster) caster.Pixel = Look.Current.Effects.Pixel;
-        FitShadowCache(dpi);
+        // The theme can change the shadow's blur and depth, which the mask's frame must reach past (UpdateShadowMask).
+        FitShadowCache(dpi); UpdateShadowMask();
         MusicIndicator.Background = UI.Brush(Look.Hex("indicatorProgress"));
         SetImmediate(_surface, SolidColorBrush.ColorProperty, Look.ColorOf(!_expanded && Collapsed.Style == CompactStyle.Line ? "indicator" : "surface"));
         _musicAccent = MusicVisuals.Accent(_mediaCover, out _coverAccent, Look);
@@ -658,14 +667,15 @@ public partial class MainWindow : Window
     private void ApplySurface()
     {
         double opacity = 1 - Settings.SurfaceTransparency / 100d;
-        bool clear = opacity < 1;
+        bool clear = opacity < 1 || Island.BackgroundOpacity < 1;
+        if (clear) EndThemeFade();
         Island.SurfaceOpacity = opacity;
         if (Look.Current.Effects.Pixel <= 0)
         {
             if (clear) TextOptions.SetTextRenderingMode(Island, TextRenderingMode.Grayscale);
             else Island.ClearValue(TextOptions.TextRenderingModeProperty);
         }
-        IslandShadow.Visibility = clear ? Visibility.Hidden : Visibility.Visible;
+        IslandShadow.Visibility = opacity < 1 ? Visibility.Hidden : Visibility.Visible;
     }
     // The toolbar's fixed buttons are declared in XAML; their names follow the interface language.
     private void ApplyLanguage()
@@ -678,7 +688,7 @@ public partial class MainWindow : Window
         System.Windows.Automation.AutomationProperties.SetName(SettingsButton, Loc.T("设置", "Settings"));
     }
     public void Preview(bool enabled, bool expanded = true)
-    { _preview = enabled; _previewExpanded = enabled && expanded; if (enabled) _pageSwitchHold.Stop(); ApplySettings(); SetExpanded(enabled && expanded, true); }
+    { if (enabled) StopSystemNotification(); _preview = enabled; _previewExpanded = enabled && expanded; if (enabled) _pageSwitchHold.Stop(); ApplySettings(); SetExpanded(enabled && expanded, true); }
     internal void ResumeAfterPreview()
     {
         if (!_preview) return;
@@ -803,11 +813,23 @@ public partial class MainWindow : Window
     // keyboard: a hotkey or Escape asked for it (motion-review C4), so the move is quicker and has no give.
     public void SetExpanded(bool expanded, bool instant = false, bool keyboard = false)
     {
+        // While a notice owns the surface (MainWindow.Notice.cs) everything lands here: the card is laid out again and
+        // the call ends. _expanded, the host's fronting, the page and the Escape hotkey keep their state; a keyboard
+        // expand or collapse is remembered and applied when the notice clears, so the hotkeys' intent is not swallowed.
+        if (_notice is not null)
+        {
+            if (keyboard) { _noticeDeferredExpand = expanded; _noticeDeferredPage = expanded ? _hotkeyPage : null; LayoutSystemNotice(); return; }
+            // A pending card must let the boot finish its normal hand-over and clear _booting.
+            if (!_booting && !_bootDot && !_bootWaiting && _moveOverlay is null) { LayoutSystemNotice(); return; }
+        }
         if (expanded && IsSuppressed || _poweringOff) return;
         if (expanded && !_expanded) EndBoot();
-        // Only the panel under the pointer is open; the others close at once and give up the Escape key.
+        // Only the panel under the pointer is open; the others close at once and give up the Escape key. The close is
+        // this panel's taking of the surface, an explicit hand-over like a hotkey's: keyboard asks a deck showing a
+        // notice to record the close (its panel returns collapsed when the card clears) instead of only re-laying the
+        // card, which would leave _expanded standing and bring that panel back open — pinned — beside this one.
         if (expanded && !_preview)
-            foreach (var other in _app.Decks.Where(deck => deck != this && deck._expanded && !deck._preview).ToList()) other.SetExpanded(false);
+            foreach (var other in _app.Decks.Where(deck => deck != this && deck._expanded && !deck._preview).ToList()) other.SetExpanded(false, keyboard: true);
         if (expanded && !_expanded && !_preview) ApplyDefaultMusicPage();
         // A hand-over cut short by closing the panel leaves nothing behind for the next opening.
         if (expanded && !_expanded) _handover.Drop();
@@ -1015,6 +1037,8 @@ public partial class MainWindow : Window
         UpdateMonitorDemand();
         UpdateGrips();
         ApplyClickThrough();
+        // The dot's final SetExpanded has completed its hand-over; a queued notice may take the surface now.
+        if (_notice is not null) LayoutSystemNotice();
     }
     private static T Timed<T>(T animation, int duration, Track track) where T : AnimationTimeline
     {

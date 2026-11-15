@@ -31,16 +31,21 @@ internal sealed class AudioLevelMeter : IDisposable
     // the system and shows flat bars meanwhile.
     public TimeSpan Linger { get; set; }
     private Timer? _release;
+    private long _releaseGeneration;
     public void SetSource(MediaAppOwner? owner, bool enabled, bool system = false)
     {
         var target = enabled ? owner : system ? Everything : null;
         lock (_gate)
         {
             if (_disposed) return;
-            if (target is not null || Linger <= TimeSpan.Zero) { _release?.Dispose(); _release = null; }
+            if (target is not null || Linger <= TimeSpan.Zero) { _releaseGeneration++; _release?.Dispose(); _release = null; }
             else if (_requested is not null)
             {
-                _release ??= new Timer(_ => Release(), null, Linger, Timeout.InfiniteTimeSpan);
+                if (_release is null)
+                {
+                    long generation = ++_releaseGeneration;
+                    _release = new Timer(_ => Release(generation), null, Linger, Timeout.InfiniteTimeSpan);
+                }
                 return;
             }
             if (_requested == target) return;
@@ -54,11 +59,11 @@ internal sealed class AudioLevelMeter : IDisposable
         }
     }
     // The linger ran out with nothing asking again: the capture stops.
-    private void Release()
+    private void Release(long generation)
     {
         lock (_gate)
         {
-            if (_disposed || _release is null) return;
+            if (_disposed || _release is null || generation != _releaseGeneration) return;
             _release.Dispose(); _release = null;
             if (_requested is null) return;
             _requested = null; _revision++; _wake.Set();

@@ -43,6 +43,36 @@ internal static class ProfileTests
         check("A profile leaves out what every profile shares",
             !values.ContainsKey(nameof(DeckSettings.Language)) && !values.ContainsKey(nameof(DeckSettings.Apps)) && !values.ContainsKey(nameof(DeckSettings.Profiles))
             && !values.ContainsKey(nameof(DeckSettings.DisplayMonitors)) && !values.ContainsKey(nameof(DeckSettings.HideHotkey)) && !values.ContainsKey(nameof(DeckSettings.KugouFullControl)));
+        check("A profile holds the notice content mode but not the notice master switch",
+            values.ContainsKey(nameof(DeckSettings.NotificationContentMode)) && !values.ContainsKey(nameof(DeckSettings.NotificationsEnabled)));
+
+        // The notifications' master switch is shared by every profile: a profile's own copy of the switch (as a version that
+        // still saved it per profile would leave behind) never overrides the root choice, while the content mode stays its own.
+        // These run on their own fixture, so the settings used by the rest of the checks keep one current profile and "专注" second.
+        var noticeSettings = settings.Copy();
+        noticeSettings.NotificationsEnabled = true;
+        var quiet = Profiles.Duplicate(noticeSettings, noticeSettings.CurrentProfile, "安静");
+        quiet.Values![nameof(DeckSettings.NotificationsEnabled)] = false;
+        quiet.Values[nameof(DeckSettings.NotificationContentMode)] = (int)NotificationContentMode.Full;
+        noticeSettings.Profiles.Add(quiet);
+        noticeSettings.Normalize();
+        var quietShown = Profiles.For(noticeSettings, quiet.Id);
+        check("A profile's stored notice switch off does not turn the shared switch off", noticeSettings.NotificationsEnabled && quietShown.NotificationsEnabled);
+        check("A profile keeps its own notice content mode", quietShown.NotificationContentMode == NotificationContentMode.Full);
+        noticeSettings.NotificationsEnabled = false;
+        var loudShown = Profiles.For(noticeSettings, quiet.Id);
+        check("Turning the shared notice switch off at the root holds for every profile", !loudShown.NotificationsEnabled && loudShown.NotificationContentMode == NotificationContentMode.Full);
+        var switchedQuiet = Profiles.Switch(noticeSettings, quiet.Id);
+        check("Switching to the profile keeps the shared switch and the profile's content mode",
+            switchedQuiet.NotificationsEnabled == false && Profiles.Find(switchedQuiet, quiet.Id)!.Values![nameof(DeckSettings.NotificationContentMode)]!.GetValue<int>() == (int)NotificationContentMode.Full);
+        // Editing a profile that is not current: the shared master switch the edit changes goes to the root, the profile keeps
+        // only its content mode, and no copy of the switch is stored in the profile.
+        var editedQuiet = Profiles.For(noticeSettings, quiet.Id);
+        editedQuiet.NotificationsEnabled = true;
+        var storedNotice = Profiles.Store(noticeSettings, quiet.Id, editedQuiet);
+        check("Editing another profile writes the shared notice switch back to the root",
+            storedNotice.NotificationsEnabled && Profiles.Find(storedNotice, quiet.Id)!.Values![nameof(DeckSettings.NotificationContentMode)]!.GetValue<int>() == (int)NotificationContentMode.Full
+            && !Profiles.Find(storedNotice, quiet.Id)!.Values!.ContainsKey(nameof(DeckSettings.NotificationsEnabled)));
 
         // A second profile, made from the current one and then changed.
         var original = settings.CurrentProfile;

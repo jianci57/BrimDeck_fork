@@ -86,7 +86,7 @@ public partial class MainWindow
     private void Boot()
     {
         if (_poweringOff || _app.Exiting || _retiring) return;
-        if (_expanded || IsSuppressed || !CanAnimateLifecycle) { SetImmediate(HoverZone, OpacityProperty, 1d); return; }
+        if (_expanded || IsSuppressed || !CanAnimateLifecycle) { SetImmediate(HoverZone, OpacityProperty, 1d); if (_notice is not null) LayoutSystemNotice(); return; }
         SetImmediate(HoverZone, OpacityProperty, 0d);
         _bootWaiting = true;
         int boot = ++_boot;
@@ -106,7 +106,7 @@ public partial class MainWindow
     {
         int boot = ++_boot; _bootWaiting = false;
         if (_poweringOff || _app.Exiting || _retiring) return;
-        if (_expanded || IsSuppressed || !CanAnimateLifecycle) { SetImmediate(HoverZone, OpacityProperty, 1d); return; }
+        if (_expanded || IsSuppressed || !CanAnimateLifecycle) { SetImmediate(HoverZone, OpacityProperty, 1d); if (_notice is not null) LayoutSystemNotice(); return; }
         var shape = Collapsed = ShapeFor(EffectiveStyle);
         PlaceDot(shape);
         _bootDot = true; Island.SettledClip = false;
@@ -185,6 +185,10 @@ public partial class MainWindow
     internal void PowerOff(Action gone)
     {
         if (_poweringOff) { _whenGone += gone; return; }
+        // The notice never owns the surface during the exit: stopping it here (without a restore layout) lets the
+        // collapse below run, which a notice-active SetExpanded would otherwise only answer with the card again.
+        // Immediate exits (animations off) clear it too, before anything else touches the surface.
+        StopSystemNotification();
         if (!CanAnimateLifecycle) { gone(); return; }
         int boot = ++_boot; _bootWaiting = false; _bootEnds = 0; _bootDot = false;
         if (_expanded) SetExpanded(false, instant: true);
@@ -240,8 +244,8 @@ public partial class MainWindow
         double width = DotMotion.Size * 4, height = DotMotion.Size * 2 + DropMerge.WaterBelow, floor = DotTop(shape) + DotMotion.Size;
         _merge.Width = width; _merge.Height = height;
         _merge.Margin = new Thickness(DotLeft(shape) + DotMotion.Size / 2 - width / 2, floor - (height - DropMerge.WaterBelow), 0, 0);
-        // As see-through as the surface (DeckSettings.SurfaceTransparency).
-        var fill = _surface.Color; fill.A = (byte)Math.Round(fill.A * Island.SurfaceOpacity);
+        // Match both the upstream surface transparency and the fork's background opacity.
+        var fill = _surface.Color; fill.A = (byte)Math.Round(fill.A * Island.SurfaceOpacity * Island.BackgroundOpacity);
         _merge.Fill = fill;
         _merge.Visibility = Visibility.Visible;
         SetImmediate(_merge, DropMerge.ProgressProperty, 0d);

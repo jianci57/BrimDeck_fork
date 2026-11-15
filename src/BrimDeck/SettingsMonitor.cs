@@ -82,7 +82,27 @@ public sealed partial class SettingsWindow
             MusicChoice(Loc.T("进程行", "Process rows"), S.MonitorProcessView,
                 [(MonitorProcessView.Auto, Loc.T("自动", "Auto")), (MonitorProcessView.Compact, Loc.T("简略", "Compact")), (MonitorProcessView.Detailed, Loc.T("详细", "Detailed"))],
                 v => Resize(s => s.MonitorProcessView = v, DeckPage.Monitor), keepPreview: true),
-            MusicChoice(Loc.T("刷新间隔", "Update interval"), S.MonitorInterval, [(1, Loc.T("1 秒", "1 s")), (2, Loc.T("2 秒", "2 s"))], v => Change(s => s.MonitorInterval = v)));
+            MusicChoice(Loc.T("刷新间隔", "Update interval"), S.MonitorInterval, [(1, Loc.T("1 秒", "1 s")), (2, Loc.T("2 秒", "2 s"))], v => Change(s => s.MonitorInterval = v)),
+            WithFrameAccess(Toggle(Loc.T("显示 1% low", "Show the 1% low"), S.MonitorFps1Low, v => Change(s => s.MonitorFps1Low = v),
+                help:
+                Loc.T("在帧率数字旁显示最差的 1% 帧的平均帧率：取最近一个读数间隔内（默认 1 秒）的帧间隔，从慢到快排序，取最差 1% 求平均后换算成帧率（60 FPS 的 1 秒约 60 帧，最差 1% 即最卡的那 1 帧）。帧率开着才有读数。",
+                        "Shows the average rate of the worst 1% of frames beside the figure: the frame gaps of the latest reading interval (a second by default) are sorted slowest first, the worst 1% is averaged and turned back into a rate (about 60 frames a second at 60 FPS, so the worst 1% is the single most lagging frame). It reads nothing unless the frame rate is on.")),
+                () => S.MonitorFrames && !Reading(S, CompactMonitorItems.Frames).Visible),
+            WithFrameAccess(Toggle(Loc.T("显示 0.1% low", "Show the 0.1% low"), S.MonitorFps01Low, v => Change(s => s.MonitorFps01Low = v),
+                help:
+                Loc.T("在帧率数字旁显示最差的 0.1% 帧的平均帧率：算法同 1% low，但只取最差 0.1%（一个读数间隔内通常就是最卡的那 1 帧），代表最严重的瞬间卡顿。",
+                        "Shows the average rate of the worst 0.1% of frames beside the figure: the same math as the 1% low, but only the worst 0.1% (within a reading interval usually the single most lagging frame) — the sharpest hitches there are.")),
+                () => S.MonitorFrames && !Reading(S, CompactMonitorItems.Frames).Visible),
+            WithFrameAccess(Toggle(Loc.T("显示出帧间隔", "Show the frame interval"), S.MonitorFpsFrameTime, v => Change(s => s.MonitorFpsFrameTime = v),
+                help:
+                Loc.T("在帧率数字旁显示前后两帧之间隔了多久（1000 ÷ 帧率）。这是出场的节奏，不是画一帧的耗时。帧率开着才有读数。",
+                        "Shows how far apart two frames are beside the figure (1000 over the rate) — the pace frames appear at, not the work inside one. It reads nothing unless the frame rate is on.")),
+                () => S.MonitorFrames && !Reading(S, CompactMonitorItems.Frames).Visible),
+            WithFrameAccess(Toggle(Loc.T("显示 GPU 帧耗时", "Show the GPU frame time"), S.MonitorFpsGpuTime, v => Change(s => s.MonitorFpsGpuTime = v),
+                help:
+                Loc.T("显示所选渲染进程在本读数间隔内的 GPU 忙时 ÷ 所选呈现链的帧数（毫秒），并行执行的重叠时间只算一次。这是窗口均值，包含该进程的其他 GPU 工作，不是逐帧测量；硬件加速 GPU 调度使用队列时长估计。数据不完整时显示破折号。帧率开着才有读数。",
+                        "Shows the selected rendering process's GPU busy time divided by its selected presentation chain's frames over the reading, in milliseconds. Overlapping execution counts once. This window average includes other GPU work in that process; it is not a per-frame measurement. Hardware-accelerated scheduling uses queue duration as an estimate. Incomplete data shows a dash. It reads nothing unless the frame rate is on.")),
+                () => S.MonitorFrames && !Reading(S, CompactMonitorItems.Frames).Visible));
         SectionTitle(Loc.T("来源", "Sources"));
         Group(MusicChoice(Loc.T("显卡占用率", "GPU usage"), S.MonitorGpuUsage,
             [(GpuUsageSource.Driver, Loc.T("显卡驱动", "GPU driver")), (GpuUsageSource.Windows, "Windows")], v => Change(s => s.MonitorGpuUsage = v),

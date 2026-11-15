@@ -28,13 +28,16 @@ public sealed partial class SettingsWindow : Window, IKeepsAppFonts
     private readonly StackPanel _content = new();
     private readonly TextBlock _status = new() { Visibility = Visibility.Collapsed, TextWrapping = TextWrapping.Wrap };
     private ScrollViewer _scroll = null!;
+    // The notifications page: reading the system's notifications (SettingsNotifications.cs).
+    private const int NotificationsPage = 19;
     private static string[] _pages => [Loc.T("常规", "General"), Loc.T("收起外观", "Collapsed view"), Loc.T("展开外观", "Expanded view"),
         Loc.T("配额与统计", "Quotas and usage"), Loc.T("模型价格", "Model prices"), Loc.T("样式", "Style"), Loc.T("播放器", "Players"), Loc.T("关于 BrimDeck", "About BrimDeck"), Loc.T("面板主题", "Panel theme"), Loc.T("显示与读数", "Display and readings"), Loc.T("增强传感器", "Enhanced sensors"), Loc.T("快捷键", "Shortcuts"), Loc.T("显示与设备", "Display and devices"),
-        Loc.T("剪贴板", "Clipboard"), Loc.T("文件中转", "File transfer"), Loc.T("快捷操作", "Quick actions"), Loc.T("显示器与配置", "Displays and profiles"), Loc.T("页面布局", "Page layout")];
-    // The order of the pages in the navigation; the theme page (ThemePage) and the shortcuts (HotkeysPage) are listed with the
-    // basic pages, and the system monitor's page (MonitorSettingsPage) has its own group after music, then the clipboard's
-    // pages (the layout first), before About. The profiles page (ProfilesPage) closes the basic pages.
-    private static readonly int[] PageOrder = [0, 1, 2, ThemePage, HotkeysPage, ProfilesPage, 3, 4, 5, 6, MusicGesturesPage, MonitorSettingsPage, SensorsPage, ShelfLayoutSettingsPage, ClipboardSettingsPage, TransferSettingsPage, DevicesSettingsPage, 7];
+        Loc.T("剪贴板", "Clipboard"), Loc.T("文件中转", "File transfer"), Loc.T("快捷操作", "Quick actions"), Loc.T("显示器与配置", "Displays and profiles"), Loc.T("页面布局", "Page layout"), Loc.T("调试", "Debug"), Loc.T("通知", "Notifications")];
+    // The order of the pages in the navigation; the theme page (ThemePage), the shortcuts (HotkeysPage) and the notifications
+    // (NotificationsPage) are listed with the basic pages, and the system monitor's page (MonitorSettingsPage) has its own group
+    // after music, then the clipboard's pages (the layout first), the debug page and About. The profiles page (ProfilesPage)
+    // closes the basic pages.
+    private static readonly int[] PageOrder = [0, 1, 2, ThemePage, HotkeysPage, NotificationsPage, ProfilesPage, 3, 4, 5, 6, MusicGesturesPage, MonitorSettingsPage, SensorsPage, ShelfLayoutSettingsPage, ClipboardSettingsPage, TransferSettingsPage, DevicesSettingsPage, DebugPage, 7];
     private int _page;
     private bool _preview;
     private StackPanel? _appRows;
@@ -118,7 +121,7 @@ public sealed partial class SettingsWindow : Window, IKeepsAppFonts
         _app.Updates.Changed += UpdatesChanged;
         Native.SensorGuard.Changed += SensorStopsChanged;
         SizeChanged += (_, _) => { if (_priceTable is not null) _priceTable.Height = Math.Max(220, ActualHeight - PriceTableReserve); };
-        Closed += (_, _) => { WatchThemeFolder(false); EndAppDrag(false, false); _updateOpenGeneration++; _app.Updates.Changed -= UpdatesChanged; Native.SensorGuard.Changed -= SensorStopsChanged; SystemEvents.UserPreferenceChanged -= SystemThemeChanged; _app.Prices.Changed -= PricesChanged; _exceptionsReservedHeight = 0; _exceptionsOpen = false; _exceptionsHost = null; _scroll.ScrollChanged -= ExceptionsScrollChanged; if (!_app.Exiting) { _app.PreviewDeck.Preview(false); _app.FlushSettings(); } };
+        Closed += (_, _) => { WatchThemeFolder(false); EndAppDrag(false, false); _notificationsCleanup?.Invoke(); _notificationsCleanup = null; _updateOpenGeneration++; _app.Updates.Changed -= UpdatesChanged; Native.SensorGuard.Changed -= SensorStopsChanged; SystemEvents.UserPreferenceChanged -= SystemThemeChanged; _app.Prices.Changed -= PricesChanged; _exceptionsReservedHeight = 0; _exceptionsOpen = false; _exceptionsHost = null; _scroll.ScrollChanged -= ExceptionsScrollChanged; if (!_app.Exiting) { _app.PreviewDeck.Preview(false); _app.FlushSettings(); } };
         StateChanged += (_, _) =>
         {
             UpdateCaption();
@@ -329,12 +332,14 @@ public sealed partial class SettingsWindow : Window, IKeepsAppFonts
         _ignoredOpen = false; _ignoredHost = null;
         _scroll.ScrollChanged -= ExceptionsScrollChanged;
         _refreshSensors = null;
+        // The notifications page stops its poll timer and drops its in-flight reads before the page is rebuilt.
+        _notificationsCleanup?.Invoke(); _notificationsCleanup = null;
         _page = page; _navigation.Children.Clear(); _content.Children.Clear(); _aboutUpdateView = null; _scroll.ScrollToTop();
         foreach (int i in PageOrder)
         {
-            if (i is 0 or 3 or 5 or 7 or MonitorSettingsPage or ShelfLayoutSettingsPage or DevicesSettingsPage)
+            if (i is 0 or 3 or 5 or 7 or NotificationsPage or MonitorSettingsPage or ShelfLayoutSettingsPage or ClipboardSettingsPage or DevicesSettingsPage or DebugPage)
             {
-                var group = TextLine(i switch { 0 => Loc.T("基础设置", "Basics"), 3 => Loc.T("AI 用量", "AI usage"), MonitorSettingsPage => Loc.T("系统监控", "System monitor"), ShelfLayoutSettingsPage => Loc.T("中转站", "Shelf"), DevicesSettingsPage => Loc.T("设备电量", "Device batteries"), 5 => Loc.T("音乐", "Music"), _ => Loc.T("关于", "About") },10.5,TextTertiary);
+                var group = TextLine(i switch { 0 => Loc.T("基础设置", "Basics"), NotificationsPage => Loc.T("通知", "Notifications"), 3 => Loc.T("AI 用量", "AI usage"), MonitorSettingsPage => Loc.T("系统监控", "System monitor"), ShelfLayoutSettingsPage => Loc.T("中转站", "Shelf"), ClipboardSettingsPage => Loc.T("中转站", "Shelf"), DevicesSettingsPage => Loc.T("设备电量", "Device batteries"), DebugPage => Loc.T("调试", "Debug"), 5 => Loc.T("音乐", "Music"), _ => Loc.T("关于", "About") },10.5,TextTertiary);
                 group.Margin = new Thickness(12, i == 0 ? 0 : 24, 0, 8); _navigation.Children.Add(group);
             }
             int target=i; bool selected=page==i;
@@ -349,13 +354,13 @@ public sealed partial class SettingsWindow : Window, IKeepsAppFonts
         }
         // The About page is titled by the wordmark itself, so the name does not appear twice.
         var head = new DockPanel { Margin = new Thickness(0,0,0,page == 7 ? 10 : 20) };
-        if (page is < 4 or 5 or 6 or ThemePage or MonitorSettingsPage or HotkeysPage or DevicesSettingsPage or ClipboardSettingsPage or ShelfLayoutSettingsPage or MusicGesturesPage)
+        if (page is < 4 or 5 or 6 or ThemePage or MonitorSettingsPage or HotkeysPage or DevicesSettingsPage or ClipboardSettingsPage or ShelfLayoutSettingsPage or MusicGesturesPage or DebugPage)
         {
             // Resets every setting on the page, so it asks first (SW-09, S-03); it keeps the look of the other "restore defaults" links.
             var reset=ActionButton(Loc.T("恢复默认", "Restore defaults"),()=>{ if(Confirm(Loc.T("恢复默认", "Restore defaults"),ResetConfirmText(page),Loc.T("恢复默认", "Restore defaults")))ResetPage(); }); reset.FontSize=11; DockPanel.SetDock(reset,Dock.Right); head.Children.Add(reset);
         }
         head.Children.Add(page == 7 ? Wordmark(28) : TextLine(_pages[page],24,TextPrimary,FontWeights.SemiBold)); _content.Children.Add(head);
-        switch(page) { case 0: General(); break; case 1: Compact(); break; case 2: Expanded(); break; case 3: Pages(); break; case 4: ModelPrices(); break; case 5: MusicStyle(); break; case 6: Players(); break; case 7: About(); break; case ThemePage: ThemesPage(); break; case MonitorSettingsPage: MonitorSettings(); break; case SensorsPage: SensorsSettings(); break; case HotkeysPage: HotkeysSettings(); break; case DevicesSettingsPage: DevicesSettings(); break; case ClipboardSettingsPage: ClipboardSettings(); break; case TransferSettingsPage: TransferSettings(); break; case ShelfLayoutSettingsPage: ShelfLayoutSettings(); break; case MusicGesturesPage: MusicGesturesSettings(); break; case ProfilesPage: ProfilesSettings(); break; }
+        switch(page) { case 0: General(); break; case 1: Compact(); break; case 2: Expanded(); break; case 3: Pages(); break; case 4: ModelPrices(); break; case 5: MusicStyle(); break; case 6: Players(); break; case 7: About(); break; case ThemePage: ThemesPage(); break; case MonitorSettingsPage: MonitorSettings(); break; case SensorsPage: SensorsSettings(); break; case HotkeysPage: HotkeysSettings(); break; case DevicesSettingsPage: DevicesSettings(); break; case ClipboardSettingsPage: ClipboardSettings(); break; case TransferSettingsPage: TransferSettings(); break; case ShelfLayoutSettingsPage: ShelfLayoutSettings(); break; case MusicGesturesPage: MusicGesturesSettings(); break; case ProfilesPage: ProfilesSettings(); break; case DebugPage: DebugSettings(); break; case NotificationsPage: NotificationsSettings(); break; }
         if (_content.Children[^1] is Border lastGroup) lastGroup.Margin = new Thickness(lastGroup.Margin.Left, lastGroup.Margin.Top, lastGroup.Margin.Right, 0);
         // Apply the offset before the frame is drawn, so the rebuilt page never shows its top for a frame.
         if (keep > 0) { _scroll.UpdateLayout(); _scroll.ScrollToVerticalOffset(keep); _scroll.UpdateLayout(); }
@@ -378,10 +383,12 @@ public sealed partial class SettingsWindow : Window, IKeepsAppFonts
         HotkeysPage => "M 1,3 H 15 V 13 H 1 Z M 4,6 V 6.1 M 7,6 V 6.1 M 10,6 V 6.1 M 13,6 V 6.1 M 4,10 H 12",
         // Three stacked layers.
         ProfilesPage => "M 8,1.5 L 15,5 L 8,8.5 L 1,5 Z M 1,8 L 8,11.5 L 15,8 M 1,11 L 8,14.5 L 15,11",
+        NotificationsPage => "M 8,1.5 C 5,1.5 3.5,4 3.5,6.5 L 3.5,10 L 2,12 H 14 L 12.5,10 L 12.5,6.5 C 12.5,4 11,1.5 8,1.5 Z M 6.7,14 A 1.3,1.3 0 0 0 9.3,14",
         ClipboardSettingsPage => "M 3,2.5 H 13 V 15 H 3 Z M 6,1 H 10 V 4 H 6 Z M 5.5,8 H 10.5 M 5.5,11 H 10.5",
         // Two columns, the right one narrower.
         ShelfLayoutSettingsPage => "M 1,2.5 H 15 V 13.5 H 1 Z M 10,2.5 V 13.5",
         TransferSettingsPage => "M 1.5,9 L 3.5,3 H 12.5 L 14.5,9 V 13 A 1,1 0 0 1 13.5,14 H 2.5 A 1,1 0 0 1 1.5,13 Z M 1.5,9 H 5.5 L 6.5,10.5 H 9.5 L 10.5,9 H 14.5",
+        DebugPage => "M 6,1 H 10 M 7,1 V 6 L 3,13 A 1.5,1.5 0 0 0 4.5,15 H 11.5 A 1.5,1.5 0 0 0 13.5,13 L 9,6 V 1 M 4.6,9.5 H 11.4",
         ThemePage => "M 8,1 C 4,1 1,4 1,8 C 1,12 4,15 8,15 C 9.4,15 9.6,13.6 8.8,12.8 C 8,12 8.6,10.5 10,10.5 H 12 C 13.7,10.5 15,9.2 15,7.5 C 15,4 12,1 8,1 Z M 4.6,8 V 8.1 M 6,4.8 V 4.9 M 9.6,4.4 V 4.5 M 12,6.8 V 6.9",
         5 => "M 6,12.5 V 3 L 14,1.5 V 11 M 6,12.5 A 2,2 0 1 1 2,12.5 A 2,2 0 1 1 6,12.5 M 14,11 A 2,2 0 1 1 10,11 A 2,2 0 1 1 14,11",
         _ => "M 8,1 A 7,7 0 1 1 7.99,1 M 8,7 V 12 M 8,4 V 4.2"
@@ -680,6 +687,8 @@ public sealed partial class SettingsWindow : Window, IKeepsAppFonts
                 case ThemePage:{ChooseTheme(s,defaults.PanelTheme);var palette=PanelThemes.Resolve(PanelTheme.Find(defaults.PanelTheme));
                     s.ClockStyle=defaults.ClockStyle;s.ClockColor=defaults.ClockColor;s.ClockCustomColor=defaults.ClockCustomColor;s.ClockGradient=[.. palette.ClockGradients[0].Stops];
                     PanelThemes.ApplyMatching(palette,s);break;}
+                case DebugPage:s.DebugOverride=defaults.DebugOverride;s.DebugCpu=defaults.DebugCpu;s.DebugMemory=defaults.DebugMemory;s.DebugGpu=defaults.DebugGpu;s.DebugStorage=defaults.DebugStorage;
+                    s.DebugDown=defaults.DebugDown;s.DebugUp=defaults.DebugUp;s.DebugPower=defaults.DebugPower;s.DebugCharge=defaults.DebugCharge;s.DebugFrames=defaults.DebugFrames;s.DebugLow1=defaults.DebugLow1;s.DebugLow01=defaults.DebugLow01;break;
             }
         });
         if(_page==0)RebuildTheme();else ShowPage(_page);
@@ -891,6 +900,7 @@ public sealed partial class SettingsWindow : Window, IKeepsAppFonts
         var border = new Border { Child = row, Height = AppRowHeight, BorderBrush = UI.Brush(Divider), BorderThickness = new Thickness(0), Tag = entry,
             RenderTransform = new TranslateTransform() };
         AttachSourceDetails(entry, row, border);
+        WatchQuotaRow(border);
         return border;
     }
 

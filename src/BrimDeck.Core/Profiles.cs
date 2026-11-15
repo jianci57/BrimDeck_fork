@@ -75,6 +75,7 @@ public static class Profiles
         nameof(DeckSettings.SettingsWindowWidth), nameof(DeckSettings.SettingsWindowHeight), nameof(DeckSettings.SettingsWindowMaximized),
         nameof(DeckSettings.IncludeWsl), nameof(DeckSettings.Apps),
         nameof(DeckSettings.Profiles), nameof(DeckSettings.CurrentProfile), nameof(DeckSettings.ReturnProfile), nameof(DeckSettings.ProfileRules),
+        nameof(DeckSettings.NotificationsEnabled),
         nameof(DeckSettings.FullscreenExceptions), nameof(DeckSettings.MouseWheelPages)
     };
 

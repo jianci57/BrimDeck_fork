@@ -9,6 +9,24 @@ void Check(string name, bool condition)
 }
 JsonElement Json(string value) { using var doc = JsonDocument.Parse(value); return doc.RootElement.Clone(); }
 DeckSettings Only(params ProviderId[] ids) => new() { Apps = ids.Select(id => new AppEntry { Id = id }).ToList() };
+// "--only frames": the frame timeline, GPU work and frame rate logic, without the rest (some of it
+// P/Invokes into libraries Linux does not have).
+if (args is ["--only", "frames"])
+{
+    FrameTimelineTests.Run(Check);
+    FrameSampleTests.Run(Check);
+    FrameRateTests.Run(Check);
+    Console.WriteLine($"{passed} checks passed.");
+    return 0;
+}
+// "--only notifications": the notification items' ordering and text cleanup, without the rest.
+if (args is ["--only", "notifications"])
+{
+    NotificationItemsTests.Run(Check);
+    NotificationMonitorTests.Run(Check);
+    Console.WriteLine($"{passed} checks passed.");
+    return 0;
+}
 var root = Path.Combine(Path.GetTempPath(), "BrimDeck-Tests-" + Guid.NewGuid().ToString("N"));
 Directory.CreateDirectory(root);
 try
@@ -31,6 +49,9 @@ try
     EqualizerModeTests.Run(root, Check);
     ColorMathTests.Run(Check);
     ShelfTests.Run(Check);
+    FrameSampleTests.Run(Check);
+    FrameTimelineTests.Run(Check);
+    DebugOverridesTests.Run(Check);
     CompactSpacingTests.Run(Check);
     CompactDragTests.Run(Check);
     RingLetterTests.Run(root, Check);
@@ -62,6 +83,8 @@ try
     MonitorStartupTests.Run(Check);
     StripAdmissionTests.Run(Check);
     DevicesTests.Run(Check);
+    NotificationItemsTests.Run(Check);
+    NotificationMonitorTests.Run(Check);
     DeviceProtocolTests.Run(Check);
     DeviceSafetyTests.Run(Check);
     DeviceReadTests.Run(Check);
@@ -632,7 +655,9 @@ try
 
     }
     var failingDesktop = new FailingDesktopSources();
-    using (var service = new UsageService(failingDesktop))
+    // The fixture's locations keep every source inside the test root: with the constructor's default (DataLocations.Detect)
+    // the Antigravity read would touch the real user's conversations before the failing discovery is reached.
+    using (var service = new UsageService(failingDesktop, locations))
     {
         var onlyAntigravity = Only(ProviderId.Antigravity);
         var failed = (await service.RefreshAsync(onlyAntigravity)).Single();
@@ -903,6 +928,7 @@ finally
     // A unique test-owned directory, verified before recursive cleanup.
     if (Path.GetFullPath(root).StartsWith(Path.GetFullPath(Path.GetTempPath()), StringComparison.OrdinalIgnoreCase) && Path.GetFileName(root).StartsWith("BrimDeck-Tests-")) Directory.Delete(root, true);
 }
+return 0;
 
 sealed class CatalogHandler(string json) : HttpMessageHandler
 {

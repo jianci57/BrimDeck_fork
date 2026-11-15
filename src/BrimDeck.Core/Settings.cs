@@ -71,6 +71,9 @@ public enum PausedMusicHide { None, Text, Cover, Both }
 // drum beat or a voice is seen crossing them. Spectrum: the sound split by pitch, each bar one band, low on the left and high
 // on the right. Saved as numbers, so new members go at the end; a file without it, or with a number not listed, is Flow.
 public enum EqualizerMode { Flow = 0, Spectrum = 1 }
+// How much of a new system notification the island shows (the notifications settings page). Saved as a number, so
+// new members go at the end; a file with a number not listed reads as Compact.
+public enum NotificationContentMode { Brief, Compact, Full }
 // How the collapsed quota rings are drawn (QuotaRing). Nested: up to three rings about one centre, 20 DIP across, each quota in
 // a ring of its own. Single: one 12 DIP ring per application with its highest share, as before there were nested rings. Saved
 // as numbers, so new members go at the end; a file without it, or with a number not listed, is Single.
@@ -214,8 +217,9 @@ public sealed class AppEntry
         SingleRingQuota = (SingleRingQuota ?? "").Trim();
         if (SingleRingQuota.Length > 500) SingleRingQuota = "";
         RingQuotas = QuotaRing.Slots(RingQuotas);
-        QuotaTargets = (QuotaTargets ?? []).Where(pair => pair.Key.Length is > 0 and <= 500 && pair.Value > 0 && pair.Value <= AppPresets.MaximumBalanceTarget).Take(32)
-            .ToDictionary(pair => pair.Key, pair => decimal.Round(pair.Value, 2, MidpointRounding.AwayFromZero));
+        QuotaTargets = (QuotaTargets ?? []).Select(pair => (pair.Key, Value: decimal.Round(pair.Value, 2, MidpointRounding.AwayFromZero)))
+            .Where(pair => pair.Key.Length is > 0 and <= 500 && pair.Value > 0 && pair.Value <= AppPresets.MaximumBalanceTarget).Take(32)
+            .ToDictionary(pair => pair.Key, pair => pair.Value);
     }
 }
 
@@ -346,6 +350,8 @@ public sealed class DeckSettings
     // The panel's color theme (see PanelThemes): "system", "dark", "light", a built-in theme or a theme file's id.
     // The dark default is the original look. An id whose file is missing is kept and shown as the dark theme meanwhile.
     public string PanelTheme { get; set; } = PanelThemes.Dark;
+    // The panel's background opacity, 0-100; text and icons stay as they are.
+    public int PanelOpacity { get; set; } = 100;
     // What the user changed under each panel theme, by theme id (see ThemeChoices); the theme in use keeps its choices in the
     // ordinary settings, and they are saved here when another theme is chosen.
     public Dictionary<string, ThemeChoices> ThemeChoices { get; set; } = [];
@@ -704,6 +710,32 @@ public sealed class DeckSettings
         get => _expanded ?? ExpandedMonitor.Defaults(MonitorProcesses, MonitorStorage, MonitorPower, MonitorFrames);
         set => _expanded = value;
     }
+    // The frame-rate line also shows the worst 1% (and 0.1%) of the recent frames' average rate beside the figure (1% low, 0.1%
+    // low). Only with the frame rate on.
+    public bool MonitorFps1Low { get; set; }
+    public bool MonitorFps01Low { get; set; }
+    // The frame-rate line also shows the interval between two frames (the rate turned into milliseconds, 1000 over it) — the
+    // pace frames appear at, not the work inside one. Only with the frame rate on.
+    public bool MonitorFpsFrameTime { get; set; }
+    // The frame-rate line also shows the average time the GPU spent drawing one of the program's frames (the GPU engines'
+    // running time over the reading, over the frames the program drew), where Windows' counters say. Null while they do not.
+    // Only with the frame rate on.
+    public bool MonitorFpsGpuTime { get; set; }
+    // The debug page: with DebugOverride on, the collapsed row's readings take the values of the Debug fields instead of the
+    // sampler's (DebugOverrides), so a layout can be studied with steady figures. The values persist, so a session picks up
+    // where the last one left off.
+    public bool DebugOverride { get; set; }
+    public double DebugCpu { get; set; } = 37;
+    public double DebugMemory { get; set; } = 55;
+    public double DebugGpu { get; set; } = 42;
+    public double DebugStorage { get; set; } = 63;
+    public double DebugDown { get; set; } = 12;
+    public double DebugUp { get; set; } = 3;
+    public double DebugPower { get; set; } = 86;
+    public double DebugCharge { get; set; } = 76;
+    public double DebugFrames { get; set; } = 60;
+    public double DebugLow1 { get; set; } = 45;
+    public double DebugLow01 { get; set; } = 38;
     // The notch and the capsule each switch the system readings on; what they show is shared.
     public bool NotchMonitor { get; set; }
     public bool CapsuleMonitor { get; set; }
@@ -741,6 +773,12 @@ public sealed class DeckSettings
     public bool SettingsWindowMaximized { get; set; }
     // Shows the compact notice when a quota rises into the warning or critical level.
     public bool QuotaAlerts { get; set; } = true;
+    // The system notifications shown on the island (NotificationService): off until the user turns it on, so the
+    // notification center is not read at all before then.
+    public bool NotificationsEnabled { get; set; }
+    // How much of a new notification the island shows: Brief the title and the body, Compact the time and the app
+    // name, Full the app name, the title and the body.
+    public NotificationContentMode NotificationContentMode { get; set; } = NotificationContentMode.Compact;
     // Also reads the Claude Code and Codex CLI session records inside WSL distributions. Off by default: it starts stopped distributions.
     public bool IncludeWsl { get; set; }
     // The named profiles (DeckProfile, Profiles). The current one's settings are the ordinary members of this class; ReturnProfile is
@@ -939,6 +977,7 @@ public sealed class DeckSettings
         CompactMonitor = Core.CompactMonitor.Preset(CompactReadings) ?? CompactMonitorMode.Custom;
         CompactMonitorItems = Core.CompactMonitor.Shown(CompactReadings);
         if (!Enum.IsDefined(MusicText)) MusicText = CompactMusicText.None;
+        if (!Enum.IsDefined(NotificationContentMode)) NotificationContentMode = NotificationContentMode.Compact;
         if (!Enum.IsDefined(ClockStyle)) ClockStyle = ClockStyle.Minimal;
         if (!Enum.IsDefined(ClockColor)) ClockColor = ClockColor.White;
         ClockCustomColor = AppPresets.NormalizeColor(ClockCustomColor) is { Length: > 0 } custom ? custom : ClockColors.DefaultCustom;
@@ -951,6 +990,7 @@ public sealed class DeckSettings
         AnimationDuration = Math.Clamp(AnimationDuration, 100, 1000);
         if (!Enum.IsDefined(Theme)) Theme = SettingsTheme.System;
         PanelTheme = PanelThemes.NormalizeId(PanelTheme) is { Length: > 0 } panelTheme ? panelTheme : PanelThemes.Dark;
+        PanelOpacity = Math.Clamp(PanelOpacity, 0, 100);
         // Two valid, different times or none: anything else keeps the theme's own hours.
         ThemeDaylight = (ThemeDaylight ?? "").Split('-', 2) is [var day, var night] && PanelThemes.ParseTimeOfDay(day) is { } d && PanelThemes.ParseTimeOfDay(night) is { } n && d != n
             ? PanelThemes.FormatDaylight(d, n) : "";

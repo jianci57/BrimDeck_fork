@@ -136,7 +136,7 @@ public partial class App
         var page = pages[place];
         if (target.IsOpenForHotkey)
         {
-            if (target.CurrentPage == page) target.CollapseFromHotkey(); else target.SelectPage(page);
+            if (target.PageForHotkey == page) target.CollapseFromHotkey(); else if (!target.IsExpanded) target.OpenFromHotkey(page); else target.SelectPage(page);
             return;
         }
         target.OpenFromHotkey(page);

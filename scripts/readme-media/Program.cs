@@ -98,60 +98,59 @@ internal sealed class Renderer(App app, string output, string language, string[]
         Loc.Use(language); _english = Loc.IsEnglish;
         var folder = Path.Combine(Path.GetTempPath(), "BrimDeck.ReadmeMedia." + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(folder);
-        var offline = new HttpClient(new Offline());
-        _settings = BuildSettings();
-        Program.SetProperty(app, "Settings", _settings);
-        Program.SetProperty(app, "Store", new SettingsStore(folder));
-        Program.SetProperty(app, "Prices", new Pricing(folder, offline));
-        Program.SetProperty(app, "Secrets", new ProviderSecrets(folder));
-        Program.SetProperty(app, "Usage", new UsageService(new NoDesktop(), DataLocations.Resolve(folder, folder, folder, folder, folder, folder), offline));
-        // The panel subscribes to the lyrics as it is made; this one finds none offline and reads no Apple Music cache.
-        Program.SetProperty(app, "Lyrics", new LyricsService(offline, () => [], Path.Combine(folder, "apple-music-lyrics.json")));
-        // The toolbar reads the update notice on every render.
-        var backend = Type.GetType("BrimDeck.Updates.GitHubUpdates, BrimDeck")!.GetMethod("Create", [typeof(string)])!.Invoke(null, [folder]);
-        Program.SetProperty(app, "Updates", new AppUpdates((IAppUpdateBackend)backend!, folder));
-        // The clipboard and file transfer: the service is made on an empty folder of this run and never told to record.
-        _shelf = Activator.CreateInstance(Type.GetType("BrimDeck.ShelfService, BrimDeck")!, Program.Any, null, [folder, Dispatcher.CurrentDispatcher], null)!;
-        Program.SetProperty(app, "Shelf", _shelf);
-        FillShelf(folder);
-        // The devices: the object the panels read, made without its constructor, so none of its sources exists. Disposed, it
-        // ignores every demand; its roster holds the invented readings.
-        var devices = System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(Type.GetType("BrimDeck.Native.DeviceBatteries, BrimDeck")!);
-        var roster = new DeviceRoster();
-        foreach (var group in InventedDevices().GroupBy(device => device.Source)) roster.Set(group.Key, [.. group]);
-        Program.SetField(devices, "_roster", roster);
-        Program.SetField(devices, "_disposed", true);
-        Program.SetProperty(devices, "Settled", true);
-        Program.SetProperty(app, "Devices", devices);
-
-        _deck = new MainWindow(app) { Opacity = 0, IsHitTestVisible = false };
-        Program.SetProperty(app, "Deck", _deck);
-        // The window's own Loaded handler starts media detection, pointer tracking and the first read of real data;
-        // none of that may run here. Loaded may also never come while the displays are off, so nothing waits for it.
-        var store = typeof(UIElement).GetProperty("EventHandlersStore", Program.Any)!.GetValue(_deck);
-        var handlers = (RoutedEventHandlerInfo[]?)store?.GetType().GetMethod("GetRoutedEventHandlers", Program.Any)!.Invoke(store, [FrameworkElement.LoadedEvent]);
-        foreach (var handler in handlers ?? []) _deck.RemoveHandler(FrameworkElement.LoadedEvent, handler.Handler);
-        // Foreground-window changes would re-apply the settings in the middle of a capture.
-        Program.SetField(Program.Field(_deck, "_host")!, "ContextChanged", null);
-        // Keep the transparent window off screen; ApplySettings centres it on the primary screen each time.
-        _deck.LocationChanged += (_, _) => { if (_deck.Left > -10000) _deck.Left = -20000; };
-        // The one-minute read would overwrite the invented state. The timer itself still runs for the countdown ring.
-        Program.SetField(Program.Field(_deck, "_refresh")!, "Tick", null);
-        _deck.ApplySettings();
-        await Settle();
-        _stage = (FrameworkElement)_deck.Content;
-
-        _cover = Cover();
-        (_track, _other) = Tracks();
-        _deck.SetSnapshots(Snapshots());
-        Program.Call(_deck, "ApplyMediaUpdate", [typeof(MediaTrack), typeof(IReadOnlyList<MediaTrack>), typeof(BitmapSource), typeof(bool)], _track, new List<MediaTrack> { _track, _other }, _cover, false);
-        Program.SetField(_deck, "_trackNoticeUntil", default(DateTimeOffset));
-        _deck.ApplySettings();
-        await Settle();
-
-        // The folder of this run goes whether or not a scene fails: it holds the invented files of the file transfer.
         try
         {
+            var offline = new HttpClient(new Offline());
+            _settings = BuildSettings();
+            Program.SetProperty(app, "Settings", _settings);
+            Program.SetProperty(app, "Store", new SettingsStore(folder));
+            Program.SetProperty(app, "Prices", new Pricing(folder, offline));
+            Program.SetProperty(app, "Secrets", new ProviderSecrets(folder));
+            Program.SetProperty(app, "Usage", new UsageService(new NoDesktop(), DataLocations.Resolve(folder, folder, folder, folder, folder, folder), offline));
+            // The panel subscribes to the lyrics as it is made; this one finds none offline and reads no Apple Music cache.
+            Program.SetProperty(app, "Lyrics", new LyricsService(offline, () => [], Path.Combine(folder, "apple-music-lyrics.json")));
+            // The toolbar reads the update notice on every render.
+            var backend = Type.GetType("BrimDeck.Updates.GitHubUpdates, BrimDeck")!.GetMethod("Create", [typeof(string)])!.Invoke(null, [folder]);
+            Program.SetProperty(app, "Updates", new AppUpdates((IAppUpdateBackend)backend!, folder));
+            // The clipboard and file transfer: the service is made on an empty folder of this run and never told to record.
+            _shelf = Activator.CreateInstance(Type.GetType("BrimDeck.ShelfService, BrimDeck")!, Program.Any, null, [folder, Dispatcher.CurrentDispatcher], null)!;
+            Program.SetProperty(app, "Shelf", _shelf);
+            FillShelf(folder);
+            // The devices: the object the panels read, made without its constructor, so none of its sources exists. Disposed, it
+            // ignores every demand; its roster holds the invented readings.
+            var devices = System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(Type.GetType("BrimDeck.Native.DeviceBatteries, BrimDeck")!);
+            var roster = new DeviceRoster();
+            foreach (var group in InventedDevices().GroupBy(device => device.Source)) roster.Set(group.Key, [.. group]);
+            Program.SetField(devices, "_roster", roster);
+            Program.SetField(devices, "_disposed", true);
+            Program.SetProperty(devices, "Settled", true);
+            Program.SetProperty(app, "Devices", devices);
+
+            _deck = new MainWindow(app) { Opacity = 0, IsHitTestVisible = false };
+            Program.SetProperty(app, "Deck", _deck);
+            // The window's own Loaded handler starts media detection, pointer tracking and the first read of real data;
+            // none of that may run here. Loaded may also never come while the displays are off, so nothing waits for it.
+            var store = typeof(UIElement).GetProperty("EventHandlersStore", Program.Any)!.GetValue(_deck);
+            var handlers = (RoutedEventHandlerInfo[]?)store?.GetType().GetMethod("GetRoutedEventHandlers", Program.Any)!.Invoke(store, [FrameworkElement.LoadedEvent]);
+            foreach (var handler in handlers ?? []) _deck.RemoveHandler(FrameworkElement.LoadedEvent, handler.Handler);
+            // Foreground-window changes would re-apply the settings in the middle of a capture.
+            Program.SetField(Program.Field(_deck, "_host")!, "ContextChanged", null);
+            // Keep the transparent window off screen; ApplySettings centres it on the primary screen each time.
+            _deck.LocationChanged += (_, _) => { if (_deck.Left > -10000) _deck.Left = -20000; };
+            // The one-minute read would overwrite the invented state. The timer itself still runs for the countdown ring.
+            Program.SetField(Program.Field(_deck, "_refresh")!, "Tick", null);
+            _deck.ApplySettings();
+            await Settle();
+            _stage = (FrameworkElement)_deck.Content;
+
+            _cover = Cover();
+            (_track, _other) = Tracks();
+            _deck.SetSnapshots(Snapshots());
+            Program.Call(_deck, "ApplyMediaUpdate", [typeof(MediaTrack), typeof(IReadOnlyList<MediaTrack>), typeof(BitmapSource), typeof(bool)], _track, new List<MediaTrack> { _track, _other }, _cover, false);
+            Program.SetField(_deck, "_trackNoticeUntil", default(DateTimeOffset));
+            _deck.ApplySettings();
+            await Settle();
+
             if (Wants("stills")) await Stills();
             if (Wants("themes")) await Themes();
             if (Wants("monitor")) await Monitor();

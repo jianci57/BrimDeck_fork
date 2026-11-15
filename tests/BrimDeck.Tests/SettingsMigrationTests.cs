@@ -77,5 +77,14 @@ internal static class SettingsMigrationTests
         file = SettingsMigrations.Parse(File.ReadAllText(Path.Combine(many, "settings.json")));
         check("at most five earlier versions are kept", file["Snapshots"] is System.Text.Json.Nodes.JsonObject kept && kept.Count == 5
             && kept.ContainsKey("0.7.0") && kept.ContainsKey("0.3.0") && !kept.ContainsKey("0.2.0"));
+
+        // The panel's background opacity: a new default, clamped into 0-100, read back from files that predate it.
+        check("the panel's opacity defaults to fully opaque", new DeckSettings().PanelOpacity == 100);
+        var opacity = new DeckSettings { PanelOpacity = 150 }; opacity.Normalize();
+        check("the panel's opacity is clamped into 0-100", opacity.PanelOpacity == 100);
+        var opacityRoot = Path.Combine(root, "opacity");
+        Directory.CreateDirectory(opacityRoot);
+        File.WriteAllText(Path.Combine(opacityRoot, "settings.json"), """{"PanelOpacity":40}""");
+        check("a file predating the setting keeps a written opacity", new SettingsStore(opacityRoot, "0.2.0").Load().PanelOpacity == 40);
     }
 }

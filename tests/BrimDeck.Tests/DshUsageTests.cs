@@ -147,6 +147,44 @@ static class DshUsageTests
         snapshot = new ProviderSnapshot(ProviderId.Dsh);
         reader.Read(snapshot, home, start, start.AddDays(1));
         check("A read without changes keeps the entries it merged last time", ReferenceEquals(snapshot.Entries, merged) && snapshot.UsageComplete && snapshot.UsageNote.Contains("2 个会话"));
+        // Only now changes: future records become visible at their timestamp, including after a clock rollback.
+        foreach (bool compressed in new[] { false, true })
+        {
+            var timedHome = Path.Combine(root, "dsh-time-" + compressed);
+            var timedSession = Path.Combine(DshSessions.Folder(timedHome), "project", "session");
+            Directory.CreateDirectory(timedSession);
+            var timedLog = Path.Combine(timedSession, compressed ? "session.v4.jsonl.zstd" : "session.v4.jsonl");
+            string[] records = [header, Message("first", At(1), 1, 1), Message("future", At(3), 2, 2)];
+            if (compressed) File.WriteAllBytes(timedLog, Frame(records));
+            else File.WriteAllText(timedLog, string.Join("\n", records) + "\n");
+            File.SetLastWriteTimeUtc(timedLog, start.AddDays(1).UtcDateTime);
+            var length = new FileInfo(timedLog).Length;
+            var modified = File.GetLastWriteTimeUtc(timedLog);
+            var timedReader = new DshSessions();
+            ProviderSnapshot ReadAt(DateTimeOffset time)
+            {
+                var result = new ProviderSnapshot(ProviderId.Dsh);
+                timedReader.Read(result, timedHome, start, time);
+                return result;
+            }
+            string kind = compressed ? "compressed" : "plain";
+            var empty = ReadAt(start);
+            check($"DSH {kind}: a fixed file's future records are excluded", empty.UsageComplete && empty.Entries.Count == 0);
+            check($"DSH {kind}: advancing before the next record reuses the empty merge", ReferenceEquals(empty.Entries, ReadAt(start.AddMinutes(30)).Entries));
+            var first = ReadAt(start.AddHours(1));
+            check($"DSH {kind}: a future record enters at its exact timestamp", first.Entries.Select(e => e.Key).SequenceEqual(["dsh:first"]));
+            check($"DSH {kind}: advancing within a gap reuses the merge", ReferenceEquals(first.Entries, ReadAt(start.AddHours(2)).Entries));
+            var due = ReadAt(start.AddHours(3));
+            check($"DSH {kind}: the next future record enters without a file change", due.Entries.Select(e => e.Key).SequenceEqual(["dsh:first", "dsh:future"]));
+            check($"DSH {kind}: advancing beyond the last record reuses the merge", ReferenceEquals(due.Entries, ReadAt(start.AddHours(4)).Entries));
+            check($"DSH {kind}: rollback to an included timestamp keeps the merge", ReferenceEquals(due.Entries, ReadAt(start.AddHours(3)).Entries));
+            var rolled = ReadAt(start.AddHours(3).AddTicks(-1));
+            check($"DSH {kind}: rollback before a record excludes it again", rolled.Entries.Select(e => e.Key).SequenceEqual(["dsh:first"]));
+            check($"DSH {kind}: rollback inside the same gap reuses the merge", ReferenceEquals(rolled.Entries, ReadAt(start.AddHours(1)).Entries));
+            check($"DSH {kind}: rollback before all records empties the merge", ReadAt(start).Entries.Count == 0);
+            check($"DSH {kind}: advancing again restores all records from the unchanged file", ReadAt(start.AddHours(3)).Entries.Count == 2 &&
+                new FileInfo(timedLog).Length == length && File.GetLastWriteTimeUtc(timedLog) == modified);
+        }
         File.WriteAllBytes(log, [1, 2, 3, 4, 5, 6, 7, 8]);
         snapshot = new ProviderSnapshot(ProviderId.Dsh);
         reader.Read(snapshot, home, start, start.AddDays(1));

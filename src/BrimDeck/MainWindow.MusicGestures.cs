@@ -76,8 +76,12 @@ public partial class MainWindow
             int sign = MusicGestures.VolumeSign(direction, MusicGestures.Drag(Settings, direction));
             if (sign != 0 && SystemVolume.Open() is { } device)
             {
-                bool horizontal = direction is GestureDirection.Left or GestureDirection.Right;
-                _volumeDrag = (horizontal, sign, horizontal ? point.X : point.Y, device.Level, device);
+                try
+                {
+                    bool horizontal = direction is GestureDirection.Left or GestureDirection.Right;
+                    _volumeDrag = (horizontal, sign, horizontal ? point.X : point.Y, device.Level, device);
+                }
+                catch { device.Dispose(); }
             }
         }
         if (_volumeDrag is { } volume)

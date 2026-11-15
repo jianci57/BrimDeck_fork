@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows.Threading;
@@ -23,6 +23,10 @@ internal sealed class SystemSampler : IDisposable
     private readonly DispatcherTimer _linger;
     private readonly AutoResetEvent _wake = new(false);
     private Thread? _thread;
+    // Starting a replacement and shutting down agree on which threads still own the shared buffers.
+    private readonly object _lifetime = new();
+    private int _running;
+    private bool _cleaned;
     // Raised when a thread is replaced: only the thread of the current generation reads.
     private int _generation;
     private volatile bool _wanted, _disposed, _listProcesses, _primeProcesses, _primeCounters;
@@ -105,7 +109,7 @@ internal sealed class SystemSampler : IDisposable
         _linger = new DispatcherTimer(DispatcherPriority.Background, dispatcher) { Interval = MemoryPlan.For(MemoryMode.Balanced).ReadingsLinger };
         // Once paused the readings grow old, so they are dropped: a page opened later shows dashes until new ones arrive
         // instead of old figures as if they were current.
-        _linger.Tick += (_, _) => { _linger.Stop(); _wanted = false; Latest = null; };
+        _linger.Tick += (_, _) => { _linger.Stop(); _wanted = false; Latest = null; _wake.Set(); };
     }
 
     // The newest readings while the sampler runs; null once it has paused. Raised on the UI thread.
@@ -121,7 +125,15 @@ internal sealed class SystemSampler : IDisposable
 
     // The memory mode's rules (MemoryPlan): reopening the page within ReadingsLinger finds the sampler still running and the readings
     // current. Called on the UI thread.
-    public void UsePlan(MemoryPlan plan) { _linger.Interval = plan.ReadingsLinger; _keepCaches = plan.KeepCaches; }
+    public void UsePlan(MemoryPlan plan)
+    {
+        if (_disposed) return;
+        _linger.Interval = plan.ReadingsLinger;
+        bool releaseCaches = _keepCaches && !plan.KeepCaches;
+        _keepCaches = plan.KeepCaches;
+        // A resting thread has already applied the previous plan and is asleep; let it apply this one too.
+        if (releaseCaches && !_wanted) _wake.Set();
+    }
 
     // Starts the sampling thread without reading, so the counters (and the adapters' descriptions, where the adapters are wanted) are set up before the page first
     // opens (the smooth memory mode). Called on the UI thread.
@@ -150,11 +162,17 @@ internal sealed class SystemSampler : IDisposable
 
     private void StartThread(int generation)
     {
-        var thread = new Thread(() => Run(generation)) { IsBackground = true, Name = "BrimDeck system monitor", Priority = ThreadPriority.BelowNormal };
-        // The shell's icon lookup (ProcessIcons) needs a single-threaded apartment.
-        thread.SetApartmentState(ApartmentState.STA);
-        _thread = thread;
-        thread.Start();
+        lock (_lifetime)
+        {
+            if (_disposed) return;
+            var thread = new Thread(() => Run(generation)) { IsBackground = true, Name = "BrimDeck system monitor", Priority = ThreadPriority.BelowNormal };
+            // The shell's icon lookup (ProcessIcons) needs a single-threaded apartment.
+            thread.SetApartmentState(ApartmentState.STA);
+            var previous = _thread;
+            _thread = thread; _running++;
+            try { thread.Start(); }
+            catch { _thread = previous; _running--; throw; }
+        }
     }
 
     // A guarded reading on the thread of this generation did not answer (SensorGuard): another thread takes over, and the reading
@@ -219,15 +237,22 @@ internal sealed class SystemSampler : IDisposable
             try { return new PdhQuery(); }
             catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException or BadImageFormatException) { MonitorLog.Note("performance counters", ex); return null; }
         }
+        // Keep this generation's owners locally: a replacement overwrites the published fields while this thread
+        // is still inside its driver. Its finally must release these, never the new thread's providers.
+        PdhQuery? cpuPdh = null, gpuPdh = null, zonesPdh = null, meterPdh = null;
+        PowerProvider? power = null;
+        GpuTemperatures? gpuTemperatures = null;
+        try
+        {
         Action stuck = () => Replace(generation);
-        _cpuPdh = Query(); _gpuPdh = Query(); _zonesPdh = Query(); _meterPdh = Query();
-        _cpu = new CpuProvider(_cpuPdh);
-        _gpu = new GpuProvider(_gpuPdh);
+        _cpuPdh = cpuPdh = Query(); _gpuPdh = gpuPdh = Query(); _zonesPdh = zonesPdh = Query(); _meterPdh = meterPdh = Query();
+        _cpu = new CpuProvider(cpuPdh);
+        _gpu = new GpuProvider(gpuPdh);
         _drivers = new GpuDrivers(stuck);
         _sensors = new SensorClient();
-        _zones = new ThermalZones(_zonesPdh, stuck);
-        _power = new PowerProvider(_meterPdh, stuck);
-        _gpuTemperatures = new GpuTemperatures(stuck);
+        _zones = new ThermalZones(zonesPdh, stuck);
+        _power = power = new PowerProvider(meterPdh, stuck);
+        _gpuTemperatures = gpuTemperatures = new GpuTemperatures(stuck);
         bool primed = false, first = false, holdGpu = false;
         // A thread that took over from one stuck in a driver (Replace) finds the page showing current readings and curves: they stay.
         bool replacing = generation > 0;
@@ -260,7 +285,7 @@ internal sealed class SystemSampler : IDisposable
                     {
                         _bridges.Rescan();
                         var early = Collect(listProcesses: true);
-                        if (!replacing) { ForgetWindowed(); Publish(early.WithoutWindowed(Why.Waiting)); }
+                        if (!replacing) { ForgetWindowed(); Publish(early.WithoutWindowed(Why.Waiting), generation); }
                         replacing = false; holdGpu = false;
                     }
                     else
@@ -278,12 +303,12 @@ internal sealed class SystemSampler : IDisposable
                 var snapshot = Collect(listProcesses: first, holdGpu);
                 first = false; holdGpu = false;
                 if (_disposed) break;
-                Publish(snapshot);
+                Publish(snapshot, generation);
                 // The programs' names and icons, looked up after the first list was shown with the executables' names.
                 if (_processes.Resolve() is { } named)
                 {
                     _lastProcesses = named;
-                    Publish(snapshot with { Processes = named });
+                    Publish(snapshot with { Processes = named }, generation);
                 }
                 // The counters join now, after the first figures: their first collection starts the processor's and the adapters' windows,
                 // which the next pass primes as for counters just asked for. Joining takes half a second of this process's CPU, so the
@@ -300,15 +325,29 @@ internal sealed class SystemSampler : IDisposable
                 _wake.WaitOne(_intervalMilliseconds);
             }
         }
+        }
+        finally
+        {
+            try
+            {
+                Release(power); Release(gpuTemperatures);
+                Release(cpuPdh); Release(gpuPdh); Release(zonesPdh); Release(meterPdh);
+            }
+            finally
+            {
+                ThreadFinished();
+            }
+        }
     }
 
     private static double Now() => Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency;
 
     // A reading taken just as the sampler paused would bring back figures that then grow old. The adapter shown is resolved again here:
-    // a reading taken before the user chose another adapter would otherwise bring the old one back.
-    private void Publish(MonitorSnapshot snapshot) => _dispatcher.BeginInvoke(DispatcherPriority.Background, () =>
+    // a reading taken before the user chose another adapter would otherwise bring the old one back. generation: only the sampling
+    // thread's own generation publishes — a snapshot read before the thread was replaced never arrives after the new one's figures.
+    private void Publish(MonitorSnapshot snapshot, int generation) => _dispatcher.BeginInvoke(DispatcherPriority.Background, () =>
     {
-        if (_disposed || !_wanted) return;
+        if (_disposed || !_wanted || Volatile.Read(ref _generation) != generation) return;
         Latest = WithGpu(snapshot, Volatile.Read(ref _autoGpu), out _);
         Updated?.Invoke(Latest);
     });
@@ -466,6 +505,7 @@ internal sealed class SystemSampler : IDisposable
                     }
                 }
             }
+            catch (ReadingAbandoned) { throw; }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
                 MonitorLog.Note("battery and power", ex);
@@ -567,14 +607,38 @@ internal sealed class SystemSampler : IDisposable
         history.Enqueue(Math.Clamp(value, 0, 1));
     }
 
+    private void ThreadFinished()
+    {
+        lock (_lifetime) { _running--; if (_disposed && _running == 0) Cleanup(); }
+    }
+
+    // Called under _lifetime only after every generation has left its readings.
+    private void Cleanup()
+    {
+        if (_cleaned) return;
+        _cleaned = true;
+        Release(_frames); Release(_processes); Release(_network); Release(_wake);
+    }
+
+    private static void Release(IDisposable? resource)
+    {
+        try { resource?.Dispose(); }
+        catch (Exception ex) when (ex is not OutOfMemoryException) { Debug.WriteLine(ex); }
+    }
+
     public void Dispose()
     {
-        if (_disposed) return;
-        _disposed = true; _wanted = false; _linger.Stop();
-        _frames.Dispose();
-        _wake.Set();
-        // The thread may be inside a reading; it ends on its own as a background thread if it does not stop in time.
-        if (_thread?.Join(1000) != false) { _cpuPdh?.Dispose(); _gpuPdh?.Dispose(); _zonesPdh?.Dispose(); _meterPdh?.Dispose(); _power?.Dispose(); _processes.Dispose(); _network.Dispose(); _gpuTemperatures?.Dispose(); _wake.Dispose(); }
+        Thread? thread;
+        lock (_lifetime)
+        {
+            if (_disposed) return;
+            _disposed = true; _wanted = false; _linger.Stop();
+            _wake.Set();
+            thread = _thread;
+            if (_running == 0) Cleanup();
+        }
+        // A blocked driver keeps its own resources. When it answers, Run's finally does the cleanup even after this wait times out.
+        if (thread is not null && thread != Thread.CurrentThread) thread.Join(1000);
     }
 }
 

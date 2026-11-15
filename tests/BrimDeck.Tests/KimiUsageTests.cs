@@ -166,6 +166,41 @@ static class KimiUsageTests
         File.WriteAllText(main, first + "\n");
         snapshot = new ProviderSnapshot(ProviderId.Kimi); reader.Read(snapshot, home, start, now.AddMinutes(1));
         check("A shorter file is read again from the start", snapshot.Entries.Count == 2 && snapshot.UsageComplete);
+        // Separate sessions exercise the session count too; neither file changes as now advances or rolls back.
+        var timedHome = Path.Combine(root, "kimi-time");
+        var timedStart = new DateTimeOffset(2026, 10, 1, 0, 0, 0, TimeSpan.Zero);
+        var timedFiles = Enumerable.Range(1, 2).Select(i => Path.Combine(KimiSessions.Folder(timedHome), "project", "session-" + i, "agents", "main", "wire.jsonl")).ToArray();
+        for (int i = 0; i < timedFiles.Length; i++)
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(timedFiles[i])!);
+            File.WriteAllText(timedFiles[i], Record("main", "kimi-code/k3", timedStart.AddHours(1 + i * 2).ToUnixTimeMilliseconds(), i + 1, 1, 0, 0) + "\n");
+            File.SetLastWriteTimeUtc(timedFiles[i], timedStart.AddDays(1).UtcDateTime);
+        }
+        var fileStates = timedFiles.Select(file => (new FileInfo(file).Length, Modified: File.GetLastWriteTimeUtc(file))).ToArray();
+        var timedReader = new KimiSessions();
+        ProviderSnapshot ReadAt(DateTimeOffset time)
+        {
+            var result = new ProviderSnapshot(ProviderId.Kimi);
+            timedReader.Read(result, timedHome, timedStart, time);
+            return result;
+        }
+        var empty = ReadAt(timedStart);
+        check("Kimi: a fixed file's future records and sessions are excluded", empty.UsageComplete && empty.Entries.Count == 0 && empty.UsageNote.Contains("0 个会话"));
+        check("Kimi: advancing before the next record reuses the empty merge", ReferenceEquals(empty.Entries, ReadAt(timedStart.AddMinutes(30)).Entries));
+        var one = ReadAt(timedStart.AddHours(1));
+        check("Kimi: a future record and session enter at the exact timestamp", one.Entries.Count == 1 && one.Entries[0].Input == 1 && one.UsageNote.Contains("1 个会话"));
+        check("Kimi: advancing within a gap reuses the merge", ReferenceEquals(one.Entries, ReadAt(timedStart.AddHours(2)).Entries));
+        var due = ReadAt(timedStart.AddHours(3));
+        check("Kimi: the next future record and session enter without a file change", due.Entries.Select(e => e.Input).SequenceEqual([1L, 2L]) && due.UsageNote.Contains("2 个会话"));
+        check("Kimi: advancing beyond the last record reuses the merge", ReferenceEquals(due.Entries, ReadAt(timedStart.AddHours(4)).Entries));
+        check("Kimi: rollback to an included timestamp keeps the merge", ReferenceEquals(due.Entries, ReadAt(timedStart.AddHours(3)).Entries));
+        var rolled = ReadAt(timedStart.AddHours(3).AddTicks(-1));
+        check("Kimi: rollback before a record excludes it and its session again", rolled.Entries.Count == 1 && rolled.Entries[0].Input == 1 && rolled.UsageNote.Contains("1 个会话"));
+        check("Kimi: rollback inside the same gap reuses the merge", ReferenceEquals(rolled.Entries, ReadAt(timedStart.AddHours(1)).Entries));
+        var rolledEmpty = ReadAt(timedStart);
+        check("Kimi: rollback before all records empties records and sessions", rolledEmpty.Entries.Count == 0 && rolledEmpty.UsageNote.Contains("0 个会话"));
+        check("Kimi: advancing again restores all records from the unchanged files", ReadAt(timedStart.AddHours(3)).Entries.Count == 2 &&
+            timedFiles.Select(file => (new FileInfo(file).Length, Modified: File.GetLastWriteTimeUtc(file))).SequenceEqual(fileStates));
         snapshot = new ProviderSnapshot(ProviderId.Kimi); reader.Read(snapshot, Path.Combine(root, "kimi-missing"), start, now);
         check("Without sessions the statistics are unavailable", !snapshot.UsageAvailable && snapshot.Entries.Count == 0);
     }

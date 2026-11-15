@@ -133,6 +133,20 @@ internal static class QuotaRingTests
             defaults && read.QuotaRingStyle == QuotaRingStyle.Nested && read.QuotaRingRemaining
             && read.Apps[0].SingleRingQuota == "每周额度" && read.Apps[0].RingQuotas.SequenceEqual(["", "b"])
             && read.Apps[0].QuotaTargets.Count == 1 && read.Apps[0].QuotaTargets["today"] == 12.35m);
+        var amounts = new AppEntry { QuotaTargets = new()
+        {
+            ["sub-cent"] = 0.004m, ["half-cent"] = 0.005m, ["normal"] = 12.345m, ["zero"] = 0m, ["negative"] = -1m
+        } };
+        amounts.Normalize();
+        check("Quota targets: round to cents before dropping zero targets", amounts.QuotaTargets.Count == 2 &&
+            !amounts.QuotaTargets.ContainsKey("sub-cent") && amounts.QuotaTargets["half-cent"] == 0.01m && amounts.QuotaTargets["normal"] == 12.35m);
+        var normalized = amounts.QuotaTargets.ToArray();
+        amounts.Normalize();
+        check("Quota targets: normalizing twice preserves the same positive cent amounts", amounts.QuotaTargets.SequenceEqual(normalized));
+        read.Apps[0].QuotaTargets = new() { ["sub-cent"] = 0.004m, ["half-cent"] = 0.005m, ["normal"] = 12.345m };
+        store.Save(read);
+        var savedAmounts = new SettingsStore(store.DirectoryPath, "0.1.0").Load().Apps[0].QuotaTargets;
+        check("Quota targets: save and load preserve the normalized amounts", savedAmounts.SequenceEqual(normalized));
         File.WriteAllText(store.FilePath, """{"AppVersion":"0.1.0","QuotaRingStyle":7}""");
         var odd = new SettingsStore(store.DirectoryPath, "0.1.0").Load();
         check("Quota ring settings: an unknown style, or a file without one, reads as single", odd.QuotaRingStyle == QuotaRingStyle.Single && !odd.QuotaRingRemaining);

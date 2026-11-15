@@ -58,6 +58,8 @@ public partial class MainWindow
 
     private void EnterMoveMode()
     {
+        // A press-and-hold on the notice card must not arm a surface drag over it; the card outlives the hold.
+        if (_notice is not null) return;
         _moveArmed = true; _movePressed = false; _moveAway = 0; _moveStyle = EffectiveStyle;
         _hover.Stop(); _pointerInside = false;
         SetHoverEdge(ResizeEdges.None);
