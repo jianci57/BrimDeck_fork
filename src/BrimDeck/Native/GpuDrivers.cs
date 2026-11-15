@@ -76,7 +76,7 @@ internal abstract class DriverLibrary : IGpuDriver
         }
         catch (Exception ex) when (ex is EntryPointNotFoundException or MarshalDirectiveException or SEHException)
         {
-            Debug.WriteLine(ex); _ready = false; return default;
+            MonitorLog.Note("gpu drivers", ex); _ready = false; return default;
         }
     }
 

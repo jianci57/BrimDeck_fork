@@ -79,16 +79,16 @@ public partial class MainWindow
     private Button ModelAction(string text, string name, Action click, bool active = false, bool icon = false,
         string style = "ToolbarActionButton", double height = 24, bool toolTip = true, Func<TextBlock, UIElement>? content = null)
     {
-        var label = UI.Centered(text, icon ? 14 : 12, UI.Secondary, font: icon ? Fonts.IconMdl2 : null);
+        var label = UI.Centered(text, icon ? 14 : 12, Look.Secondary, font: icon ? Fonts.IconMdl2 : null);
         label.ClearValue(TextBlock.ForegroundProperty); label.ClearValue(TextBlock.FontWeightProperty);
         var button = new Button { Content = content is null ? label : content(label), Height = height, Padding = new Thickness(icon ? 6 : 9, 0, icon ? 6 : 9, 0),
             Style = (Style)FindResource(style), Tag = active ? "Selected" : null, ToolTip = toolTip ? name : null };
         // The toolbar look's 6 DIP corner comes from its style's own resources, which a theme does not replace: square in a pixel theme.
-        if (style == "ToolbarActionButton") button.Resources["SegmentCorner"] = new CornerRadius(PanelTheme.Corner(6));
+        if (style == "ToolbarActionButton") button.Resources["SegmentCorner"] = new CornerRadius(Look.Corner(6));
         AutomationProperties.SetName(button, name); button.Click += (_, _) => click(); return button;
     }
 
-    private string StatisticsTheme(ProviderId id) => Settings.EnabledApps.FirstOrDefault(app => app.UsageSource == id) is { } app ? PanelTheme.AppTheme(app) : UI.ColorFor(id);
+    private string StatisticsTheme(ProviderId id) => Settings.EnabledApps.FirstOrDefault(app => app.UsageSource == id) is { } app ? Look.AppTheme(app) : Look.DefaultAppColor(id);
 
     private FrameworkElement ModelApplicationFilter(IReadOnlyList<ProviderId> apps, int stage)
     {
@@ -102,7 +102,7 @@ public partial class MainWindow
             UIElement Tab(TextBlock shown)
             {
                 // A hidden SemiBold copy reserves the selected width, so selecting a tab does not resize it.
-                var reserve = UI.Centered(label, 12, UI.Secondary, FontWeights.SemiBold); reserve.Visibility = Visibility.Hidden;
+                var reserve = UI.Centered(label, 12, Look.Secondary, FontWeights.SemiBold); reserve.Visibility = Visibility.Hidden;
                 var text = new Grid { Children = { reserve, shown } };
                 if (stage < 2) return text;
                 var dot = new Ellipse { Width = 6, Height = 6, Fill = UI.Brush(StatisticsTheme(app)), Margin = new Thickness(0, 0, 4, 0), VerticalAlignment = VerticalAlignment.Center };
@@ -113,7 +113,7 @@ public partial class MainWindow
             button.Padding = new Thickness(stage >= 2 ? 5 : 8, 0, stage >= 2 ? 5 : 8, 0);
             strip.Children.Add(button);
         }
-        return new Border { Child = strip, Background = UI.Brush(UI.Fill), CornerRadius = new CornerRadius(PanelTheme.Corner(6)), Padding = new Thickness(1) };
+        return new Border { Child = strip, Background = UI.Brush(Look.Fill), CornerRadius = new CornerRadius(Look.Corner(6)), Padding = new Thickness(1) };
     }
 
     private Button ModelDateButton(bool iconOnly)
@@ -123,11 +123,11 @@ public partial class MainWindow
         if (!iconOnly)
         {
             var content = new StackPanel { Orientation = Orientation.Horizontal };
-            var icon = UI.Centered("\uE787", 12, UI.Secondary, font: Fonts.IconMdl2);
+            var icon = UI.Centered("\uE787", 12, Look.Secondary, font: Fonts.IconMdl2);
             // The calendar glyph sits slightly above the label; move the glyph, not the label. The top margin centers it
             // 2/3 DIP lower (one device pixel at 150%), and layout rounding keeps it on whole pixels at every scale.
             icon.Margin = new Thickness(0, 4.0 / 3, 0, 0); content.Children.Add(icon);
-            var label = UI.Centered(_customRange is null ? Loc.T("按时间", "By date") : ModelPeriodLabel, 12, _customRange is null ? UI.Secondary : UI.Primary);
+            var label = UI.Centered(_customRange is null ? Loc.T("按时间", "By date") : ModelPeriodLabel, 12, _customRange is null ? Look.Secondary : Look.Primary);
             label.Margin = new Thickness(6, 0, 0, 0); content.Children.Add(label); button.Content = content;
         }
         return button;
@@ -170,7 +170,7 @@ public partial class MainWindow
     private void OpenModelDates(FrameworkElement anchor)
     {
         var range = ModelRange;
-        var popup = new ModelDateWindow(range);
+        var popup = new ModelDateWindow(range, Look);
         void PreserveReturnArea() => _popupReturnArea = new Rect(popup.PointToScreen(new Point()), popup.PointToScreen(new Point(popup.ActualWidth, popup.ActualHeight)));
         popup.Applied += selected =>
         {
@@ -185,7 +185,7 @@ public partial class MainWindow
     {
         var stack = new StackPanel();
         var popup = new Window { Title = Loc.T("筛选应用", "Filter apps"), Width = 210, SizeToContent = SizeToContent.Height, WindowStyle = WindowStyle.None,
-            ResizeMode = ResizeMode.NoResize, AllowsTransparency = true, Background = Brushes.Transparent, ShowInTaskbar = false, Topmost = true }; PanelTheme.Text(popup);
+            ResizeMode = ResizeMode.NoResize, AllowsTransparency = true, Background = Brushes.Transparent, ShowInTaskbar = false, Topmost = true }; Look.Text(popup);
         foreach (var app in apps)
         {
             Button button = null!;
@@ -193,7 +193,7 @@ public partial class MainWindow
             { ToggleModelApp(app); button.Tag = _modelApps.Contains(app) ? "Selected" : null; }, _modelApps.Contains(app), toolTip: false);
             button.Margin = new Thickness(0, 3, 0, 3); stack.Children.Add(button);
         }
-        popup.Content = new Border { Child = stack, Background = UI.Brush(PanelTheme.Hex("popup")), CornerRadius = new CornerRadius(PanelTheme.Corner(10)), Padding = new Thickness(8), BorderBrush = UI.Brush(PanelTheme.Hex("popupBorder")), BorderThickness = new Thickness(1) };
+        popup.Content = new Border { Child = stack, Background = UI.Brush(Look.Hex("popup")), CornerRadius = new CornerRadius(Look.Corner(10)), Padding = new Thickness(8), BorderBrush = UI.Brush(Look.Hex("popupBorder")), BorderThickness = new Thickness(1) };
         ShowModelPopup(popup, ModelToolbar);
     }
 
@@ -223,7 +223,7 @@ public partial class MainWindow
         popup.Closing += (_, e) =>
         {
             closing = true; if (ReferenceEquals(_detailPopup, popup)) _detailPopup = null;
-            if (left || _popupAtOnce || _app.Exiting || popup.Content is not UIElement content || !Soft.Enabled) return;
+            if (left || _popupAtOnce || _app.Exiting || popup.Content is not UIElement content || !Animates) return;
             e.Cancel = true; left = true; popup.IsHitTestVisible = false;
             Soft.Leave(content, () => popup.Close());
             // The leave is the only thing that closes it now, and an animation replaced on the same property never completes,
@@ -243,7 +243,7 @@ public partial class MainWindow
         };
         // The pop-up enters once its first frame has been drawn: a layered window takes a frame or two to come up, and an
         // entrance started before Show lost its beginning to them and popped in. Until then its content is held out of sight.
-        if (Soft.Enabled && popup.Content is UIElement entering)
+        if (Animates && popup.Content is UIElement entering)
         {
             entering.BeginAnimation(OpacityProperty, new System.Windows.Media.Animation.DoubleAnimation(0, 0, TimeSpan.Zero));
             // Once only, and not when it was closed before its first frame: the entrance would replace the leave's fade, whose
@@ -279,10 +279,12 @@ public partial class MainWindow
         // When every cost comes from the API, only the prices recovered from those amounts are the ones actually charged;
         // catalog prices would describe a cost that was never calculated.
         // A merged Cursor plan's included records share its weekly amount; their prices are the ones worked out from it.
-        bool shared = source?.WeeklyShares == true && record.Entries.All(t => t.FittedCost || t.ReportedCostUsd is null);
-        var recovery = !shared && record.Entries.All(t => t.ReportedCostUsd is not null) ? Pricing.FromReported(record.Entries) : null;
+        // Prices the application lists for the model itself (Command Code) are the ones its amounts were worked out from.
+        var listed = source?.ListedPrices is { } prices && prices.TryGetValue(record.Entries[0].Model, out var own) ? own : null;
+        bool shared = listed is null && source?.WeeklyShares == true && record.Entries.All(t => t.FittedCost || t.ReportedCostUsd is null);
+        var recovery = listed is null && !shared && record.Entries.All(t => t.ReportedCostUsd is not null) ? Pricing.FromReported(record.Entries) : null;
         var derived = shared ? source!.WeeklyPrices : recovery?.Prices;
-        var model = recovery is null && !shared ? _app.Prices.Match(record.Entries[0]) : null;
+        var model = listed ?? (recovery is null && !shared ? _app.Prices.Match(record.Entries[0]) : null);
         var tiers = model?.Tiers.Where(t => t.MinimumPromptTokens > 0).ToArray() ?? [];
         var columns = derived is not null ? [derived] : model is null ? [] : tiers.Select(t => t.Prices).Prepend(model.Tiers.LastOrDefault(t => t.MinimumPromptTokens <= 0)?.Prices ?? model.Prices)
             .Select(prices => _app.Prices.Effective(model, prices)).ToArray();
@@ -292,7 +294,7 @@ public partial class MainWindow
         if (tiers.Length > 0)
             for (int i = 0; i < columns.Length; i++)
                 Cell(i == 0 ? $"< {UI.Number(tiers[0].MinimumPromptTokens)}" : i < tiers.Length ? $"{UI.Number(tiers[i - 1].MinimumPromptTokens)}–{UI.Number(tiers[i].MinimumPromptTokens)}"
-                    : $"≥ {UI.Number(tiers[i - 1].MinimumPromptTokens)}", line, i + 1, UI.Secondary, true, margin: new Thickness(16, 0, 0, 0));
+                    : $"≥ {UI.Number(tiers[i - 1].MinimumPromptTokens)}", line, i + 1, Look.Secondary, true, margin: new Thickness(16, 0, 0, 0));
         if (tiers.Length > 0) line++;
         (string Label, Func<TokenPrices, decimal?> Price)[] kinds =
         [
@@ -301,7 +303,7 @@ public partial class MainWindow
         ];
         foreach (var (label, price) in kinds.Where(kind => columns.Any(prices => kind.Price(prices) is not null)))
         {
-            Cell(label, line, 0, UI.Secondary);
+            Cell(label, line, 0, Look.Secondary);
             for (int i = 0; i < columns.Length; i++)
                 Cell(price(columns[i]) is { } value ? "$" + (value * 1_000_000m).ToString("0.00####", System.Globalization.CultureInfo.InvariantCulture) : "—",
                     line, i + 1, right: true, margin: new Thickness(16, 0, 0, 0));
@@ -316,9 +318,10 @@ public partial class MainWindow
             { Status: RecoveryStatus.Undetermined } => Loc.T("所选时段的记录不足以确定各项单价", "The records in the selected period cannot determine each price"),
             { Status: RecoveryStatus.Inconsistent } => Loc.T("各条记录的金额不符合固定单价，无法推算单价", "The amounts of the records do not fit fixed prices, so the prices cannot be worked out"),
             _ => model is null ? Loc.T("未找到该模型的单价", "No unit price was found for this model")
-                : tiers.Length > 0 ? Loc.T("USD / 百万 Token · 按单次请求的输入量分档", "USD per million tokens · tiered by the input of each request") : Loc.T("USD / 百万 Token", "USD per million tokens"),
+                : Loc.T("USD / 百万 Token", "USD per million tokens") + (listed is null ? "" : Loc.T($" · {AppPresets.Name(record.Provider)} 标价", $" · {AppPresets.Name(record.Provider)} list prices"))
+                    + (tiers.Length > 0 ? Loc.T(" · 按单次请求的输入量分档", " · tiered by the input of each request") : ""),
         };
-        Cell(note, line, 0, UI.Secondary, span: span, margin: new Thickness(0, columns.Length == 0 ? 0 : 3, 0, 0));
+        Cell(note, line, 0, Look.Secondary, span: span, margin: new Thickness(0, columns.Length == 0 ? 0 : 3, 0, 0));
         return grid;
     }
 
@@ -348,6 +351,10 @@ public partial class MainWindow
         }
         var totals = Values(result.Entries);
         bool incomplete = result.IncompleteProviders.Count > 0;
+        // The selected applications whose totals are the previous run's (UsageLastSeen): their rows and the total are dimmed, and the
+        // total's label says when they were read, until the new ones replace them.
+        var restored = snapshots.Where(snapshot => snapshot.LastSeenAt is not null && snapshot.UsageAvailable && _modelApps.Contains(snapshot.Id)).ToList();
+        var restoredIds = restored.Select(snapshot => snapshot.Id).ToHashSet();
         if (incomplete && result.Entries.Count == 0) totals = totals.Select(_ => "—").ToArray();
         double[] widths = expanded ? [compact ? 72 : 80, 0, ..Enumerable.Repeat(compact ? 52d : 56d, 4), compact ? 58 : 62, compact ? 64 : 78] : [84, 0, 84, 84];
         var values = result.Rows.Select(row => Values(row.Entries)).ToArray();
@@ -357,12 +364,12 @@ public partial class MainWindow
         for (int n = 0; n < totals.Length; n++)
         {
             // English headings are longer than the numbers under them; a column also fits its heading.
-            var heading = UI.Centered(headings[n], tiny ? 10 : 11, UI.Tertiary); heading.Measure(new Size(double.PositiveInfinity, headerHeight));
+            var heading = UI.Centered(headings[n], tiny ? 10 : 11, Look.Tertiary); heading.Measure(new Size(double.PositiveInfinity, headerHeight));
             widths[n + 2] = Math.Max(widths[n + 2], Math.Ceiling(heading.DesiredSize.Width));
             // Amounts such as $1,234.56 + give up model-name space, never numeric digits.
             foreach (var value in values.Select(row => row[n]).Append(totals[n]))
             {
-                var text = UI.Centered(value, font, UI.Primary, FontWeights.SemiBold); text.Measure(new Size(double.PositiveInfinity, rowHeight));
+                var text = UI.Centered(value, font, Look.Primary, FontWeights.SemiBold); text.Measure(new Size(double.PositiveInfinity, rowHeight));
                 widths[n + 2] = Math.Max(widths[n + 2], Math.Ceiling(text.DesiredSize.Width));
             }
         }
@@ -382,30 +389,37 @@ public partial class MainWindow
             for (int i = 0; i < labels.Length; i++)
             {
                 var text = UI.Centered(labels[i], header ? tiny ? 10 : 11 : font,
-                    header || total && i < 2 ? UI.Tertiary : i == 1 || i >= 2 && i < widths.Length - 2 && !total ? UI.Secondary : UI.Primary,
+                    header || total && i < 2 ? Look.Tertiary : i == 1 || i >= 2 && i < widths.Length - 2 && !total ? Look.Secondary : Look.Primary,
                     !header && (total && i >= 2 || !total && i == 0 || i == widths.Length - 1) ? FontWeights.SemiBold : FontWeights.Normal);
                 text.TextAlignment = i >= 2 ? TextAlignment.Right : TextAlignment.Left;
                 FrameworkElement cell = text;
-                if (i == 0 && provider is { } id) cell = new CapDot(text, UI.Brush(StatisticsTheme(id)), 7, 13);
+                if (i == 0 && provider is { } id)
+                {
+                    cell = new CapDot(text, UI.Brush(StatisticsTheme(id)), 7, 13);
+                    // A name cut off by its ellipsis shows in full on hover; one that fits shows no tooltip.
+                    text.ToolTip = labels[i];
+                    text.ToolTipOpening += (_, e) => { if (!UI.IsCut(text)) e.Handled = true; };
+                }
                 Grid.SetColumn(cell, i * 2); row.Children.Add(cell);
             }
             return row;
         }
-        panel.Children.Add(new Border { Child = Row(Loc.T("应用", "App"), Loc.T("模型", "Model"), headings, true, false), BorderBrush = UI.Brush(UI.Hairline), BorderThickness = new Thickness(0, 0, 0, 1) });
+        panel.Children.Add(new Border { Child = Row(Loc.T("应用", "App"), Loc.T("模型", "Model"), headings, true, false), BorderBrush = UI.Brush(Look.Hairline), BorderThickness = new Thickness(0, 0, 0, 1) });
         var list = new StackPanel();
         for (int i = 0; i < result.Rows.Count; i++)
         {
             var record = result.Rows[i];
             var row = Row(AppPresets.Name(record.Provider), record.Model, values[i], false, false, record.Provider);
             var tips = Tips(record.Entries, false);
-            // The model name shows the unit prices; the app name shows no tooltip.
+            // The model name shows the unit prices; the app name, inside its dot cell, shows its full name only when cut off (Row).
             foreach (var text in row.Children.OfType<TextBlock>())
             {
                 int column = Grid.GetColumn(text) / 2;
                 text.ToolTip = column == 1 ? PriceBreakdown(record, snapshots.FirstOrDefault(s => s.Id == record.Provider)) : column >= 2 ? tips[column - 2] : (object?)null;
             }
-            var item = new Border { Child = row, Background = Brushes.Transparent, BorderBrush = UI.Brush(PanelTheme.Hex("rowDivider")), BorderThickness = new Thickness(0, i > 0 ? 1 : 0, 0, 0) };
-            item.MouseEnter += (_, _) => item.Background = UI.Brush(PanelTheme.Hex("rowHover")); item.MouseLeave += (_, _) => item.Background = Brushes.Transparent;
+            var item = new Border { Child = row, Background = Brushes.Transparent, BorderBrush = UI.Brush(Look.Hex("rowDivider")), BorderThickness = new Thickness(0, i > 0 ? 1 : 0, 0, 0) };
+            item.MouseEnter += (_, _) => item.Background = UI.Brush(Look.Hex("rowHover")); item.MouseLeave += (_, _) => item.Background = Brushes.Transparent;
+            if (restoredIds.Contains(record.Provider)) row.Opacity = UsageLastSeen.Dimmed;
             list.Children.Add(item);
         }
         // The viewport clip would turn the rows grayscale; they lie over the island's opaque surface.
@@ -419,7 +433,7 @@ public partial class MainWindow
         if (result.Rows.Count == 0)
         {
             var message = UI.Centered(incomplete ? Refreshing ? Loc.T("正在读取所选时段…", "Reading the selected period…") : Loc.T("所选应用的用量明细暂不可用", "Usage details for the selected apps are not available yet")
-                : Loc.T("所选时段暂无用量记录", "No usage records in the selected period"), 12, UI.Tertiary);
+                : Loc.T("所选时段暂无用量记录", "No usage records in the selected period"), 12, Look.Tertiary);
             message.HorizontalAlignment = HorizontalAlignment.Center; message.VerticalAlignment = VerticalAlignment.Center; Grid.SetRow(message, 1); panel.Children.Add(message);
         }
         string selected = _modelApps.SetEquals(Settings.StatisticsProviders) ? Loc.T("全部", "All") : _modelApps.Count == 1 ? AppPresets.Name(_modelApps.Single()) : Loc.T($"{_modelApps.Count} 个应用", Loc.Count(_modelApps.Count, "app", "apps"));
@@ -428,6 +442,8 @@ public partial class MainWindow
         string missing = incomplete ? Loc.T("部分明细尚未读取完整：", "Some details are not fully read yet: ") + string.Join(Loc.T("、", ", "), result.IncompleteProviders.Select(AppPresets.Name)) : "";
         // The label cells explain only an incomplete total; otherwise the visible summary says it all.
         string? totalTip = incomplete ? missing : null;
+        if (restored.Count > 0)
+            totalTip = (totalTip is null ? "" : totalTip + "\n") + string.Join("\n", restored.Select(snapshot => AppPresets.Name(snapshot.Id) + " · " + snapshot.UsageNote));
         // Figures shown as "—" are not known yet, so their tooltips say why instead of giving a count of zero.
         var totalTips = incomplete && result.Entries.Count == 0 ? totals.Select(_ => (string?)missing).ToArray() : Tips(result.Entries, true);
         if (incomplete && result.Entries.Count > 0) totalTips[^1] = totalTips[^1] is { } note ? note + "\n" + missing : missing;
@@ -437,7 +453,8 @@ public partial class MainWindow
             int column = Grid.GetColumn(cell) / 2;
             cell.ToolTip = column >= 2 ? totalTips[column - 2] : totalTip;
         }
-        var footer = new Border { Child = totalRow, BorderBrush = UI.Brush(UI.Outline), BorderThickness = new Thickness(0, 1, 0, 0) };
+        if (restored.Count > 0) totalRow.Opacity = UsageLastSeen.Dimmed;
+        var footer = new Border { Child = totalRow, BorderBrush = UI.Brush(Look.Outline), BorderThickness = new Thickness(0, 1, 0, 0) };
         Grid.SetRow(footer, 2); panel.Children.Add(footer); UsageContent.Children.Add(panel);
     }
 }

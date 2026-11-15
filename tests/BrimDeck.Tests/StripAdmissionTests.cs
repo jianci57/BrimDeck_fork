@@ -9,7 +9,7 @@ static class StripAdmissionTests
         // The machine's power and battery and the frame rate join by their own sensors (PowerTests, FrameRateTests), the devices'
         // battery by the devices, not by the system readings (DevicesPageTests); these runs leave them aside.
         Later = StripAdmission.Later & ~CompactMonitorItems.Power & ~CompactMonitorItems.Charge & ~CompactMonitorItems.Battery & ~CompactMonitorItems.Frames;
-    private const CompactMonitorItems EveryReading = CompactMonitor.Every & ~CompactMonitorItems.Power & ~CompactMonitorItems.Charge & ~CompactMonitorItems.Frames;
+    private const CompactMonitorItems EveryReading = CompactMonitor.Every & ~CompactMonitorItems.Power & ~CompactMonitorItems.Charge & ~CompactMonitorItems.Frames & ~CompactMonitor.Traffic;
     private const SensorState Unknown = SensorState.Unknown, Found = SensorState.Found, None = SensorState.None;
     private const string Heat = StripAdmission.Heat;
 

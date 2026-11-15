@@ -10,13 +10,19 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\BrimDeck.Core\BrimDeck.Core.csproj" />
     <PackageReference Include="NAudio.Wasapi" Version="2.2.1" />
+    <PackageReference Include="System.IO.Ports" Version="10.0.0" />
     <Compile Include="..\..\src\BrimDeck\Native\PdhQuery.cs" Link="PdhQuery.cs" />
+    <Compile Include="..\..\src\BrimDeck\Native\CpuProvider.cs" Link="CpuProvider.cs" />
+    <Compile Include="..\..\src\BrimDeck\Native\MonitorLog.cs" Link="MonitorLog.cs" />
     <Compile Include="..\..\src\BrimDeck\Native\TemperatureSensors.cs" Link="TemperatureSensors.cs" />
     <Compile Include="..\..\src\BrimDeck\Native\PowerSensors.cs" Link="PowerSensors.cs" />
     <Compile Include="..\..\src\BrimDeck\Native\StorageReader.cs" Link="StorageReader.cs" />
     <Compile Include="..\..\src\BrimDeck\Native\SensorGuard.cs" Link="SensorGuard.cs" />
     <Compile Include="..\..\src\BrimDeck\Native\SettingsChrome.cs" Link="SettingsChrome.cs" />
     <Compile Include="..\..\src\BrimDeck\Native\WindowsHost.cs" Link="WindowsHost.cs" />
+    <Compile Include="..\..\src\BrimDeck\Native\PasteInput.cs" Link="PasteInput.cs" />
+    <Compile Include="..\..\src\BrimDeck\Native\PanelKeyboard.cs" Link="PanelKeyboard.cs" />
+    <Compile Include="..\..\src\BrimDeck\Native\DisplayPower.cs" Link="DisplayPower.cs" />
     <Compile Include="..\..\src\BrimDeck\Native\FrameRates.cs" Link="FrameRates.cs" />
     <Compile Include="..\..\src\BrimDeck\Native\ProcessSnapshot.cs" Link="ProcessSnapshot.cs" />
     <Compile Include="..\..\src\BrimDeck\Native\Displays.cs" Link="Displays.cs" />
@@ -25,6 +31,8 @@
     <Compile Include="..\..\src\BrimDeck\Native\Why.cs" Link="Why.cs" />
     <Compile Include="..\..\src\BrimDeck\Native\Hid.cs" Link="Hid.cs" />
     <Compile Include="..\..\src\BrimDeck\Native\HidBatteries.cs" Link="HidBatteries.cs" />
+    <Compile Include="..\..\src\BrimDeck\Native\UsbSerial.cs" Link="UsbSerial.cs" />
+    <Compile Include="..\..\src\BrimDeck\Native\DeviceReadStore.cs" Link="DeviceReadStore.cs" />
     <Compile Include="..\..\src\BrimDeck\Native\HidppEvents.cs" Link="HidppEvents.cs" />
     <Compile Include="..\..\src\BrimDeck\Native\PushEvents.cs" Link="PushEvents.cs" />
     <Compile Include="..\..\src\BrimDeck\Native\CorsairReader.cs" Link="CorsairReader.cs" />
@@ -49,6 +57,10 @@
     <!-- The island itself: the shadow observes its properties, and the settled clip is checked on its drawing. -->
     <Compile Include="..\..\src\BrimDeck\IslandBorder.cs" Link="IslandBorder.cs" />
     <Compile Include="..\..\src\BrimDeck\IslandDecor.cs" Link="IslandDecor.cs" />
+    <Compile Include="..\..\src\BrimDeck\CompactStylePreview.cs" Link="CompactStylePreview.cs" />
+    <Compile Include="..\..\src\BrimDeck\UI.cs" Link="UI.cs" />
+    <Compile Include="..\..\src\BrimDeck\PanelTheme.cs" Link="PanelTheme.cs" />
+    <Compile Include="..\..\src\BrimDeck\SettingsPalette.cs" Link="SettingsPalette.cs" />
     <Compile Include="..\..\src\BrimDeck\PageToolTips.cs" Link="PageToolTips.cs" />
   </ItemGroup>
 </Project>

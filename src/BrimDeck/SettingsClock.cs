@@ -84,7 +84,7 @@ public sealed partial class SettingsWindow
 
     // Every card shows 14:32:08 today in the chosen color, hour format and seconds, at twice the size of the collapsed surface.
     private FrameworkElement ClockPreview(ClockStyle style)
-        => new ClockFace(style, S.Clock24Hour, S.ClockSeconds, ClockFace.Palette(S, _app.Deck.CoverColor), DateTime.Today.AddHours(14).AddMinutes(32).AddSeconds(8)) { LayoutTransform = new ScaleTransform(2, 2) };
+        => new ClockFace(style, S.Clock24Hour, S.ClockSeconds, ClockFace.Palette(S, _app.PreviewDeck.CoverColor), DateTime.Today.AddHours(14).AddMinutes(32).AddSeconds(8)) { LayoutTransform = new ScaleTransform(2, 2) };
     private void RefreshClockTiles()
     {
         foreach (var (tile, style) in _clockTiles) tile.Content = ClockPreview(style);

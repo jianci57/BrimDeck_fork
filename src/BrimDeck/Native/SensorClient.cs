@@ -55,7 +55,7 @@ internal sealed class SensorClient
             using var service = new ServiceController(SensorSetup.ServiceName);
             if (service.Status == ServiceControllerStatus.Stopped) service.Start();
         }
-        catch (Exception ex) when (ex is InvalidOperationException or Win32Exception) { Debug.WriteLine(ex); }
+        catch (Exception ex) when (ex is InvalidOperationException or Win32Exception) { MonitorLog.Note("sensor service", ex); }
     }
 
     private static SensorReport? Ask(TimeSpan connect)
@@ -78,6 +78,8 @@ internal sealed class SensorClient
             }
             finally { ArrayPool<byte>.Shared.Return(buffer); }
         }
-        catch (Exception ex) when (ex is System.TimeoutException or IOException or UnauthorizedAccessException or OperationCanceledException) { return null; }
+        // A service that is not running times out: that is the usual answer and is not noted.
+        catch (System.TimeoutException) { return null; }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or OperationCanceledException) { MonitorLog.Note("sensor service", ex); return null; }
     }
 }

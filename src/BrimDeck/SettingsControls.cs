@@ -50,6 +50,8 @@ public sealed partial class SettingsWindow
     {
         var description = new TextBlock { TextWrapping = TextWrapping.Wrap, MaxWidth = 320 };
         var tooltip = new ToolTip { Content = description, PlacementTarget = info, Placement = PlacementMode.Bottom, HorizontalOffset = -4, VerticalOffset = 4 };
+        // Made while the app's own fonts are asked for (the font row, or the whole window with the switch off), the description keeps them too.
+        if (Fonts.IsPlain) tooltip.FontFamily = Fonts.Panel;
         info.ToolTip = tooltip;
         // An explicit help target should respond immediately, including when switching between nearby icons.
         ToolTipService.SetInitialShowDelay(info, 0);
@@ -95,7 +97,7 @@ public sealed partial class SettingsWindow
         var host = new Grid(); host.Children.Add(highlight); host.Children.Add(content);
         void Slide(double from, double to)
         {
-            if (!SystemParameters.ClientAreaAnimation || Math.Abs(from - to) < 0.5) { move.BeginAnimation(TranslateTransform.XProperty, null); move.X = to; return; }
+            if (!Soft.Enabled || Math.Abs(from - to) < 0.5) { move.BeginAnimation(TranslateTransform.XProperty, null); move.X = to; return; }
             var slide = new System.Windows.Media.Animation.DoubleAnimation(from, to, TimeSpan.FromMilliseconds(200))
             { EasingFunction = Soft.Out };
             // Hand the final position back to the property so later layout passes can move the highlight again.
@@ -174,7 +176,7 @@ public sealed partial class SettingsWindow
     private bool Confirm(string title, string message, string action, bool danger = true)
     {
         var dialog = new Window { Title = title, Owner = this, Width = 400, SizeToContent = SizeToContent.Height,
-            WindowStartupLocation = WindowStartupLocation.CenterOwner, ShowInTaskbar = false, FontFamily = Fonts.PlainOf(UiFontRole.Panel),
+            WindowStartupLocation = WindowStartupLocation.CenterOwner, ShowInTaskbar = false, FontFamily = SettingsFont(UiFontRole.Panel),
             Background = UI.Brush(Surface), Foreground = UI.Brush(TextPrimary), ResizeMode = ResizeMode.NoResize };
         dialog.Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("/BrimDeck;component/SettingsResources.xaml", UriKind.Relative) });
         _palette.Apply(dialog.Resources); Native.SettingsChrome.Apply(dialog);

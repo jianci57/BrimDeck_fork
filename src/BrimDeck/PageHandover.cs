@@ -68,7 +68,7 @@ internal sealed class PageHandover
 
     public void Release(FrameworkElement content, Handover motion)
     {
-        if (_held.Count == 0 || motion == Handover.None || !Soft.Enabled) { _held.Clear(); return; }
+        if (_held.Count == 0 || motion == Handover.None || !Soft.At(_layer)) { _held.Clear(); return; }
         var leaving = _held.ToList();
         _held.Clear();
         // A rebuild while the page was still arriving (the usage page's own panel is what arrives): its elements leave from the
@@ -116,7 +116,7 @@ internal sealed class PageHandover
     // shrinks to the next page's size, so the panel narrowing around it does not cut it off either.
     public void Send(FrameworkElement? picture, Thickness place, FrameworkElement content, Handover motion)
     {
-        if (picture is null || motion == Handover.None || !Soft.Enabled) return;
+        if (picture is null || motion == Handover.None || !Soft.At(_layer)) return;
         Canvas.SetLeft(picture, -picture.Width / 2);
         var stage = new Canvas { Width = 0, Height = 0, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Top };
         stage.Children.Add(picture);
@@ -231,7 +231,7 @@ internal sealed class PageHandover
 
     private static void HoldThenArrive(UIElement element, double from, int milliseconds)
     {
-        if (!Soft.Enabled) return;
+        if (!Soft.At(element)) return;
         element.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(from, from, TimeSpan.Zero));
         element.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () => element.BeginAnimation(UIElement.OpacityProperty, Arrival(from, 1, milliseconds)));
     }

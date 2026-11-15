@@ -20,10 +20,19 @@ AI 用量页的每一列可以在"设置 › 配额与统计"中分别配置：
 | Kimi Code | ✓ | ✓ | 在本机登录 Kimi Code（CLI、桌面版或 VS Code 扩展） |
 | Pi | | ✓ | 在本机使用 Pi Coding Agent（读取会话 Token 与费用统计） |
 | OpenCode | ✓ | ✓ | 配额：在本机的 OpenCode（CLI 或桌面版）中登录 OpenCode Console，且工作区订阅了 OpenCode Go。用量统计只需在本机使用 OpenCode |
+| Command Code | ✓ | ✓ | 在本机登录 Command Code（CLI 或桌面版） |
+| WorkBuddy | ✓ | ✓ | 配额：在设置中通过浏览器登录 WorkBuddy 官网。用量统计只需在本机使用 WorkBuddy 国内版桌面应用 |
+| WorkBuddy AI | ✓ | ✓ | 配额：在设置中通过浏览器登录 WorkBuddy 国际版官网。用量统计只需在本机使用 WorkBuddy AI 桌面应用 |
+| Xiaomi MiMo 桌面订阅 | ✓ | ✓ | 配额：在设置中通过浏览器登录小米账号。用量统计只需在本机使用 MiMo Code CLI 或 Xiaomi MiMo 桌面版 |
+| Xiaomi MiMo | ✓ | | 在 Xiaomi MiMo 桌面版或 MiMo Code CLI 中关联开放平台 API 密钥或 Token Plan |
 | 智谱 GLM、Z.ai GLM | ✓ | | 在设置中填写 API 密钥 |
+| Xiaomi MiMo API | ✓ | | 在设置中填写小米 MiMo 开放平台按量计费 API 密钥 |
+| Xiaomi MiMo Token Plan | ✓ | | 在设置中填写小米 MiMo Token Plan 密钥 |
 | DeepSeek | ✓ | | 在设置中填写 API 密钥 |
 | Kimi Code API | ✓ | | 在设置中填写 Kimi Code API 密钥 |
+| Kimi 开放平台 | ✓ | | 在设置中填写 Kimi 开放平台 API 密钥 |
 | OpenCode Go | ✓ | | 在设置中填写 OpenCode Console API 密钥 |
+| Command Code API | ✓ | | 在设置中填写 Command Code API 密钥 |
 | OpenRouter | ✓ | | 在设置中填写 OpenRouter API 密钥 |
 | New API、Sub2API 中转站 | ✓ | | 在设置中填写站点地址和密钥 |
 | 自定义 | ✓ | | 编写一段 JavaScript 脚本 |
@@ -32,7 +41,7 @@ AI 用量页的每一列可以在"设置 › 配额与统计"中分别配置：
 
 ## 费用估算
 
-记录本身带有金额时（例如 Cursor 与 OpenCode），直接使用该金额。其他记录按 OpenRouter 模型目录中的单价估算。
+记录本身带有金额时（例如 Cursor、OpenCode 与 Command Code），直接使用该金额。其他记录按 OpenRouter 模型目录中的单价估算。
 
 目录中的单价通常取自最便宜的服务商，可能与模型厂商的官方价格不同。例如 GLM-5.3 在目录中的输入与输出单价为每百万 Token 0.07 与 1.4 美元，Z.AI 官方为 1.4 与 4.4 美元。因此，对记录中用到的每个模型，BrimDeck 会查询 OpenRouter 上该模型厂商自己的渠道，并改用该渠道的单价；厂商没有渠道的模型，沿用目录单价。厂商渠道的单价每个模型每天查询一次，并保存在本机；查询失败时沿用上次保存的单价。手动添加的单价优先。
 
@@ -101,9 +110,43 @@ OpenCode CLI 与桌面版共用同一个数据目录（`%USERPROFILE%\.local\sha
 - **Token 用量与费用**：读取本机 OpenCode 数据库中的每次模型请求，包含 CLI 与桌面版，以及 OpenCode 1.x 留下的记录。费用使用 OpenCode 记录的金额，即按 OpenCode 标价计算的金额：免费模型为 0；OpenCode Go 的模型同样按标价计算，表示这次请求相当于多少钱，不是从账户余额中扣除的金额。失败的请求没有 Token，不计入。OpenCode 为会话生成标题的请求没有单独的记录，不计入。
 - OpenCode Console 的按量付费余额目前不显示。
 
+## Command Code
+
+Command Code CLI 与桌面版共用同一个数据目录（`%USERPROFILE%\.commandcode`），登录与会话记录都保存在其中，任选其一登录即可。
+
+- **配额**：显示 Command Code 登录账户的套餐额度，包括 5 小时、每周与每月额度的已用比例和重置时间。每月额度按本账期计算，在账期结束时重置。悬停时显示已用金额与上限（美元）。购买或获赠的额外积分不受这些额度限制，有余额时另外显示。名称旁显示套餐名称（例如 Go、Pro）。用完 5 小时或每周额度时，状态中会提示。
+- **登录**：使用 Command Code 保存的登录密钥（`auth.json`）。该密钥没有有效期，不需要续期。Command Code 拒绝该密钥时（例如已退出登录或删除了密钥），状态显示“登录已失效”，在 Command Code 中重新登录即可。
+- **Token 用量与费用**：读取本机 Command Code 的会话记录（`projects` 目录），包含 CLI 与桌面版。费用使用 Command Code 记录的金额，即按 Command Code 标价计算的金额。模型明细中的单价取自 Command Code 在本机缓存的模型目录（`cache\model-catalog`），即 Command Code 计算这些金额所用的单价。同一条消息出现在多个会话中（例如分叉的会话）时只计一次。Command Code 为会话生成标题等不写入会话记录的请求不计入，因此统计可能略少于 Command Code 账户中的用量。
+
+## WorkBuddy
+
+支持 WorkBuddy 国内版（www.workbuddy.cn）。WorkBuddy 桌面版把自己的登录加密保存，BrimDeck 不读取它，而是通过 WorkBuddy 官网单独登录一次。
+
+- **配额**：显示 WorkBuddy 账户的积分余额，按套餐积分、套餐赠送积分、购买积分与奖励积分分别显示，没有的种类不显示。名称旁显示套餐名称（例如体验版）。时间与 WorkBuddy 客户端的显示方式一致：套餐积分与套餐赠送积分显示本周期结束后的刷新时间；购买积分与奖励积分不按周期刷新，显示尚未过期的包中最早的过期时间，已过期的包不计入。国内版 WorkBuddy 与 CodeBuddy 同一账号的积分共享，所以这里的余额也包含在 CodeBuddy 中的消耗。
+- **登录**：在设置中展开 WorkBuddy 行，点击“在浏览器中登录”，在打开的 WorkBuddy 官网页面登录并授权即可，需在 10 分钟内完成。BrimDeck 获得自己的登录凭据，加密保存在本机，只发往 www.workbuddy.cn；过期时自动续期，续期失败时状态显示“登录已失效”，重新登录即可。点击“退出登录”删除本机保存的凭据。只支持个人账号。
+- **Token 用量与费用**：读取本机 WorkBuddy 国内版桌面应用的会话记录（`%USERPROFILE%\.workbuddy\projects`），统计每次模型回复的输入、缓存读取、缓存写入与输出 Token。费用按模型公开单价估算，不是 WorkBuddy 扣除的积分。WorkBuddy 记录的模型名带有通道后缀（例如 `hy4-free`），统计中按原样显示，查单价时使用记录中的模型名称（例如 Hy4，对应单价表中的 `tencent/hy4`）；单价表中没有的模型只统计 Token。同一次回复出现在多个会话中时只计一次。
+- WorkBuddy 的套餐积分只能在 WorkBuddy 与 CodeBuddy 中使用，没有可在其他工具中消耗积分的 API 密钥。
+- **国际版**：WorkBuddy 国际版（www.workbuddy.ai，桌面应用名为 WorkBuddy AI）是独立的账号体系，在“配额来源”与“统计应用”中单独选择 WorkBuddy AI，与国内版分别登录、分别显示。读取方式与国内版相同，会话记录读取 `%USERPROFILE%\.workbuddy-ai\projects`；凭据只发往 www.workbuddy.ai。积分归类与 WorkBuddy AI 客户端一致，例如体验类积分在国际版中计为奖励积分。默认颜色与国内版相同。
+
+## Xiaomi MiMo 桌面订阅
+
+MiMo Code CLI 与 Xiaomi MiMo 桌面版共用同一个数据库（`%USERPROFILE%\.local\share\mimocode\mimocode.db`），两者的对话记录一起统计。
+
+- **配额**：显示 Xiaomi MiMo 桌面版会员的每周额度的已用比例与重置时间，名称旁显示会员档位（入门、进阶、高阶或尊享）。桌面版会员与 Token Plan 是两套独立的订阅，这里不显示 Token Plan 的额度。
+- **登录**：桌面版会员没有 API 密钥，需要在 BrimDeck 中单独登录小米账号。在设置中展开 Xiaomi MiMo 桌面订阅行，点击“登录”，BrimDeck 会用默认浏览器（不是 Chrome、Edge 等 Chromium 浏览器时改用 Edge）在一个独立的新窗口中打开小米账号的官方登录页，可用密码、手机号、微信、支付宝等方式登录，需在 10 分钟内完成。登录后 BrimDeck 关闭这个窗口，只保存查询额度所需的登录信息，加密保存在本机；你平时使用的浏览器与它的登录状态不受影响。登录过期时自动续期，续期失败时状态显示“登录已失效”，重新登录即可。点击“退出登录”删除本机保存的登录信息。
+- **Token 用量与费用**：读取本机 MiMo 数据库中每次模型回复的输入、缓存读取、缓存写入与输出 Token。桌面版会员的请求在记录中金额为 0，按模型公开单价估算；使用开放平台密钥的请求使用 MiMo 记录的金额。
+
+## Xiaomi MiMo
+
+自动读取 Xiaomi MiMo 桌面版与 MiMo Code CLI 已关联的开放平台 API 密钥或 Token Plan（与数据库同目录的 `auth.json`），不需要在 BrimDeck 中填写。
+
+- 关联了 Token Plan 时显示套餐名称与 Credits 额度；关联了按量计费 API 密钥时显示账户余额、充值余额、赠送余额与本月扣费。两者都关联时，在同一列中一起显示。
+- 每次刷新都重新读取这个文件。桌面版关联和 CLI 登录都会改写它，例如在 CLI 中重新登录后，桌面版关联的 Token Plan 会从文件中消失，这里也随之不再显示。
+- 用量统计使用 Xiaomi MiMo 的本机记录。
+
 ## 手动填写的来源
 
-在"配额来源"中选择智谱 GLM、Z.ai GLM、DeepSeek、Kimi Code API、OpenCode Go、OpenRouter、New API、Sub2API 或自定义后，该行会展开，填写所需内容即可。
+在"配额来源"中选择智谱 GLM、Z.ai GLM、Xiaomi MiMo API、Xiaomi MiMo Token Plan、DeepSeek、Kimi Code API、Kimi 开放平台、OpenCode Go、Command Code API、OpenRouter、New API、Sub2API 或自定义后，该行会展开，填写所需内容即可。
 
 - **密钥**：使用 Windows 的加密功能保存在本机，不写入设置文件。删除该列或更换配额来源时，密钥一并删除。
 - **站点地址**：填写站点首页地址即可。末尾的 `/v1`，以及直接粘贴的控制台页面路径，会自动去掉。请求会带上 API 密钥，所以站点地址须使用 HTTPS；HTTP 仅限本机地址（`localhost`、`127.0.0.1`、`[::1]`）。
@@ -115,17 +158,35 @@ OpenCode CLI 与桌面版共用同一个数据目录（`%USERPROFILE%\.local\sha
 
 填写 GLM Coding Plan 的 API 密钥。显示 5 小时与每周额度，以及工具调用次数；积分制套餐显示已用积分与总积分。不返回额度的团队套餐暂不支持。
 
+### Xiaomi MiMo API
+
+填写在小米 MiMo 开放平台（platform.xiaomimimo.com）创建的按量计费 API 密钥（`sk-` 开头）。显示账户余额、充值余额、赠送余额（有冻结金额时也显示），以及本月扣费。本月按 UTC 自然月计算。可以设置目标余额。
+
+Xiaomi MiMo 桌面版会员不提供 API 密钥，它的额度请使用"Xiaomi MiMo 桌面订阅"。
+
+### Xiaomi MiMo Token Plan
+
+填写 Token Plan 页面上的专属 API 密钥（`tp-` 或 `ttp-` 开头）。显示套餐名称（例如 Lite）与 Credits 额度的已用量，以及当前周期的结束时间。BrimDeck 依次在中国、新加坡、欧洲集群查询，直到找到密钥所属的集群。Token Plan 额度由使用这个套餐的所有工具共用。
+
 ### DeepSeek
 
 填写在 DeepSeek 开放平台创建的 API 密钥。显示账户余额与其中的赠送余额，金额按账户的货币（人民币或美元）显示。余额不足以调用 API 时，状态中会提示。
 
 ### Kimi Code API
 
-填写在 Kimi Code 控制台创建的 API 密钥（`sk-kimi-` 开头），无需在本机登录 Kimi Code。显示的额度与自动读取的 Kimi Code 相同：5 小时与每月额度，旧版套餐另有每周额度，购买了加油包时显示加油包余额；名称旁显示会员等级。国内版（kimi.com）与海外版（kimi.ai）的密钥都可以使用：先向 api.kimi.com 查询，密钥被拒绝时改向 api.kimi.ai 查询，来源按账户所属站点显示为“Kimi Code API · kimi.com 账户”或“Kimi Code API · kimi.ai 账户”。此密钥不能用于 Moonshot 开放平台，因此不显示开放平台余额，也不统计 Token 用量。
+填写在 Kimi Code 控制台创建的 API 密钥（`sk-kimi-` 开头），无需在本机登录 Kimi Code。显示的额度与自动读取的 Kimi Code 相同：5 小时与每月额度，旧版套餐另有每周额度，购买了加油包时显示加油包余额；名称旁显示会员等级。国内版（kimi.com）与海外版（kimi.ai）的密钥都可以使用：先向 api.kimi.com 查询，密钥被拒绝时改向 api.kimi.ai 查询，来源按账户所属站点显示为“Kimi Code API · kimi.com 账户”或“Kimi Code API · kimi.ai 账户”。此密钥不能用于 Kimi 开放平台，因此不显示开放平台余额，也不统计 Token 用量；开放平台余额请使用“Kimi 开放平台”。
+
+### Kimi 开放平台
+
+填写在 Kimi 开放平台（platform.kimi.com 或 platform.kimi.ai）创建的 API 密钥。开放平台按量计费，与 Kimi 会员和 Kimi Code 的套餐额度分开计算。显示账户余额（现金余额与代金券余额之和），以及现金余额与代金券余额；欠费时现金余额为负数。账户余额不足、无法调用时，状态中会注明。可以设置目标余额。国内版与海外版的密钥都可以使用：先向 api.moonshot.cn 查询，密钥被拒绝时改向 api.moonshot.ai 查询；国内版以人民币显示，海外版以美元显示，来源显示为“Kimi 开放平台 · kimi.com 账户”或“Kimi 开放平台 · kimi.ai 账户”。Kimi Code 控制台的密钥（`sk-kimi-` 开头）不能在这里使用，请选择 Kimi Code API。
 
 ### OpenCode Go
 
 填写在 OpenCode Console 创建的 API 密钥（`oc_sk_` 开头），无需在本机安装或登录 OpenCode。显示该密钥所属工作区的 OpenCode Go 额度，与自动读取的 OpenCode 相同：5 小时、每周与每月额度。工作区未订阅 OpenCode Go 时，状态中会说明。不统计 Token 用量。
+
+### Command Code API
+
+填写在 Command Code Studio 的 API 密钥页面（https://commandcode.ai/settings/keys）创建的密钥，无需在本机安装或登录 Command Code。显示的额度与自动读取的 Command Code 相同：5 小时、每周与每月额度，以及额外积分；名称旁显示套餐名称。同一个密钥也可以通过 Command Code 的 Provider API 在其他编程工具中使用，这些请求消耗同一账户的额度。不统计 Token 用量。
 
 ### OpenRouter
 

@@ -44,7 +44,7 @@ public sealed partial class SettingsWindow
     private FrameworkElement? AnchorRow(CompactStyle style)
     {
         var edge = S.CompactEdge(style);
-        if (!_app.Deck.TaskbarOn(edge)) return null;
+        if (!_app.PreviewDeck.TaskbarOn(edge)) return null;
         var chosen = DeckSettings.Anchor(style, edge, style == CompactStyle.Line ? S.LineAnchor : S.NotchAnchor);
         return MusicChoice(Loc.T("贴在", "Hang from"), chosen, [(EdgeAnchor.Screen, Loc.T("屏幕边缘", "Screen edge")), (EdgeAnchor.Taskbar, Loc.T("任务栏边缘", "Taskbar edge"))],
             value =>
@@ -73,7 +73,7 @@ public sealed partial class SettingsWindow
                 _refreshCollapsedRanges = () =>
                 {
                     double shown = ShownWidth(style);
-                    var limits = _app.Deck.CurrentCollapsedRanges(style, shown, S.NotchHeight);
+                    var limits = _app.PreviewDeck.CurrentCollapsedRanges(style, shown, S.NotchHeight);
                     SetCollapsedRange(width, limits.WidthMin, limits.WidthMax, shown);
                     SetAutoWidth(auto, width, S.NotchAutoWidth);
                     SetCollapsedRange(offset, -Whole(limits.OffsetMax), Whole(limits.OffsetMax), S.NotchOffsetX);
@@ -93,7 +93,7 @@ public sealed partial class SettingsWindow
                 _refreshCollapsedRanges = () =>
                 {
                     double shown = ShownWidth(style);
-                    var limits = _app.Deck.CurrentCollapsedRanges(style, shown, S.CapsuleHeight);
+                    var limits = _app.PreviewDeck.CurrentCollapsedRanges(style, shown, S.CapsuleHeight);
                     SetCollapsedRange(width, limits.WidthMin, limits.WidthMax, shown);
                     SetAutoWidth(auto, width, S.CapsuleAutoWidth);
                     // The capsule can move down to the bottom of the monitor, over a bottom taskbar; the limit follows its height and the display.
@@ -115,7 +115,7 @@ public sealed partial class SettingsWindow
                 _refreshCollapsedRanges = () =>
                 {
                     // The thickness is passed as the height, so a thicker line leaves less room below the top.
-                    var limits = _app.Deck.CurrentCollapsedRanges(style, S.LineLength, S.LineThickness);
+                    var limits = _app.PreviewDeck.CurrentCollapsedRanges(style, S.LineLength, S.LineThickness);
                     SetCollapsedRange(length, limits.WidthMin, limits.WidthMax, S.LineLength);
                     SetCollapsedRange(top, CollapsedLimits.LineTopMin, Math.Min(CollapsedLimits.LineTopMax, Whole(limits.TopMax)), S.LineTop);
                     SetCollapsedRange(offset, -Whole(limits.OffsetMax), Whole(limits.OffsetMax), S.LineOffsetX);
@@ -175,9 +175,9 @@ public sealed partial class SettingsWindow
     // The width the panel shows for the style: with auto width the content's, otherwise the saved one.
     private double ShownWidth(CompactStyle style)
     {
-        var shape = _app.Deck.Collapsed;
+        var shape = _app.PreviewDeck.Collapsed;
         // The surface is drawn at the scale (PanelScales); the setting is the width before it.
-        return S.CompactAutoWidth(style) && shape.Style == style ? shape.Surface.Width / _app.Deck.Scale : style == CompactStyle.Capsule ? S.CapsuleWidth : S.NotchWidth;
+        return S.CompactAutoWidth(style) && shape.Style == style ? shape.Surface.Width / _app.PreviewDeck.Scale : style == CompactStyle.Capsule ? S.CapsuleWidth : S.NotchWidth;
     }
 
     // The panel changed the collapsed size or switch from outside this window (a drag, a double click, or content that
@@ -214,7 +214,7 @@ public sealed partial class SettingsWindow
     {
         if (_preview) return;
         _preview = true;
-        _app.Deck.Preview(true, expanded: false);
+        _app.PreviewDeck.Preview(true, expanded: false);
     }
 
     private void ResetCollapsedSize(CompactStyle style)

@@ -41,7 +41,7 @@ public partial class MainWindow
     private bool DevicesSettled => _app.Devices?.Settled == true;
 
     // Each device's colors and levels as the settings give them.
-    private DeviceInks Inks => new(MonitorThemeColors.For(Settings), Settings.DeviceChoices, Settings.DeviceWarningPercent, Settings.DeviceLowPercent);
+    private DeviceInks Inks => new(MonitorThemeColors.For(Settings, Look), Settings.DeviceChoices, Settings.DeviceWarningPercent, Settings.DeviceLowPercent, Look);
 
     // Asked with the monitor's demand (UpdateMonitorDemand): whenever the panel opens, closes, changes page or is hidden, and
     // whenever the collapsed row is built.
@@ -52,8 +52,16 @@ public partial class MainWindow
         // The collapsed part is read for while it is chosen, before it shows: it joins the row only once a device reports.
         bool strip = !_expanded && Settings.ShowsDevices(EffectiveStyle) && seen && _alert is null;
         _app.PresentDevices(this, page, strip);
-        // Opened again, the page shows the readings as they are now, not as it left them.
-        if (page && !_devicesShowing) { _devicesView?.Update(ShownDevices, DevicesSettled, motion: false); _app.Devices?.Refresh(); }
+        // Opened again, the page shows the readings as they are now, not as it left them. Devices that came or went while it was
+        // closed (DevicesChanged skips the page then) can need another layout step: one device's layout puts every device in the
+        // same place, so a second one found while the panel was closed was drawn over the first. The page is built again for the
+        // new step, at once, with no crossfade from the old.
+        if (page && !_devicesShowing && _devicesView is not null)
+        {
+            if (DevicesKey() != _devicesKey) RenderDevices(handover: false);
+            else _devicesView.Update(ShownDevices, DevicesSettled, motion: false);
+            _app.Devices?.Refresh();
+        }
         _devicesShowing = page;
     }
 
@@ -72,7 +80,7 @@ public partial class MainWindow
         }
         if (CurrentPage != DeckPage.Devices || _devicesView is null) return;
         if (DevicesKey() != _devicesKey) { RenderDevices(); return; }
-        _devicesView.Update(ShownDevices, DevicesSettled, Soft.Enabled);
+        _devicesView.Update(ShownDevices, DevicesSettled, Animates);
     }
 
     // The devices the collapsed row shows (DeviceLists.Collapsed), with their colors.
@@ -106,11 +114,12 @@ public partial class MainWindow
         return DevicesLayout.For(ContentCanvas.Width - 2 * _header.Side, height - _header.Row - MonitorBottom(height), ShownDevices.Count, _devicesView is not null ? _devicesLayout : null);
     }
     private string DevicesKey() => string.Join("|", CurrentDevicesLayout(), Settings.MonitorPalette, Settings.MonitorPalette == MonitorPalette.Custom ? Settings.MonitorCustomColors.Key : "",
-        Inks.Key, Loc.Language, PanelTheme.Generation, SystemParameters.HighContrast);
+        Inks.Key, Loc.Language, Look.Generation, SystemParameters.HighContrast);
 
-    private void RenderDevices()
+    // handover: a page on screen crossfades into the new build; false replaces it at once.
+    private void RenderDevices(bool handover = true)
     {
-        bool shown = DevicesContent.Visibility == Visibility.Visible && _devicesView is not null && DevicesContent.Children.Contains(_devicesView);
+        bool shown = handover && DevicesContent.Visibility == Visibility.Visible && _devicesView is not null && DevicesContent.Children.Contains(_devicesView);
         RefreshStatus();
         UsageContent.Visibility = Visibility.Collapsed; MusicContent.Visibility = Visibility.Collapsed; MonitorContent.Visibility = Visibility.Collapsed; ShelfContent.Visibility = Visibility.Collapsed;
         DevicesContent.Visibility = Visibility.Visible;
@@ -123,7 +132,7 @@ public partial class MainWindow
         DevicesContent.Margin = new Thickness(_header.Side, 0, _header.Side, MonitorBottom(height));
         var key = DevicesKey();
         // The same step: the page stays, and only shows the devices as they are now (a device switched off in the settings).
-        if (_devicesView is not null && key == _devicesKey && DevicesContent.Children.Contains(_devicesView)) { _devicesView.Update(ShownDevices, DevicesSettled, Soft.Enabled); return; }
+        if (_devicesView is not null && key == _devicesKey && DevicesContent.Children.Contains(_devicesView)) { _devicesView.Update(ShownDevices, DevicesSettled, Animates); return; }
         var layout = CurrentDevicesLayout();
         _devicesKey = key; _devicesLayout = layout;
         var old = shown ? _devicesView : null;

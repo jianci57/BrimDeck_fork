@@ -28,7 +28,7 @@ public partial class MainWindow
         string key = ReadingsChoice();
         bool changed = _rowReadings is not null && key != _rowReadings;
         _rowReadings = key;
-        if (!changed || !Soft.Enabled || _expanded || !IsVisible || _alert is not null || Compact.Visibility != Visibility.Visible || Collapsed.Style == CompactStyle.Line) return null;
+        if (!changed || !Animates || _expanded || !IsVisible || _alert is not null || Compact.Visibility != Visibility.Visible || Collapsed.Style == CompactStyle.Line) return null;
         double width = CompactRings.ActualWidth, height = CompactRings.ActualHeight;
         if (!(width > 1) || !(height > 1) || PresentationSource.FromVisual(CompactRings) is null) return null;
         double dpi = VisualTreeHelper.GetDpi(CompactRings).DpiScaleX;

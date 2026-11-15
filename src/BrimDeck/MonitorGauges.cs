@@ -20,6 +20,8 @@ namespace BrimDeck;
 // Windows' frame events.
 internal sealed class FramesBlock : FrameworkElement
 {
+    // The look of the panel this element is drawn in (PanelLook.Of); the main look outside a panel.
+    private PanelLook Look => PanelLook.Of(this);
     private readonly string _color;
     private readonly double _body, _caption;
     private FrameSample? _frames;
@@ -94,51 +96,51 @@ internal sealed class FramesBlock : FrameworkElement
             double size = Math.Round(_body + 3);
             drawing.DrawImage(icon, new Rect((badge - size) / 2, Math.Round(h / 2 - size / 2), size, size));
         }
-        else MonitorDraw.Arrow(drawing, new Point((badge - glyph) / 2, h / 2 - glyph / 2), glyph, Math.Max(1, glyph * .09), MonitorGlyph.Screen, _frames is null ? UI.Tertiary : _color);
+        else MonitorDraw.Arrow(drawing, new Point((badge - glyph) / 2, h / 2 - glyph / 2), glyph, Math.Max(1, glyph * .09), MonitorGlyph.Screen, _frames is null ? Look.Tertiary : _color);
         double x = badge + Math.Round(_body * .5);
-        var number = MonitorDraw.Text(Figure, _body + 1, UI.Primary, ppd, strong: true);
+        var number = MonitorDraw.Text(Figure, _body + 1, Look.Primary, ppd, strong: true);
         MonitorDraw.Baseline(drawing, number, x, baseline);
         // The unit hugs the figure drawn; everything after it stands where the widest figure ("999") would end, as the
         // collapsed row reserves its readings: the low percentiles, the name and the curve hold still while the figure's
         // digits come and go.
-        var unit = MonitorDraw.Text("FPS", _caption, UI.Tertiary, ppd);
+        var unit = MonitorDraw.Text("FPS", _caption, Look.Tertiary, ppd);
         MonitorDraw.Baseline(drawing, unit, x + number.WidthIncludingTrailingWhitespace + 3, baseline);
-        x += MonitorDraw.Text(WidestFrames, _body + 1, UI.Primary, ppd, strong: true).WidthIncludingTrailingWhitespace + 3 + unit.WidthIncludingTrailingWhitespace;
+        x += MonitorDraw.Text(WidestFrames, _body + 1, Look.Primary, ppd, strong: true).WidthIncludingTrailingWhitespace + 3 + unit.WidthIncludingTrailingWhitespace;
         if (_frames is not { } frames) return;
         // The frame time in the room the widest "999.9ms" reserves, caption size like the unit, only where the settings page's
         // toggle asks for it, so it does not move with the figure's digits.
         if (_showTime)
         {
-            var time = MonitorDraw.Text(FrameTime(frames.PerSecond), _caption, UI.Tertiary, ppd);
+            var time = MonitorDraw.Text(FrameTime(frames.PerSecond), _caption, Look.Tertiary, ppd);
             MonitorDraw.Baseline(drawing, time, x + 3, baseline);
-            x += 3 + MonitorDraw.Text(WidestFrameTime, _caption, UI.Tertiary, ppd).WidthIncludingTrailingWhitespace;
+            x += 3 + MonitorDraw.Text(WidestFrameTime, _caption, Look.Tertiary, ppd).WidthIncludingTrailingWhitespace;
         }
         // The GPU frame time in the same room, where the counters say: a dash while they do not, so it never reads as a fast frame.
         if (_showGpu)
         {
-            var gpu = MonitorDraw.Text(GpuMs(frames.GpuMs), _caption, UI.Tertiary, ppd);
+            var gpu = MonitorDraw.Text(GpuMs(frames.GpuMs), _caption, Look.Tertiary, ppd);
             MonitorDraw.Baseline(drawing, gpu, x + 3, baseline);
-            x += 3 + MonitorDraw.Text(WidestFrameTime, _caption, UI.Tertiary, ppd).WidthIncludingTrailingWhitespace;
+            x += 3 + MonitorDraw.Text(WidestFrameTime, _caption, Look.Tertiary, ppd).WidthIncludingTrailingWhitespace;
         }
         // The low percentiles each in the room the widest frames ("1% 999", "0.1% 999") reserve, caption size like the unit,
         // only where the settings page's toggles ask for them, so none of them moves with the figures.
         if (_show1)
         {
-            var one = MonitorDraw.Text("1% " + Low(frames.Low1), _caption, UI.Tertiary, ppd);
+            var one = MonitorDraw.Text("1% " + Low(frames.Low1), _caption, Look.Tertiary, ppd);
             MonitorDraw.Baseline(drawing, one, x + 3, baseline);
-            x += 3 + MonitorDraw.Text("1% " + WidestFrames, _caption, UI.Tertiary, ppd).WidthIncludingTrailingWhitespace;
+            x += 3 + MonitorDraw.Text("1% " + WidestFrames, _caption, Look.Tertiary, ppd).WidthIncludingTrailingWhitespace;
         }
         if (_show01)
         {
-            var point = MonitorDraw.Text("0.1% " + Low(frames.Low01), _caption, UI.Tertiary, ppd);
+            var point = MonitorDraw.Text("0.1% " + Low(frames.Low01), _caption, Look.Tertiary, ppd);
             MonitorDraw.Baseline(drawing, point, x + 3, baseline);
-            x += 3 + MonitorDraw.Text("0.1% " + WidestFrames, _caption, UI.Tertiary, ppd).WidthIncludingTrailingWhitespace;
+            x += 3 + MonitorDraw.Text("0.1% " + WidestFrames, _caption, Look.Tertiary, ppd).WidthIncludingTrailingWhitespace;
         }
         // The refresh rate at the right end, then the name after the figure, cut to the room between them.
         double right = w;
         if (frames.Refresh is { } hertz)
         {
-            var rate = MonitorDraw.Text(Hertz(hertz), _caption, UI.Tertiary, ppd);
+            var rate = MonitorDraw.Text(Hertz(hertz), _caption, Look.Tertiary, ppd);
             right = w - rate.WidthIncludingTrailingWhitespace;
             MonitorDraw.Baseline(drawing, rate, right, baseline);
             right -= gap;
@@ -146,7 +148,7 @@ internal sealed class FramesBlock : FrameworkElement
         double nameRoom = Math.Min(right - x - gap, Math.Max(60, (right - x) * .4));
         if (nameRoom > 24)
         {
-            var name = MonitorDraw.Trimmed(frames.Program, _caption, UI.Tertiary, nameRoom, ppd);
+            var name = MonitorDraw.Trimmed(frames.Program, _caption, Look.Tertiary, nameRoom, ppd);
             MonitorDraw.Baseline(drawing, name, x + gap, baseline);
             x += gap + Math.Min(nameRoom, name.WidthIncludingTrailingWhitespace);
         }
@@ -169,6 +171,8 @@ internal sealed class FramesBlock : FrameworkElement
 // The main gauge fills the room after its figure (and its detail) with the last minute's trend (Trend), a soft line in its own color.
 internal sealed class FigureGauge : FrameworkElement
 {
+    // The look of the panel this element is drawn in (PanelLook.Of); the main look outside a panel.
+    private PanelLook Look => PanelLook.Of(this);
     private readonly string _letter, _color;
     private readonly double _figure, _small;
     private readonly bool _right;
@@ -176,8 +180,10 @@ internal sealed class FigureGauge : FrameworkElement
     private string? _buttonName;
     private Eased _share, _hover = new(0, Eased.Hover);
     private bool _hasShare, _pressed;
-    private string _number = "—", _unit = "", _detail = "", _tip = "", _detailColor = UI.Tertiary;
-    private readonly DrawingCache<(string, string, string, string, double, double, double)> _text = new();
+    private string _number = "—", _unit = "", _detail = "", _tip = "", _detailColor = PanelTheme.Main.Tertiary;
+    // The graphics memory's share after the detail ("显存 26%"), in its own level's color, apart from the temperature's.
+    private string _memory = "", _memoryColor = PanelTheme.Main.Tertiary;
+    private readonly DrawingCache<(string, string, string, string, string, string, string, double, double, double)> _text = new();
     private readonly DrawingCache<(IReadOnlyList<double>, double, double)> _trend = new();
     private IReadOnlyList<double> _history = [];
 
@@ -214,15 +220,18 @@ internal sealed class FigureGauge : FrameworkElement
     {
         string name = _letter switch { "C" => "CPU", "G" => "GPU", _ => _letter };
         string reading = _hasShare ? Loc.T($"{name} 占用 {_number}{_unit}", $"{name} usage {_number}{_unit}") : name + " · " + DrawnPeer.FirstLine(ToolTip);
-        return reading + (_detail.Length > 0 ? " · " + _detail : "") + (_button && !string.IsNullOrEmpty(_buttonName) ? Loc.T("，", ", ") + _buttonName : "");
+        return reading + (_detail.Length > 0 ? " · " + _detail : "") + (_memory.Length > 0 ? " · " + _memory : "") + (_button && !string.IsNullOrEmpty(_buttonName) ? Loc.T("，", ", ") + _buttonName : "");
     }
 
-    // detailColor: the detail's color, the tertiary text color by default (a temperature takes its level's).
-    public void Set(double? share, string number, string unit, string detail, string tip, bool motion, string? detailColor = null)
+    // detailColor: the detail's color, the tertiary text color by default (a temperature takes its level's). memory: the graphics
+    // memory's share after the detail, in memoryColor (the tertiary text color by default, its own level's when high).
+    public void Set(double? share, string number, string unit, string detail, string tip, bool motion, string? detailColor = null,
+        string memory = "", string? memoryColor = null)
     {
-        detailColor ??= UI.Tertiary;
-        bool changed = number != _number || unit != _unit || detail != _detail || detailColor != _detailColor || (share is not null) != _hasShare;
-        _number = number; _unit = unit; _detail = detail; _detailColor = detailColor; _hasShare = share is not null;
+        detailColor ??= Look.Tertiary; memoryColor ??= Look.Tertiary;
+        bool changed = number != _number || unit != _unit || detail != _detail || detailColor != _detailColor || memory != _memory || memoryColor != _memoryColor
+            || (share is not null) != _hasShare;
+        _number = number; _unit = unit; _detail = detail; _detailColor = detailColor; _memory = memory; _memoryColor = memoryColor; _hasShare = share is not null;
         if (tip != _tip) { _tip = tip; ToolTip = tip.Length > 0 ? tip : null; }
         if (share is { } value && _share.Set(value, motion)) Motion.Start(this, Step);
         else if (changed || share is not null) InvalidateVisual();
@@ -241,48 +250,66 @@ internal sealed class FigureGauge : FrameworkElement
         double ppd = MonitorDraw.PixelsPerDip(this), h = ActualHeight, w = ActualWidth, now = Eased.Now;
         drawing.DrawRectangle(Brushes.Transparent, null, new Rect(0, 0, w, h));
         double badge = Math.Round(_figure + 3), gap = Math.Round(_figure * .4);
-        var number = MonitorDraw.Text(_number, _figure, UI.Primary, ppd, display: true);
-        var unit = MonitorDraw.Text(_unit, _small, UI.Secondary, ppd);
+        var number = MonitorDraw.Text(_number, _figure, Look.Primary, ppd, display: true);
+        var unit = MonitorDraw.Text(_unit, _small, Look.Secondary, ppd);
         var detail = MonitorDraw.Text(_detail, _small, _detailColor, ppd);
-        double width = badge + gap + number.WidthIncludingTrailingWhitespace + (_unit.Length > 0 ? 2 + unit.WidthIncludingTrailingWhitespace : 0)
-            + (_detail.Length > 0 ? gap + detail.WidthIncludingTrailingWhitespace : 0);
+        // The memory's share follows the detail after a dot in the tertiary color, so the dot takes neither one's level.
+        string joiner = _detail.Length > 0 && _memory.Length > 0 ? " · " : "", tertiary = Look.Tertiary;
+        var join = MonitorDraw.Text(joiner, _small, tertiary, ppd);
+        var memory = MonitorDraw.Text(_memory, _small, _memoryColor, ppd);
+        bool tail = _detail.Length > 0 || _memory.Length > 0;
+        double tailWidth = tail ? gap + detail.WidthIncludingTrailingWhitespace + join.WidthIncludingTrailingWhitespace + memory.WidthIncludingTrailingWhitespace : 0;
+        double width = badge + gap + number.WidthIncludingTrailingWhitespace + (_unit.Length > 0 ? 2 + unit.WidthIncludingTrailingWhitespace : 0) + tailWidth;
         double x = _right ? Math.Max(0, w - width) : 0, baseline = Math.Round(h / 2 + number.Baseline - number.Height / 2 + _figure * .05);
         var center = new Point(x + badge / 2, h / 2);
-        double hover = _button ? Math.Clamp(_hover.At(now), 0, 1) : 0;
+        double hover = _button ? PressFeedback.FillShown(Math.Clamp(_hover.At(now), 0, 1), _pressed) : 0;
         if (hover > .01)
         {
             drawing.PushOpacity(hover);
-            drawing.DrawEllipse(UI.Brush(_pressed ? PanelTheme.Hex("pressed") : PanelTheme.Hex("hover")), null, center, badge / 2 + 2, badge / 2 + 2);
+            drawing.DrawEllipse(UI.Brush(_pressed ? Look.Hex("pressed") : Look.Hex("hover")), null, center, badge / 2 + 2, badge / 2 + 2);
             drawing.Pop();
         }
-        MonitorDraw.Dial(drawing, center, badge, DialRing(badge), DialLetter(badge), _hasShare ? _share.At(now) : null, _color, _letter, ppd);
+        MonitorDraw.Dial(drawing, center, badge, DialRing(badge), DialLetter(badge), _hasShare ? _share.At(now) : null, _color, _letter, ppd, look: Look);
         // The figures change once per reading; while the arc moves they are placed as they were drawn.
         double start = x + badge + gap;
         if (_history.Count >= 3 && !_right)
         {
             // From after the figures (and any detail) to the right edge, half the line's height, centred on it.
             double end = start + number.WidthIncludingTrailingWhitespace + (_unit.Length > 0 ? 2 + unit.WidthIncludingTrailingWhitespace : 0)
-                + (_detail.Length > 0 ? gap + detail.WidthIncludingTrailingWhitespace : 0) + gap * 1.5;
+                + tailWidth + gap * 1.5;
             var area = new Rect(end, Math.Round(h * .2), Math.Max(0, w - end - 6), Math.Round(h * .6));
             if (area.Width >= 48)
                 MonitorDraw.Place(drawing, area.TopLeft, _trend.Get((_history, area.Width, area.Height), context =>
                     MonitorDraw.Sparkline(context, new Rect(0, 0, area.Width, area.Height), _history, 1, _color, .14, 1.3)));
         }
-        drawing.DrawDrawing(_text.Get((_number, _unit, _detail, _detailColor, w, h, ppd), context =>
+        drawing.DrawDrawing(_text.Get((_number, _unit, _detail, _detailColor, _memory, _memoryColor, tertiary, w, h, ppd), context =>
         {
             double x = start;
             MonitorDraw.Baseline(context, number, x, baseline); x += number.WidthIncludingTrailingWhitespace;
             if (_unit.Length > 0) { MonitorDraw.Baseline(context, unit, x + 2, baseline); x += 2 + unit.WidthIncludingTrailingWhitespace; }
-            if (_detail.Length > 0)
-            {
-                // A long detail is cut to the room left, with an ellipsis.
-                double room = w - x - gap;
-                if (room > 12) MonitorDraw.Baseline(context, detail.WidthIncludingTrailingWhitespace <= room ? detail : MonitorDraw.Trimmed(_detail, _small, _detailColor, room, ppd), x + gap, baseline);
-            }
+            if (!tail) return;
+            // A long detail is cut to the room left, with an ellipsis; the memory's share after it only where its dot and some of it fit.
+            x += gap;
+            x = Part(context, detail, _detail, _detailColor, x, w, baseline, ppd);
+            if (joiner.Length > 0 && w - x <= join.WidthIncludingTrailingWhitespace + 12) return;
+            x = Part(context, join, joiner, tertiary, x, w, baseline, ppd);
+            Part(context, memory, _memory, _memoryColor, x, w, baseline, ppd);
         }));
     }
 
-    protected override void OnMouseEnter(MouseEventArgs e) { base.OnMouseEnter(e); if (_button) Hover(true); }
+    // A piece of the detail at x, whole or cut with an ellipsis to the room before end; where it ends (end once cut, x when empty
+    // or with no room left).
+    private double Part(DrawingContext context, FormattedText text, string words, string color, double x, double end, double baseline, double ppd)
+    {
+        double room = end - x;
+        if (words.Length == 0 || room <= 12) return words.Length == 0 ? x : end;
+        if (text.WidthIncludingTrailingWhitespace <= room) { MonitorDraw.Baseline(context, text, x, baseline); return x + text.WidthIncludingTrailingWhitespace; }
+        MonitorDraw.Baseline(context, MonitorDraw.Trimmed(words, _small, color, room, ppd), x, baseline);
+        return end;
+    }
+
+    // Touch and a pen do not hover (motion-review F4).
+    protected override void OnMouseEnter(MouseEventArgs e) { base.OnMouseEnter(e); if (_button && PressFeedback.Hovers(true, e.StylusDevice is not null)) Hover(true); }
     protected override void OnMouseLeave(MouseEventArgs e) { base.OnMouseLeave(e); if (_button) { _pressed = false; Hover(false); } }
     protected override void OnMouseLeftButtonDown(MouseButtonEventArgs e)
     {
@@ -299,16 +326,24 @@ internal sealed class FigureGauge : FrameworkElement
 }
 
 // One column of a graph: its value (0..1), an optional tick (0..1, the core's frequency), its color and group (a gap separates
-// groups), its tooltip, and under it, where the panel is tall enough, a figure and a smaller line.
-internal sealed record GraphColumn(double Value, double? Tick, string Color, int Group, string Tip, string? Label = null, string? Sub = null);
+// groups), its tooltip, and under it, where the panel is tall enough, a figure and a smaller line. Hot is the color the dot matrix
+// takes at the core's level (the warning or critical color of a busy core); without it the matrix uses Color.
+internal sealed record GraphColumn(double Value, double? Tick, string Color, int Group, string Tip, string? Label = null, string? Sub = null, string? Hot = null);
 
 // Columns side by side, ftop's core columns: the fill is the value, the tick the frequency. Used for the processor's cores, the
 // graphics adapter's engines, and small for the gauge shown beside the main one. As a button the whole graph takes clicks.
 internal sealed class ColumnGraph : FrameworkElement
 {
+    // The look of the panel this element is drawn in (PanelLook.Of); the main look outside a panel.
+    private PanelLook Look => PanelLook.Of(this);
     private const double Rest = 3;
     private readonly double _maxColumn, _label, _gap;
     private readonly bool _labels, _button;
+    private readonly CoreDisplay _display;
+    // The dot matrix's cells: one frozen brush per color and brightness step, made on first use.
+    private readonly Dictionary<(string Color, int Step), Brush> _cellBrushes = [];
+    private MatrixGrid _grid;
+    private (int, double, double, double) _gridKey;
     private IReadOnlyList<GraphColumn> _columns = [];
     private Eased[] _values = [], _ticks = [];
     private bool[] _hasTick = [];
@@ -321,9 +356,10 @@ internal sealed class ColumnGraph : FrameworkElement
     public event Action? Clicked;
 
     // name: what the graph shows, for screen readers ("CPU 各核心占用").
-    public ColumnGraph(double maxColumn, double label, bool labels, double gap = 3, string? button = null, string name = "")
+    // display: columns, or a dot matrix of the cores as chosen in the settings (CoreDisplay); only the processor's graph takes it.
+    public ColumnGraph(double maxColumn, double label, bool labels, double gap = 3, string? button = null, string name = "", CoreDisplay display = CoreDisplay.Columns)
     {
-        _maxColumn = maxColumn; _label = label; _labels = labels; _gap = gap; _button = button is not null; _name = name; _action = button ?? "";
+        _maxColumn = maxColumn; _label = label; _labels = labels; _gap = gap; _button = button is not null; _name = name; _action = button ?? ""; _display = display;
         ClipToBounds = true; SnapsToDevicePixels = true;
         if (button is not null) { Cursor = Cursors.Hand; AutomationProperties.SetName(this, button); }
         else ToolTipService.SetPlacement(this, System.Windows.Controls.Primitives.PlacementMode.Mouse);
@@ -359,16 +395,60 @@ internal sealed class ColumnGraph : FrameworkElement
         : new DrawnPeer(this, AutomationControlType.List, () => _name, parts: Parts);
     private IEnumerable<DrawnPart> Parts()
     {
+        double ppd = MonitorDraw.PixelsPerDip(this);
+        if (UseMatrix(ActualWidth, ppd))
+        {
+            var grid = Grid(ActualWidth, ActualHeight, ppd);
+            for (int i = 0; i < grid.Count; i++)
+            {
+                var (x, y) = grid.Origin(i);
+                yield return new DrawnPart(i.ToString(), _columns[i].Tip.Replace("\n", Loc.T("，", ", ")), new Rect(x, y, grid.Cell, grid.Cell));
+            }
+            yield break;
+        }
         var (xs, column) = Geometry(ActualWidth);
         for (int i = 0; i < xs.Length; i++)
             yield return new DrawnPart(i.ToString(), _columns[i].Tip.Replace("\n", Loc.T("，", ", ")), new Rect(xs[i], 0, column, ActualHeight));
+    }
+
+    // Whether the cores are drawn as the dot matrix: as the setting says, and with Auto once the columns would be thinner than
+    // CoreMatrix.ReadableColumn device pixels (they are at least a DIP wide, so a crowd of cores would overflow the graph).
+    private bool UseMatrix(double width, double ppd)
+    {
+        if (_display == CoreDisplay.Columns || _columns.Count == 0) return false;
+        if (_display == CoreDisplay.Matrix) return true;
+        double gaps = 0;
+        for (int i = 1; i < _columns.Count; i++) gaps += Gap(i);
+        return CoreMatrix.Use(_display, Math.Min((width - gaps) / _columns.Count, _maxColumn), ppd);
+    }
+
+    // The matrix's placement, kept while the count, the size and the scale stay the same.
+    private MatrixGrid Grid(double width, double height, double ppd)
+    {
+        var key = (_columns.Count, width, height, ppd);
+        if (_grid.Count != _columns.Count || key != _gridKey) { _grid = CoreMatrix.Fit(_columns.Count, width, height, ppd, MaxCell); _gridKey = key; }
+        return _grid;
+    }
+    // A few cores in a wide graph stay squares of a sensible size.
+    private const double MaxCell = 14;
+
+    private Brush CellBrush(string color, int step)
+    {
+        if (!_cellBrushes.TryGetValue((color, step), out var brush))
+        {
+            var c = (Color)ColorConverter.ConvertFromString(color);
+            c.A = (byte)Math.Round(c.A * CoreMatrix.Alpha(step) / 255d);
+            var made = new SolidColorBrush(c); made.Freeze();
+            _cellBrushes[(color, step)] = brush = made;
+        }
+        return brush;
     }
 
     // The room under the columns for their figures. With the figure line alone, the line's baseline sits on the graph's bottom
     // edge, level with the foot of the graph beside it (the engines' names and the small cores); a second line needs room for both.
     private double LabelHeight(double ppd) => !_labels ? 0
         : _columns.Any(c => c.Sub is { Length: > 0 }) ? Math.Ceiling(_label * 2.5)
-        : 3 + Math.Ceiling(MonitorDraw.Text("3D", _label, UI.Primary, ppd, strong: true).Baseline);
+        : 3 + Math.Ceiling(MonitorDraw.Text("3D", _label, Look.Primary, ppd, strong: true).Baseline);
 
     private (double[] X, double Width) Geometry(double width)
     {
@@ -387,11 +467,12 @@ internal sealed class ColumnGraph : FrameworkElement
     {
         double w = ActualWidth, ppd = MonitorDraw.PixelsPerDip(this), h = ActualHeight - LabelHeight(ppd), now = Eased.Now;
         if (_button) drawing.DrawRectangle(Brushes.Transparent, null, new Rect(0, 0, w, ActualHeight));
+        if (_columns.Count > 0 && h > 4 && UseMatrix(w, ppd)) { Matrix(drawing, w, ppd, now); return; }
         var (xs, column) = Geometry(w);
         if (xs.Length == 0 || h <= 4) return;
         double radius = Math.Min(column / 2, 5);
         drawing.DrawDrawing(_fixed.Get((_labelsVersion, w, ActualHeight, ppd), context => Fixed(context, xs, column, h, radius, ppd)));
-        var tick = new Pen(UI.Brush(PanelTheme.Current["textPrimary"].WithAlpha(0xB3).ToString()), Math.Max(1, Math.Min(1.6, column / 6)));
+        var tick = new Pen(UI.Brush(Look.Current["textPrimary"].WithAlpha(0xB3).ToString()), Math.Max(1, Math.Min(1.6, column / 6)));
         tick.Freeze();
         for (int i = 0; i < xs.Length; i++)
         {
@@ -406,18 +487,41 @@ internal sealed class ColumnGraph : FrameworkElement
         }
     }
 
+    // The dot matrix: the empty cells (kept, drawn again only when the count, the size or the scale change), then each core's cell in
+    // its color at the brightness step of its eased load; a busy core takes its warning or critical color (GraphColumn.Hot).
+    private void Matrix(DrawingContext drawing, double w, double ppd, double now)
+    {
+        var grid = Grid(w, ActualHeight, ppd);
+        double radius = grid.Cell >= 5 ? grid.Cell * .18 : 0;
+        drawing.DrawDrawing(_fixed.Get((_labelsVersion, w, ActualHeight, ppd), context =>
+        {
+            var track = UI.Brush(Look.Fill);
+            for (int i = 0; i < grid.Count; i++)
+            {
+                var (x, y) = grid.Origin(i);
+                context.DrawRoundedRectangle(track, null, new Rect(x, y, grid.Cell, grid.Cell), radius, radius);
+            }
+        }));
+        for (int i = 0; i < grid.Count; i++)
+        {
+            var c = _columns[i];
+            var (x, y) = grid.Origin(i);
+            drawing.DrawRoundedRectangle(CellBrush(c.Hot ?? c.Color, CoreMatrix.Step(_values[i].At(now))), null, new Rect(x, y, grid.Cell, grid.Cell), radius, radius);
+        }
+    }
+
     // The tracks, and under each column, where the column is wide enough to hold them, its figure and a second line.
     private void Fixed(DrawingContext drawing, double[] xs, double column, double h, double radius, double ppd)
     {
-        var track = UI.Brush(UI.Fill);
+        var track = UI.Brush(Look.Fill);
         for (int i = 0; i < xs.Length; i++)
         {
             var c = _columns[i];
             drawing.DrawRoundedRectangle(track, null, new Rect(xs[i], 0, column, h), radius, radius);
             if (!_labels) continue;
-            if (c.Label is { Length: > 0 } label && MonitorDraw.Text(label, _label, UI.Primary, ppd, strong: true) is var top && top.Width <= column + 4)
+            if (c.Label is { Length: > 0 } label && MonitorDraw.Text(label, _label, Look.Primary, ppd, strong: true) is var top && top.Width <= column + 4)
                 drawing.DrawText(top, new Point(xs[i] + (column - top.Width) / 2, h + 3));
-            if (c.Sub is { Length: > 0 } sub && MonitorDraw.Text(sub, _label - 1.5, UI.Tertiary, ppd) is var bottom && bottom.Width <= column + 6)
+            if (c.Sub is { Length: > 0 } sub && MonitorDraw.Text(sub, _label - 1.5, Look.Tertiary, ppd) is var bottom && bottom.Width <= column + 6)
                 drawing.DrawText(bottom, new Point(xs[i] + (column - bottom.Width) / 2, h + 3 + _label * 1.25));
         }
     }
@@ -426,10 +530,17 @@ internal sealed class ColumnGraph : FrameworkElement
     {
         base.OnMouseMove(e);
         if (_button) return;
-        var (xs, column) = Geometry(ActualWidth);
-        double x = e.GetPosition(this).X;
-        int index = Array.FindLastIndex(xs, start => x >= start - _gap / 2);
-        if (index >= 0 && x > xs[index] + column + _gap) index = -1;
+        var at = e.GetPosition(this);
+        double ppd = MonitorDraw.PixelsPerDip(this);
+        int index;
+        if (UseMatrix(ActualWidth, ppd)) index = Grid(ActualWidth, ActualHeight, ppd).CellAt(at.X, at.Y);
+        else
+        {
+            var (xs, column) = Geometry(ActualWidth);
+            double x = at.X;
+            index = Array.FindLastIndex(xs, start => x >= start - _gap / 2);
+            if (index >= 0 && x > xs[index] + column + _gap) index = -1;
+        }
         if (index == _tipIndex) return;
         _tipIndex = index;
         _tip.Content = index < 0 ? null : _columns[index].Tip;
@@ -438,16 +549,27 @@ internal sealed class ColumnGraph : FrameworkElement
     protected override void OnMouseLeftButtonUp(MouseButtonEventArgs e) { base.OnMouseLeftButtonUp(e); if (_button) { e.Handled = true; Clicked?.Invoke(); } }
 }
 
-// One wide column, as ftop draws the GPU beside the cores: the fill is usage, the line its memory in use against its size.
+// One wide column, as ftop draws the GPU beside the cores: the fill is usage, the line its memory in use against its size, which
+// is also written at the top ("显存 18%", or the share alone where the column is too narrow for the words, or nothing where it is too short),
+// so the memory shows without pointing at the block.
 internal sealed class BlockGauge : FrameworkElement
 {
+    // The look of the panel this element is drawn in (PanelLook.Of); the main look outside a panel.
+    private PanelLook Look => PanelLook.Of(this);
     private readonly string _color;
     private Eased _value, _tick, _hover = new(0, Eased.Hover);
     private bool _hasTick, _hasValue;
     private readonly string _action;
+    // The memory line's words, in full and the share alone, and the caption's size (0: no words).
+    private readonly double _caption;
+    private string _label = "", _short = "";
+    private readonly DrawingCache<(string, string, double, double, double, string)> _words = new();
     public event Action? Clicked;
 
-    public BlockGauge(string color, string button) { _color = color; _action = button; Cursor = Cursors.Hand; AutomationProperties.SetName(this, button); SnapsToDevicePixels = true; }
+    public BlockGauge(string color, string button, double caption = 0)
+    {
+        _color = color; _action = button; _caption = caption; Cursor = Cursors.Hand; AutomationProperties.SetName(this, button); SnapsToDevicePixels = true;
+    }
 
     protected override AutomationPeer OnCreateAutomationPeer() => new DrawnPeer(this, AutomationControlType.Button, Spoken, () => Clicked?.Invoke());
     // For screen readers, named as the block it is, with the memory its line shows, so it never reads the same as the small GPU figure beside the main
@@ -463,6 +585,8 @@ internal sealed class BlockGauge : FrameworkElement
         bool moving = _value.Set(value ?? 0, motion);
         if (tick is { } t) moving |= _tick.Set(t, motion && _hasTick);
         _hasTick = tick is not null;
+        _short = tick is { } share ? MonitorFormat.Percent(share) + "%" : "";
+        _label = tick is null ? "" : Loc.T("显存 ", "VRAM ") + _short;
         if (moving) Motion.Start(this, Step); else InvalidateVisual();
     }
     private bool Step(double now) { InvalidateVisual(); return _value.Moving(now) || _tick.Moving(now) || _hover.Moving(now); }
@@ -475,17 +599,37 @@ internal sealed class BlockGauge : FrameworkElement
         double w = ActualWidth, h = ActualHeight, now = Eased.Now, radius = Math.Min(8, w / 4);
         if (w <= 0 || h <= 0) return;
         var box = new Rect(0, 0, w, h);
-        drawing.DrawRoundedRectangle(UI.Brush(UI.Fill), null, box, radius, radius);
+        drawing.DrawRoundedRectangle(UI.Brush(Look.Fill), null, box, radius, radius);
         double hover = Math.Clamp(_hover.At(now), 0, 1);
-        if (hover > .01) { drawing.PushOpacity(hover); drawing.DrawRoundedRectangle(UI.Brush(PanelTheme.Hex("hover")), null, box, radius, radius); drawing.Pop(); }
+        if (hover > .01) { drawing.PushOpacity(hover); drawing.DrawRoundedRectangle(UI.Brush(Look.Hex("hover")), null, box, radius, radius); drawing.Pop(); }
         double fill = Math.Max(3, Math.Clamp(_value.At(now), 0, 1) * h);
         drawing.DrawRoundedRectangle(UI.Brush(_color), null, new Rect(0, h - fill, w, fill), radius, radius);
+        Rect words = Rect.Empty;
+        if (_label.Length > 0 && _caption > 0 && h >= _caption * 3 + 8)
+        {
+            double ppd = MonitorDraw.PixelsPerDip(this);
+            var label = (_words.Get((_label, _short, w, _caption, ppd, Look.Secondary), context =>
+            {
+                var text = MonitorDraw.Text(_label, _caption, Look.Secondary, ppd);
+                if (text.WidthIncludingTrailingWhitespace > w - 6) text = MonitorDraw.Text(_short, _caption, Look.Secondary, ppd);
+                if (text.WidthIncludingTrailingWhitespace <= w - 6) MonitorDraw.Baseline(context, text, Math.Round((w - text.Width) / 2), Math.Round(4 + text.Baseline));
+            }));
+            drawing.DrawDrawing(label);
+            words = label.Bounds;
+        }
         if (!_hasTick || w < 10) return;
-        var pen = new Pen(UI.Brush(PanelTheme.Current["textPrimary"].WithAlpha(0xB3).ToString()), 1.6); pen.Freeze();
+        var pen = new Pen(UI.Brush(Look.Current["textPrimary"].WithAlpha(0xB3).ToString()), 1.6); pen.Freeze();
         double y = Math.Round((1 - Math.Clamp(_tick.At(now), 0, 1)) * (h - 2)) + 1;
-        drawing.DrawLine(pen, new Point(w * .2, y), new Point(w * .8, y));
+        double left = w * .2, right = w * .8;
+        // A tick that falls on the label does not run through its letters: the line leaves a gap of the label's width there.
+        if (!words.IsEmpty && y >= words.Top - 2 && y <= words.Bottom + 2 && words.Right > left && words.Left < right)
+        {
+            if (words.Left - 2 > left) drawing.DrawLine(pen, new Point(left, y), new Point(words.Left - 2, y));
+            if (words.Right + 2 < right) drawing.DrawLine(pen, new Point(words.Right + 2, y), new Point(right, y));
+        }
+        else drawing.DrawLine(pen, new Point(left, y), new Point(right, y));
     }
-    protected override void OnMouseEnter(MouseEventArgs e) { base.OnMouseEnter(e); Hover(true); }
+    protected override void OnMouseEnter(MouseEventArgs e) { base.OnMouseEnter(e); if (PressFeedback.Hovers(true, e.StylusDevice is not null)) Hover(true); }
     protected override void OnMouseLeave(MouseEventArgs e) { base.OnMouseLeave(e); Hover(false); }
     protected override void OnMouseLeftButtonUp(MouseButtonEventArgs e) { base.OnMouseLeftButtonUp(e); e.Handled = true; Clicked?.Invoke(); }
 }
@@ -495,6 +639,8 @@ internal sealed class BlockGauge : FrameworkElement
 // Short of room (compact), the figure and the bar share one line.
 internal sealed class MemoryBlock : FrameworkElement
 {
+    // The look of the panel this element is drawn in (PanelLook.Of); the main look outside a panel.
+    private PanelLook Look => PanelLook.Of(this);
     private readonly MonitorColors _colors;
     private readonly bool _compact;
     private readonly double _body, _caption;
@@ -534,14 +680,14 @@ internal sealed class MemoryBlock : FrameworkElement
     {
         double w = ActualWidth, ppd = MonitorDraw.PixelsPerDip(this), now = Eased.Now, line = Math.Ceiling(_body * 1.7), badge = Math.Round(_body + 5);
         drawing.DrawRectangle(Brushes.Transparent, null, new Rect(0, 0, w, ActualHeight));
-        string color = _memory is null ? UI.Tertiary : _colors.Memory;
-        MonitorDraw.Dial(drawing, new Point(badge / 2, line / 2), badge, FigureGauge.DialRing(badge), FigureGauge.DialLetter(badge), _memory is null ? null : _used.At(now), color, "M", ppd);
+        string color = _memory is null ? Look.Tertiary : _colors.Memory;
+        MonitorDraw.Dial(drawing, new Point(badge / 2, line / 2), badge, FigureGauge.DialRing(badge), FigureGauge.DialLetter(badge), _memory is null ? null : _used.At(now), color, "M", ppd, look: Look);
         double x = badge + Math.Round(_body * .5), baseline = Math.Round(line / 2 + _body * .38);
-        var figure = MonitorDraw.Text(_memory is { } mem ? MonitorFormat.Gigabytes(mem.Used) : "—", _body + 1, UI.Primary, ppd, strong: true);
+        var figure = MonitorDraw.Text(_memory is { } mem ? MonitorFormat.Gigabytes(mem.Used) : "—", _body + 1, Look.Primary, ppd, strong: true);
         MonitorDraw.Baseline(drawing, figure, x, baseline); x += figure.WidthIncludingTrailingWhitespace;
         if (_memory is { } total)
         {
-            var unit = MonitorDraw.Text("/ " + MonitorFormat.GigabytesCompact(total.Total) + " GB", _caption, UI.Tertiary, ppd);
+            var unit = MonitorDraw.Text("/ " + MonitorFormat.GigabytesCompact(total.Total) + " GB", _caption, Look.Tertiary, ppd);
             MonitorDraw.Baseline(drawing, unit, x + 3, baseline); x += 3 + unit.WidthIncludingTrailingWhitespace;
         }
         if (_compact)
@@ -566,16 +712,16 @@ internal sealed class MemoryBlock : FrameworkElement
     private void Commit(DrawingContext drawing, Rect r, double now)
     {
         if (_memory is null) return;
-        drawing.DrawRoundedRectangle(UI.Brush(UI.Track), null, r, 1, 1);
+        drawing.DrawRoundedRectangle(UI.Brush(Look.Track), null, r, 1, 1);
         double share = Math.Clamp(_commit.At(now), 0, 1);
-        if (share > 0) drawing.DrawRoundedRectangle(UI.Brush(UI.Secondary), null, new Rect(r.X, r.Y, Math.Max(2, r.Width * share), 2), 1, 1);
+        if (share > 0) drawing.DrawRoundedRectangle(UI.Brush(Look.Secondary), null, new Rect(r.X, r.Y, Math.Max(2, r.Width * share), 2), 1, 1);
     }
 
     // The memory in use, then the cache in the same color, lighter, then the free rest.
     private void Bar(DrawingContext drawing, Rect r, string color, double now)
     {
         double radius = r.Height / 2;
-        drawing.DrawRoundedRectangle(UI.Brush(UI.Track), null, r, radius, radius);
+        drawing.DrawRoundedRectangle(UI.Brush(Look.Track), null, r, radius, radius);
         if (_memory is null) return;
         double used = Math.Clamp(_used.At(now), 0, 1) * r.Width, cached = Math.Clamp(_cached.At(now), 0, 1) * r.Width;
         if (cached > 1) drawing.DrawRoundedRectangle(UI.Brush(MonitorDraw.Faint(color, .38)), null, new Rect(r.X, r.Y, Math.Min(r.Width, used + cached), r.Height), radius, radius);
@@ -588,16 +734,23 @@ internal sealed class MemoryBlock : FrameworkElement
 // says little more, and the core columns use it better), or not at all where both share a line with memory (Line).
 internal sealed class NetworkBlock : FrameworkElement
 {
+    // The look of the panel this element is drawn in (PanelLook.Of); the main look outside a panel.
+    private PanelLook Look => PanelLook.Of(this);
     private readonly MonitorColors _colors;
     private readonly MetricsMode _mode;
     private readonly double _body, _caption;
+    // Which of the two rates the block shows (the table may choose one): one takes the whole width.
+    private readonly bool _download, _upload;
+    // With both shown: the upload at the left, as the table orders them.
+    private readonly bool _uploadFirst;
     private NetworkSample? _rates;
     private IReadOnlyList<double> _down = [], _up = [];
     private string _reason = "";
 
-    public NetworkBlock(MonitorColors colors, MetricsMode mode, double body, double caption)
+    public NetworkBlock(MonitorColors colors, MetricsMode mode, double body, double caption, bool download = true, bool upload = true, bool uploadFirst = false)
     {
         _colors = colors; _mode = mode == MetricsMode.Blocks ? MetricsMode.Lines : mode; _body = body; _caption = caption;
+        _download = download || !upload; _upload = upload || !download; _uploadFirst = uploadFirst;
         Height = Math.Ceiling(body * 1.7);
     }
 
@@ -607,7 +760,11 @@ internal sealed class NetworkBlock : FrameworkElement
     public void Set(Reading<NetworkSample> reading, IReadOnlyList<double> down, IReadOnlyList<double> up)
     {
         _rates = reading.OrDefault; _reason = reading.HasValue ? "" : reading.Reason; _down = down; _up = up;
-        ToolTip = _rates is { } r ? Loc.T("下载 ", "Download ") + MonitorFormat.Rate(r.DownBytesPerSecond).Text + " · " + Loc.T("上传 ", "Upload ") + MonitorFormat.Rate(r.UpBytesPerSecond).Text
+        // The traffic over the period chosen after each rate: "下载 1.2 MB/s，当天 2.31 GB".
+        string Total(double? bytes) => bytes is { } moved ? Loc.T("，", ", ") + TrafficPeriods.Name(_rates!.TotalPeriod) + " " + MonitorFormat.Total(moved).Text : "";
+        string? downText = _rates is { } d && _download ? Loc.T("下载 ", "Download ") + MonitorFormat.Rate(d.DownBytesPerSecond).Text + Total(d.DownTotalBytes) : null;
+        string? upText = _rates is { } u && _upload ? Loc.T("上传 ", "Upload ") + MonitorFormat.Rate(u.UpBytesPerSecond).Text + Total(u.UpTotalBytes) : null;
+        ToolTip = _rates is not null ? string.Join(" · ", (_uploadFirst ? new[] { upText, downText } : [downText, upText]).OfType<string>())
             : Loc.T("暂无读数：", "No reading: ") + _reason;
         InvalidateVisual();
     }
@@ -618,11 +775,19 @@ internal sealed class NetworkBlock : FrameworkElement
     {
         double w = ActualWidth, ppd = MonitorDraw.PixelsPerDip(this), line = Math.Ceiling(_body * 1.7), half = Math.Floor((w - 12) / 2);
         drawing.DrawRectangle(Brushes.Transparent, null, new Rect(0, 0, w, ActualHeight));
-        Half(drawing, 0, half, line, MonitorGlyph.Down, _rates?.DownBytesPerSecond, _down, _colors.Download, ppd);
-        Half(drawing, half + 12, half, line, MonitorGlyph.Up, _rates?.UpBytesPerSecond, _up, _colors.Upload, ppd);
+        if (_download && _upload)
+        {
+            double downAt = _uploadFirst ? half + 12 : 0, upAt = _uploadFirst ? 0 : half + 12;
+            Half(drawing, downAt, half, line, MonitorGlyph.Down, _rates?.DownBytesPerSecond, _rates?.DownTotalBytes, _down, _colors.Download, ppd);
+            Half(drawing, upAt, half, line, MonitorGlyph.Up, _rates?.UpBytesPerSecond, _rates?.UpTotalBytes, _up, _colors.Upload, ppd);
+        }
+        else if (_download) Half(drawing, 0, w, line, MonitorGlyph.Down, _rates?.DownBytesPerSecond, _rates?.DownTotalBytes, _down, _colors.Download, ppd);
+        else Half(drawing, 0, w, line, MonitorGlyph.Up, _rates?.UpBytesPerSecond, _rates?.UpTotalBytes, _up, _colors.Upload, ppd);
     }
 
-    private void Half(DrawingContext drawing, double left, double width, double line, MonitorGlyph glyph, double? rate, IReadOnlyList<double> history, string color, double ppd)
+    // total: the traffic over the period chosen (TrafficPeriods), at the end of the half in the caption's type where there is room for it (with
+    // its label if that fits, else the figure alone), and the curve ends before it.
+    private void Half(DrawingContext drawing, double left, double width, double line, MonitorGlyph glyph, double? rate, double? total, IReadOnlyList<double> history, string color, double ppd)
     {
         double badge = Math.Round(_body + 5), baseline = Math.Round(line / 2 + _body * .38);
         // The arrow in the room a dial takes, as large against it as the collapsed strip draws it, so the figures line up with memory's.
@@ -630,16 +795,30 @@ internal sealed class NetworkBlock : FrameworkElement
         MonitorDraw.Arrow(drawing, new Point(left + (badge - arrow) / 2, line / 2 - arrow / 2), arrow, Math.Max(1, arrow * .155), glyph, color);
         double x = left + badge + Math.Round(_body * .5);
         var q = rate is { } r ? MonitorFormat.Rate(r) : new MonitorFormat.Quantity("—", "");
-        var number = MonitorDraw.Text(q.Number, _body + 1, UI.Primary, ppd, strong: true);
+        var number = MonitorDraw.Text(q.Number, _body + 1, Look.Primary, ppd, strong: true);
         MonitorDraw.Baseline(drawing, number, x, baseline);
         x += number.WidthIncludingTrailingWhitespace;
-        if (q.Unit.Length > 0) { var unit = MonitorDraw.Text(q.Unit, _caption, UI.Tertiary, ppd); MonitorDraw.Baseline(drawing, unit, x + 3, baseline); x += 3 + unit.WidthIncludingTrailingWhitespace; }
+        if (q.Unit.Length > 0) { var unit = MonitorDraw.Text(q.Unit, _caption, Look.Tertiary, ppd); MonitorDraw.Baseline(drawing, unit, x + 3, baseline); x += 3 + unit.WidthIncludingTrailingWhitespace; }
+        double reserved = 0;
+        if (total is { } moved)
+        {
+            var figure = MonitorFormat.Total(moved).Text;
+            foreach (var label in new[] { TrafficPeriods.Name(_rates?.TotalPeriod ?? TrafficPeriod.Today) + " " + figure, figure })
+            {
+                var drawn = MonitorDraw.Text(label, _caption, Look.Tertiary, ppd);
+                double drawnWidth = Math.Ceiling(drawn.WidthIncludingTrailingWhitespace);
+                if (x + 8 + drawnWidth > left + width) continue;
+                MonitorDraw.Baseline(drawing, drawn, left + width - drawnWidth, baseline);
+                reserved = drawnWidth + 8;
+                break;
+            }
+        }
         if (_mode == MetricsMode.Line || history.Count < 3) return;
         // The sparkline takes the rest of the half after the rate, centred on the line and as tall as the power line's curve (a drive
         // line less 4), so the page's small curves are one size. Measured before a Rect is made: a Rect does not take a negative size,
         // and a narrow half leaves none.
         double start = Math.Max(x + 10, left + width * .45);
-        double areaWidth = left + width - start, areaHeight = Math.Min(line - 4, Math.Ceiling(_body * 1.5) - 4), areaTop = Math.Round((line - areaHeight) / 2);
+        double areaWidth = left + width - reserved - start, areaHeight = Math.Min(line - 4, Math.Ceiling(_body * 1.5) - 4), areaTop = Math.Round((line - areaHeight) / 2);
         if (areaWidth >= 24 && areaHeight >= 6) Sparkline(drawing, new Rect(start, areaTop, areaWidth, areaHeight), history, color);
     }
 
@@ -659,6 +838,8 @@ internal sealed class NetworkBlock : FrameworkElement
 // holds the others ("+2"). The bars ease to each reading, and the entries fade in when the first reading arrives.
 internal sealed class StorageBlock : FrameworkElement
 {
+    // The look of the panel this element is drawn in (PanelLook.Of); the main look outside a panel.
+    private PanelLook Look => PanelLook.Of(this);
     // Between the columns.
     private const double ColumnGap = 20;
     private readonly MonitorColors _colors;
@@ -748,12 +929,12 @@ internal sealed class StorageBlock : FrameworkElement
         var texts = _rows.Select(row =>
         {
             var (used, total, unit) = Storage.Sizes(row.Used, row.Total);
-            return (Label: MonitorDraw.Text(row.Label, _body, UI.Secondary, ppd), Used: MonitorDraw.Text(used, _body + 1, UI.Primary, ppd, strong: true),
-                Size: MonitorDraw.Text($" / {total} {unit}", _caption, UI.Tertiary, ppd), Widest: MonitorDraw.Text(total, _body + 1, UI.Primary, ppd, strong: true));
+            return (Label: MonitorDraw.Text(row.Label, _body, Look.Secondary, ppd), Used: MonitorDraw.Text(used, _body + 1, Look.Primary, ppd, strong: true),
+                Size: MonitorDraw.Text($" / {total} {unit}", _caption, Look.Tertiary, ppd), Widest: MonitorDraw.Text(total, _body + 1, Look.Primary, ppd, strong: true));
         }).ToList();
         double labels = texts.Max(t => t.Label.WidthIncludingTrailingWhitespace), figures = texts.Max(t => t.Widest.WidthIncludingTrailingWhitespace + t.Size.WidthIncludingTrailingWhitespace);
-        var unitText = MonitorDraw.Text("°C", _caption, UI.Tertiary, ppd);
-        double heatWidth = (MonitorDraw.Text("100", _body, UI.Primary, ppd, strong: true).WidthIncludingTrailingWhitespace + 2 + unitText.WidthIncludingTrailingWhitespace + space)
+        var unitText = MonitorDraw.Text("°C", _caption, Look.Tertiary, ppd);
+        double heatWidth = (MonitorDraw.Text("100", _body, Look.Primary, ppd, strong: true).WidthIncludingTrailingWhitespace + 2 + unitText.WidthIncludingTrailingWhitespace + space)
             * Math.Clamp(_heat.At(now), 0, 1);
         double glyph = Math.Round(badge * 9 / 16), labelX = badge + Math.Round(_body * .5), figureX = labelX + labels + space, barX = figureX + figures + space;
         double cell = Math.Floor((w - ColumnGap * (_columns - 1)) / _columns);
@@ -762,14 +943,14 @@ internal sealed class StorageBlock : FrameworkElement
         {
             var row = _rows[i]; var t = texts[i];
             double left = i % _columns * (cell + ColumnGap), top = i / _columns * _row, baseline = Math.Round(top + _row / 2 + _body * .36), middle = top + _row / 2;
-            MonitorDraw.Arrow(drawing, new Point(left + (badge - glyph) / 2, middle - glyph / 2), glyph, Math.Max(1, glyph * .13), MonitorGlyph.Drive, UI.Secondary);
+            MonitorDraw.Arrow(drawing, new Point(left + (badge - glyph) / 2, middle - glyph / 2), glyph, Math.Max(1, glyph * .13), MonitorGlyph.Drive, Look.Secondary);
             MonitorDraw.Baseline(drawing, t.Label, left + labelX, baseline);
             MonitorDraw.Baseline(drawing, t.Used, left + figureX, baseline);
             MonitorDraw.Baseline(drawing, t.Size, left + figureX + t.Used.WidthIncludingTrailingWhitespace, baseline);
             if (barEnd - barX >= 16) Bar(drawing, new Rect(left + barX, Math.Round(middle - 2), barEnd - barX, 4), row, i, now);
             if (row.Celsius is { } celsius && heatWidth > 1)
             {
-                var number = MonitorDraw.Text(Temperatures.Format(celsius), _body, _colors.Level(row.Level, UI.Primary), ppd, strong: true);
+                var number = MonitorDraw.Text(Temperatures.Format(celsius), _body, _colors.Level(row.Level, Look.Primary), ppd, strong: true);
                 double right = left + cell - unitText.WidthIncludingTrailingWhitespace;
                 MonitorDraw.Baseline(drawing, unitText, right, baseline);
                 MonitorDraw.Baseline(drawing, number, right - 2 - number.WidthIncludingTrailingWhitespace, baseline);
@@ -782,7 +963,7 @@ internal sealed class StorageBlock : FrameworkElement
     private void Bar(DrawingContext drawing, Rect r, StorageRow row, int index, double now)
     {
         double radius = r.Height / 2;
-        drawing.DrawRoundedRectangle(UI.Brush(UI.Track), null, r, radius, radius);
+        drawing.DrawRoundedRectangle(UI.Brush(Look.Track), null, r, radius, radius);
         double used = Math.Clamp(index < _used.Length ? _used[index].At(now) : row.UsedFraction, 0, 1) * r.Width;
         if (used > .5) drawing.DrawRoundedRectangle(UI.Brush(_colors.Storage), null, new Rect(r.X, r.Y, Math.Max(r.Height, used), r.Height), radius, radius);
     }

@@ -33,7 +33,7 @@ public partial class MainWindow
                 case DeckPage.Monitor:
                     held |= _monitorView is not null;
                     _monitorView?.CloseCard();
-                    _monitorView = null; _monitorKey = ""; _monitorLayout = null;
+                    _monitorView = null; _monitorKey = ""; _monitorPlan = null;
                     break;
                 case DeckPage.Devices:
                     held |= _devicesView is not null;

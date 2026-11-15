@@ -83,7 +83,7 @@ public partial class MainWindow
         IslandBaseContent.Visibility = Visibility.Visible;
         // The Escape hotkey belonged to the card while it showed; give it back to the panel's own state at once, so
         // a stop without a following layout (the switch going off) does not leave Esc captured.
-        _escapeDismissal?.SetEnabled(_expanded && !_preview || _moveArmed);
+        _escapeDismissal?.SetEnabled(HoldsEscape);
     }
 
     // Ends the notice and gives the surface back exactly as it was: SetExpanded re-lays the collapsed shape or the
@@ -153,7 +153,7 @@ public partial class MainWindow
         // limits follow the same mapping, and so does the island sizing in ApplyNoticeGeometry.
         double widthLimit = _frame.Across ? maxAcross : maxAlong;
         double heightLimit = _frame.Across ? maxAlong : maxAcross;
-        var key = (notice, mode, shape, dpi, PanelTheme.Generation, scale, _frame.Across);
+        var key = (notice, mode, shape, dpi, Look.Generation, scale, _frame.Across);
         if (_noticeRendered is not { } done || !done.Equals(key))
         {
             // The card keeps clear of the surface's own curves with its padding: the notch's shoulders and bottom
@@ -161,7 +161,7 @@ public partial class MainWindow
             double padH = Math.Max(Math.Max(shape.Shoulder, CollapsedLimits.ColumnPad), 4) + 12;
             double padTop = shape.TopRadius > 0 ? Math.Min(shape.TopRadius * .6 + 2, 14) : 4;
             double padBottom = shape.BottomRadius > 0 ? Math.Max(6, shape.BottomRadius * .6 + 2) : 6;
-            var card = BuildNoticeCard(notice, mode, scale, padH, padTop, padBottom, () => ClearSystemNotice(), widthLimit, out double wanted, out var body);
+            var card = BuildNoticeCard(notice, mode, scale, padH, padTop, padBottom, () => ClearSystemNotice(), widthLimit, out double wanted, out var body, Look);
             double minW = Math.Min(220, widthLimit), capW = Math.Min(460, widthLimit);
             double cardW = Math.Clamp(Math.Max(wanted, minW), minW, capW);
             card.Width = cardW;
@@ -216,7 +216,7 @@ public partial class MainWindow
         SetImmediate(Island, IslandBorder.MaterialOpacityProperty, 1d);
         // The card keeps clear of the corners with its own padding; the settled rectangle clip comes back with the restore.
         Island.SettledClip = false;
-        SetImmediate(_surface, SolidColorBrush.ColorProperty, PanelTheme.ColorOf("surface"));
+        SetImmediate(_surface, SolidColorBrush.ColorProperty, Look.ColorOf("surface"));
         SetImmediate(ShadowHost, OpacityProperty, 1d);
         // The hover strip and the open page stand down; SetExpanded restores both when the notice clears.
         HoverExtension.IsHitTestVisible = false;
@@ -234,9 +234,11 @@ public partial class MainWindow
     // the title to the app's name, and the body is capped to a few lines with an ellipsis. Colors follow the panel
     // theme; the bell is a local vector, not a real app icon.
     internal static Border BuildNoticeCard(NotificationItem item, NotificationContentMode mode, double scale,
-        double padH, double padTop, double padBottom, Action close, double maxWidth, out double wanted, out TextBlock? body)
+        double padH, double padTop, double padBottom, Action close, double maxWidth, out double wanted, out TextBlock? body, PanelLook? look = null)
     {
         body = null;
+        // The notice draws with its window's look, not the main theme's text colors (a panel on another profile or theme).
+        look ??= PanelTheme.Main;
         double Whole(double v) => CompactMusicLayout.Whole(v);
         double metaSize = Whole(Math.Max(9, 10.5 * scale)), metaLine = Whole(Math.Max(12, 14 * scale));
         double titleSize = Whole(Math.Max(10, 12.5 * scale)), titleLine = Whole(Math.Max(14, 17 * scale));
@@ -250,10 +252,10 @@ public partial class MainWindow
         bool hasBody = text.Length > 0;
         int bodyLines = full ? 4 : 2;
 
-        var titleBlock = UI.Fixed(title, titleSize, titleLine, UI.Primary, FontWeights.SemiBold);
-        var bell = Bell(scale);
-        var nowBlock = UI.Fixed(Loc.T("现在", "Now"), metaSize, metaLine, UI.Tertiary);
-        var appBlock = UI.Fixed(app, metaSize, metaLine, full ? UI.Secondary : UI.Tertiary);
+        var titleBlock = UI.Fixed(title, titleSize, titleLine, look.Primary, FontWeights.SemiBold);
+        var bell = Bell(scale, look);
+        var nowBlock = UI.Fixed(Loc.T("现在", "Now"), metaSize, metaLine, look.Tertiary);
+        var appBlock = UI.Fixed(app, metaSize, metaLine, full ? look.Secondary : look.Tertiary);
 
         double Natural(FrameworkElement element)
         {
@@ -276,7 +278,7 @@ public partial class MainWindow
 
         if (hasBody)
         {
-            body = UI.Text(text, bodySize, UI.Secondary);
+            body = UI.Text(text, bodySize, look.Secondary);
             body.TextWrapping = TextWrapping.Wrap;
             body.LineHeight = bodyLine; body.LineStackingStrategy = LineStackingStrategy.BlockLineHeight;
             body.MaxHeight = bodyLine * bodyLines;
@@ -296,14 +298,14 @@ public partial class MainWindow
             Content = new TextBlock
             {
                 Text = "\uE711", FontFamily = Application.Current?.TryFindResource("FontIconMdl2") as FontFamily ?? new FontFamily("Segoe MDL2 Assets"),
-                FontSize = Math.Max(8, 9 * scale), Foreground = UI.Brush(UI.Tertiary),
+                FontSize = Math.Max(8, 9 * scale), Foreground = UI.Brush(look.Tertiary),
                 HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center
             }
         };
         if (closeButton.Content is TextBlock glyph)
         {
-            closeButton.MouseEnter += (_, _) => glyph.Foreground = UI.Brush(UI.Primary);
-            closeButton.MouseLeave += (_, _) => glyph.Foreground = UI.Brush(UI.Tertiary);
+            closeButton.MouseEnter += (_, _) => glyph.Foreground = UI.Brush(look.Primary);
+            closeButton.MouseLeave += (_, _) => glyph.Foreground = UI.Brush(look.Tertiary);
         }
         closeButton.Click += (_, _) => close();
 
@@ -357,7 +359,7 @@ public partial class MainWindow
     }
 
     // The local bell: the toolbar icons' stroke style, no real app icon (the reader's AppInfo cannot always give one).
-    private static FrameworkElement Bell(double scale)
+    private static FrameworkElement Bell(double scale, PanelLook look)
     {
         double size = Math.Max(12, 15 * scale);
         return new Viewbox
@@ -371,7 +373,7 @@ public partial class MainWindow
                     new Path
                     {
                         Data = Geometry.Parse("M 12,3.2 A 4.8,4.8 0 0 1 16.8,8 C 16.8,10.9 17.8,12.5 18.9,14 L 5.1,14 C 6.2,12.5 7.2,10.9 7.2,8 A 4.8,4.8 0 0 1 12,3.2 Z M 9.7,17.2 A 2.3,2.3 0 0 0 14.3,17.2"),
-                        Stroke = UI.Brush(UI.Secondary), StrokeThickness = 1.6, StrokeStartLineCap = PenLineCap.Round,
+                        Stroke = UI.Brush(look.Secondary), StrokeThickness = 1.6, StrokeStartLineCap = PenLineCap.Round,
                         StrokeEndLineCap = PenLineCap.Round, StrokeLineJoin = PenLineJoin.Round
                     }
                 }

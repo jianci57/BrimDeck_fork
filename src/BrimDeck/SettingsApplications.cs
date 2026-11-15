@@ -85,7 +85,7 @@ public sealed partial class SettingsWindow
     {
         var transform = RowTransform(row);
         double start = transform.Y;
-        if (!animate || !S.Animations || !SystemParameters.ClientAreaAnimation || Math.Abs(start - target) < .1)
+        if (!animate || !Soft.Enabled || Math.Abs(start - target) < .1)
         {
             SetRowOffset(row, target);
             completed?.Invoke();

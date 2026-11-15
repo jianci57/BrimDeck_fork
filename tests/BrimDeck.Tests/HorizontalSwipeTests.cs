@@ -13,6 +13,15 @@ internal static class HorizontalSwipeTests
         check("A swipe after a quiet wheel acts again", swipe.Feed(-120, At(300 + 300)) == -1);
 
         swipe = new HorizontalSwipe();
+        check("A swipe back made while the first still coasts acts at once; a flick the other way between coasting parts does not",
+            swipe.Feed(120, At(0)) == 1 && swipe.Feed(60, At(20)) == 0 && swipe.Feed(-30, At(40)) == 0 && swipe.Feed(40, At(60)) == 0
+            && swipe.Feed(-60, At(80)) == 0 && swipe.Feed(-60, At(100)) == -1 && swipe.Feed(-80, At(120)) == 0
+            && swipe.Feed(70, At(140)) == 0 && swipe.Feed(50, At(160)) == 1);
+        swipe = new HorizontalSwipe();
+        swipe.Vertical(At(0));
+        check("A scroll that turns sideways and back never acts", swipe.Feed(200, At(50)) == 0 && swipe.Feed(-200, At(100)) == 0 && swipe.Feed(200, At(150)) == 0);
+
+        swipe = new HorizontalSwipe();
         check("Parts that turn back start counting afresh", swipe.Feed(100, At(0)) == 0 && swipe.Feed(-100, At(10)) == 0 && swipe.Feed(-20, At(20)) == -1);
 
         swipe = new HorizontalSwipe();

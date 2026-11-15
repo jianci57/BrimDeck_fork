@@ -3,7 +3,8 @@
 ;
 ; Install:   install mode (current user / all users) -> folder -> Install -> finished page with
 ;            "create desktop shortcut" and "run BrimDeck". The Start menu shortcut is always created.
-; Update:    the installed version is uninstalled first (keeping data), then the new one is installed.
+; Update:    the installed version is saved and uninstalled (keeping data), then the new one is installed. When the
+;            new one cannot be installed, the saved version is put back and, after an in-app update, started again.
 ; Uninstall: one dialog with an unchecked "delete user data" box -> uninstall -> "uninstalled" message.
 
 #ifndef AppVersion
@@ -47,6 +48,9 @@
   #define Compression "lzma2/max"
 #endif
 #define UninstallKey "Software\Microsoft\Windows\CurrentVersion\Uninstall\{" + AppId + "}_is1"
+; Written beside the installer an in-app update downloaded when the update fails; the restarted app then says so.
+; Must match PortableUpdate.FailureFile.
+#define FailureFile "restart-failure.txt"
 
 [Setup]
 AppId={{{#AppId}}
@@ -106,6 +110,7 @@ ExitFirstTitle=请先退出 {#AppName}
 ExitFirstText={#AppName} 正在运行。请右键点击任务栏通知区域中的 {#AppName} 图标，选择“退出”，然后点击“重试”。
 DesktopShortcut=创建桌面快捷方式
 OldVersionNotRemoved=无法卸载已安装的旧版本 {#AppName}（代码 %1）。请在 Windows 设置的“应用”中卸载后，重新运行安装程序。
+OldVersionNotSaved=无法备份已安装的 {#AppName}，安装没有开始。请关闭正在使用 {#AppName} 文件夹中文件的程序，然后重试。
 UninstallTitle=卸载 {#AppName}
 UninstallQuestion=确定要卸载 {#AppName} 吗？
 UninstallButton=卸载
@@ -115,6 +120,7 @@ en.ExitFirstTitle=Quit {#AppName} first
 en.ExitFirstText={#AppName} is running. Right-click the {#AppName} icon in the notification area of the taskbar, choose "Exit", then click "Retry".
 en.DesktopShortcut=Create a desktop shortcut
 en.OldVersionNotRemoved=The installed version of {#AppName} could not be uninstalled (code %1). Uninstall it from Apps in Windows Settings, then run Setup again.
+en.OldVersionNotSaved=The installed version of {#AppName} could not be backed up, so nothing was installed. Close any program that is using files in the {#AppName} folder, then try again.
 en.UninstallTitle=Uninstall {#AppName}
 en.UninstallQuestion=Do you want to uninstall {#AppName}?
 en.UninstallButton=Uninstall
@@ -144,6 +150,12 @@ var
   DesktopShortcut: Boolean;
   DesktopCheck, LaunchCheck: TNewCheckBox;
   DeleteUserData: Boolean;
+  // The installed version as PrepareToInstall found and saved it: its folder, the copy of it, and the values of its
+  // uninstall entry. DeinitializeSetup puts it back unless Installed.
+  PreviousDir, BackupDir: String;
+  TextNames, TextValues, NumberNames: TArrayOfString;
+  NumberValues: array of Cardinal;
+  Installed: Boolean;
 
 function HasParam(const Name: String): Boolean;
 var
@@ -362,8 +374,139 @@ begin
   end;
 end;
 
-// Runs the uninstaller of the installed version before any file is copied, so no file of the old version remains.
-// /UPGRADE keeps settings, data and the startup entry; the installer waits until that uninstall has finished.
+// ----- Installed version -----
+
+// An update removes the installed version before the new files are copied. If the installation then fails or is
+// cancelled, Setup rolls back its own files and nothing of BrimDeck would be left. So the installed version is saved
+// first: its folder is copied into BackupDir, a folder inside it that its uninstaller leaves alone, together with both
+// shortcuts; the values of its uninstall entry are kept in memory.
+
+// Copies the files and folders of Source into Target, replacing files that exist; the folder Skip is left out.
+// Strict stops at the first file that cannot be copied. Otherwise a file that cannot be replaced stays as it is and the
+// copy goes on; False then means that Target lacks a file.
+function CopyTree(const Source, Target, Skip: String; Strict: Boolean): Boolean;
+var
+  Found: TFindRec;
+  From, Into: String;
+begin
+  Result := ForceDirectories(Target);
+  if not Result then
+  begin
+    Log('Could not create the folder: ' + Target);
+    Exit;
+  end;
+  if not FindFirst(AddBackslash(Source) + '*', Found) then
+    Exit;
+  try
+    repeat
+      // Links to other folders are not part of the program.
+      if (Found.Name <> '.') and (Found.Name <> '..') and (Found.Attributes and FILE_ATTRIBUTE_REPARSE_POINT = 0) then
+      begin
+        From := AddBackslash(Source) + Found.Name;
+        Into := AddBackslash(Target) + Found.Name;
+        if Found.Attributes and FILE_ATTRIBUTE_DIRECTORY <> 0 then
+        begin
+          if (CompareText(From, Skip) <> 0) and not CopyTree(From, Into, Skip, Strict) then
+            Result := False;
+        end
+        else if not CopyFile(From, Into, False) then
+        begin
+          Log('Could not copy ' + From + ' to ' + Into);
+          if Strict or not FileExists(Into) then
+            Result := False;
+        end;
+      end;
+    until (Strict and not Result) or not FindNext(Found);
+  finally
+    FindClose(Found);
+  end;
+end;
+
+procedure Append(var List: TArrayOfString; const Value: String);
+begin
+  SetArrayLength(List, GetArrayLength(List) + 1);
+  List[GetArrayLength(List) - 1] := Value;
+end;
+
+// Saves the version installed in Dir. False when a file could not be copied; nothing is kept then.
+function SaveInstalledVersion(const Dir: String): Boolean;
+var
+  Names: TArrayOfString;
+  Text: String;
+  Number: Cardinal;
+  I: Integer;
+begin
+  BackupDir := AddBackslash(Dir) + '.brimdeck-previous';
+  // A copy left by a Setup that was ended before it finished.
+  DelTree(BackupDir, True, True, True);
+  Log('Saving the installed version to ' + BackupDir);
+  Result := CopyTree(Dir, AddBackslash(BackupDir) + 'files', BackupDir, True);
+  if not Result then
+  begin
+    DelTree(BackupDir, True, True, True);
+    BackupDir := '';
+    Exit;
+  end;
+  CopyFile(ExpandConstant('{autodesktop}\{#AppName}.lnk'), AddBackslash(BackupDir) + 'desktop.lnk', False);
+  CopyFile(ExpandConstant('{autoprograms}\{#AppName}.lnk'), AddBackslash(BackupDir) + 'programs.lnk', False);
+  // Inno Setup writes only strings and numbers to the uninstall entry.
+  if RegGetValueNames(HKA, '{#UninstallKey}', Names) then
+    for I := 0 to GetArrayLength(Names) - 1 do
+      if RegQueryStringValue(HKA, '{#UninstallKey}', Names[I], Text) then
+      begin
+        Append(TextNames, Names[I]);
+        Append(TextValues, Text);
+      end
+      else if RegQueryDWordValue(HKA, '{#UninstallKey}', Names[I], Number) then
+      begin
+        Append(NumberNames, Names[I]);
+        SetArrayLength(NumberValues, GetArrayLength(NumberNames));
+        NumberValues[GetArrayLength(NumberNames) - 1] := Number;
+      end;
+end;
+
+// Puts the saved version back. Setup has rolled back its own files by now; a file of the old version that is still
+// there, because its uninstaller could not delete it, is replaced when possible and kept otherwise.
+procedure RestoreInstalledVersion;
+var
+  I: Integer;
+begin
+  Log('Restoring the installed version in ' + PreviousDir);
+  CopyFile(AddBackslash(BackupDir) + 'desktop.lnk', ExpandConstant('{autodesktop}\{#AppName}.lnk'), False);
+  CopyFile(AddBackslash(BackupDir) + 'programs.lnk', ExpandConstant('{autoprograms}\{#AppName}.lnk'), False);
+  for I := 0 to GetArrayLength(TextNames) - 1 do
+    RegWriteStringValue(HKA, '{#UninstallKey}', TextNames[I], TextValues[I]);
+  for I := 0 to GetArrayLength(NumberNames) - 1 do
+    RegWriteDWordValue(HKA, '{#UninstallKey}', NumberNames[I], NumberValues[I]);
+  if CopyTree(AddBackslash(BackupDir) + 'files', PreviousDir, '', False) then
+    DelTree(BackupDir, True, True, True)
+  else
+    Log('Some files could not be restored. Their copies stay in ' + BackupDir);
+end;
+
+// Called on every exit. After an update that did not install the new version, the saved version is put back. An in-app
+// update ended BrimDeck to run Setup, so it is started again, and the note left beside the downloaded installer has it
+// say that the update failed (AppUpdates).
+procedure DeinitializeSetup;
+var
+  ResultCode: Integer;
+begin
+  if Installed or (PreviousDir = '') then
+    Exit;
+  if BackupDir <> '' then
+    RestoreInstalledVersion;
+  if not RelaunchRequested or not FileExists(AddBackslash(PreviousDir) + '{#MainExe}') then
+    Exit;
+  SaveStringToFile(ExpandConstant('{src}\{#FailureFile}'), 'failed', False);
+  try
+    ExecAsOriginalUser(AddBackslash(PreviousDir) + '{#MainExe}', '', '', SW_SHOWNORMAL, ewNoWait, ResultCode);
+  except
+    Log('The installed version could not be started: ' + GetExceptionMessage);
+  end;
+end;
+
+// Saves the installed version, then runs its uninstaller before any file is copied, so no file of the old version
+// remains. /UPGRADE keeps settings, data and the startup entry; the installer waits until that uninstall has finished.
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   Uninstaller: String;
@@ -382,9 +525,16 @@ begin
   if not WizardSilent then
     DesktopCheck.Checked := DesktopShortcut;
   Uninstaller := QuotedPath(Uninstaller);
+  PreviousDir := ExtractFileDir(Uninstaller);
   if not FileExists(Uninstaller) then
   begin
     Log('Uninstaller of the installed version is missing: ' + Uninstaller);
+    Exit;
+  end;
+  // Saved once: when the wizard comes back here after an error, the folder may no longer be complete.
+  if (BackupDir = '') and not SaveInstalledVersion(PreviousDir) then
+  begin
+    Result := CustomMessage('OldVersionNotSaved');
     Exit;
   end;
   Log('Removing the installed version: ' + Uninstaller);
@@ -422,7 +572,13 @@ begin
   // Settings > Apps and Control Panel run UninstallString. /SILENT replaces the built-in confirmation and completion
   // messages with the dialog below; /UI marks that run as interactive.
   if CurStep = ssPostInstall then
-    RegWriteStringValue(HKA, '{#UninstallKey}', 'UninstallString', '"' + ExpandConstant('{uninstallexe}') + '" /SILENT /UI')
+  begin
+    // The new version is in place, so the saved one is no longer needed.
+    Installed := True;
+    if BackupDir <> '' then
+      DelTree(BackupDir, True, True, True);
+    RegWriteStringValue(HKA, '{#UninstallKey}', 'UninstallString', '"' + ExpandConstant('{uninstallexe}') + '" /SILENT /UI');
+  end
   else if CurStep = ssDone then
     FinishShortcuts;
 end;

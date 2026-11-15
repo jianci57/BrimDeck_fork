@@ -117,7 +117,7 @@ internal sealed class GpuTemperatures(Action stuck) : IDisposable
         var query = new QueryAdapterInfo { Adapter = adapter.Handle, Type = AdapterPerfData, Data = _data, Size = PerfDataSize };
         uint status;
         try { status = SensorGuard.Ask(device, () => (uint)D3DKMTQueryAdapterInfo(ref query), stuck); }
-        catch (Exception ex) when (ex is EntryPointNotFoundException or DllNotFoundException) { Debug.WriteLine(ex); adapter.Never = true; return null; }
+        catch (Exception ex) when (ex is EntryPointNotFoundException or DllNotFoundException) { MonitorLog.Note("gpu temperature", ex); adapter.Never = true; return null; }
         if (status == 0)
         {
             if (Temperatures.FromDeciCelsius((uint)Marshal.ReadInt32(_data, TemperatureOffset)) is { } celsius) { adapter.Pause = 0; adapter.ZeroSince = double.NaN; return celsius; }
@@ -144,7 +144,7 @@ internal sealed class GpuTemperatures(Action stuck) : IDisposable
         if (AdapterLuid.Parse(adapter) is not { } luid) return 0;
         var open = new OpenAdapterFromLuid { Low = luid.Low, High = luid.High };
         try { return D3DKMTOpenAdapterFromLuid(ref open) == 0 ? open.Adapter : 0; }
-        catch (Exception ex) when (ex is EntryPointNotFoundException or DllNotFoundException) { Debug.WriteLine(ex); return 0; }
+        catch (Exception ex) when (ex is EntryPointNotFoundException or DllNotFoundException) { MonitorLog.Note("gpu temperature", ex); return 0; }
     }
 
     private static void Close(uint handle)

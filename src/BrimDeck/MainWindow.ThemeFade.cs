@@ -22,14 +22,16 @@ public partial class MainWindow
 
     private void InitializeThemeFade()
     {
-        PanelTheme.Changing += BeginThemeFade;
-        Closed += (_, _) => PanelTheme.Changing -= BeginThemeFade;
+        // The main look's change fades the panel while it draws with the main look; its own look's change while it has one (UseLook).
+        void MainChanging(bool daylight) { if (_ownLook is null) BeginThemeFade(daylight); }
+        PanelTheme.Main.Changing += MainChanging;
+        Closed += (_, _) => { PanelTheme.Main.Changing -= MainChanging; if (_ownLook is not null) _ownLook.Changing -= BeginThemeFade; };
         // The pictures lie on the island's present shape only.
         IsVisibleChanged += (_, _) => { if (!IsVisible) EndThemeFade(); };
         Island.SizeChanged += (_, _) => EndThemeFade(quickly: true);
     }
 
-    // PanelTheme.Changing: the old look is still on screen, and PanelTheme.Current is still the old palette. The new one is
+    // Look.Changing: the old look is still on screen, and Look.Current is still the old palette. The new one is
     // drawn on the frames that follow.
     private void BeginThemeFade(bool daylight)
     {
@@ -42,7 +44,7 @@ public partial class MainWindow
         }
         // Pictures still fading are left to finish on their own, under the new ones.
         _themeFade = null; _materialFade = null;
-        if (!IsVisible || !Soft.Enabled || _preview || Island.ActualWidth < 1 || Island.ActualHeight < 1 || PresentationSource.FromVisual(Island) is null) return;
+        if (!IsVisible || !Animates || _preview || Island.ActualWidth < 1 || Island.ActualHeight < 1 || PresentationSource.FromVisual(Island) is null) return;
         if (Island.Child is not Panel content) return;
         double width = Island.ActualWidth, height = Island.ActualHeight;
         // The material: a copy of the island's own shape, dressed as it is now, without its content.
@@ -54,7 +56,7 @@ public partial class MainWindow
             // The brush's opacity too, whatever it is, so the copy looks exactly as the surface does.
             Background = new SolidColorBrush(_surface.Color) { Opacity = _surface.Opacity }
         };
-        PanelTheme.Dress(material, dpiScale: VisualTreeHelper.GetDpi(Island).DpiScaleX);
+        Look.Dress(material, dpiScale: VisualTreeHelper.GetDpi(Island).DpiScaleX);
         _materialFade = Fade(Picture(material, width, height), daylight ? DaylightFadeMs : ThemeFadeMs);
         // Under the content, above the island's own drawing.
         content.Children.Insert(0, _materialFade);
@@ -99,7 +101,7 @@ public partial class MainWindow
     {
         foreach (var image in Fading())
         {
-            if (!quickly || !Soft.Enabled) { Remove(image); continue; }
+            if (!quickly || !Animates) { Remove(image); continue; }
             if (image.Tag is "leaving") continue;
             image.Tag = "leaving";
             var leave = Soft.Fade(image.Opacity, 0, LeaveMs, Soft.Out);

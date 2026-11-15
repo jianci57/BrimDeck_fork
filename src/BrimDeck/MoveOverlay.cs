@@ -25,6 +25,8 @@ internal readonly record struct MovePlacement(ScreenEdge Edge, double Offset, do
 // after the drop and faded out over the island shown at its new place.
 internal sealed class MoveOverlay : Window
 {
+    // The look of the panel this element is drawn in (PanelLook.Of); the main look outside a panel.
+    private PanelLook Look => PanelLook.Of(this);
     private readonly MoveGhost _ghost;
 
     public MoveOverlay(Rect bounds, double scale, MoveStart start)
@@ -54,9 +56,9 @@ internal sealed class MoveOverlay : Window
     public void Pointer(Point point) => _ghost.Pointer(point);
     public void Release() => _ghost.Release();
 
-    public void FadeOut()
+    public void FadeOut(bool animate)
     {
-        if (!Soft.Enabled) { Close(); return; }
+        if (!animate) { Close(); return; }
         var fade = new DoubleAnimation(0, TimeSpan.FromMilliseconds(170)) { EasingFunction = Soft.Out };
         fade.Completed += (_, _) => Close();
         BeginAnimation(OpacityProperty, fade);
@@ -78,6 +80,8 @@ internal sealed class MoveOverlay : Window
 // taskbar and from the taskbar's inner edge otherwise (CollapsedMove.AnchorAt), sliding between the two.
 internal sealed class MoveGhost : FrameworkElement
 {
+    // The look of the panel this element is drawn in (PanelLook.Of); the main look outside a panel.
+    private PanelLook Look => PanelLook.Of(this);
     private sealed class Docked
     {
         public ScreenEdge Edge;
@@ -307,17 +311,17 @@ internal sealed class MoveGhost : FrameworkElement
         double width = _start.Surface.Width, height = _start.Surface.Height;
         double cx = _x + width / 2, cy = _y + height / 2;
         var outline = new RectangleGeometry(new Rect(_x, _y, width, height), height / 2, height / 2);
-        MoveLook.Surface(drawing, outline, 1, veil: false);
-        MoveLook.Outline(drawing, outline, 1, hangs: false);
-        MoveLook.Icon(drawing, new Point(cx, cy), MoveLook.IconSize(height), 1);
+        MoveLook.Surface(drawing, outline, 1, veil: false, look: Look);
+        MoveLook.Outline(drawing, outline, 1, hangs: false, look: Look);
+        MoveLook.Icon(drawing, new Point(cx, cy), MoveLook.IconSize(height), 1, look: Look);
         // The guides cross the capsule and reach a little past it: the vertical one where its centre is held on the work area's
         // middle, the horizontal one where its middle or one of its edges is held.
         double a = Lit(_guideA, now), b = Lit(_guideB, now);
-        if (a > .01) MoveLook.Guide(drawing, new Rect(_guideAAt - .75, _y - GuideReach, 1.5, height + 2 * GuideReach), a);
+        if (a > .01) MoveLook.Guide(drawing, new Rect(_guideAAt - .75, _y - GuideReach, 1.5, height + 2 * GuideReach), a, look: Look);
         if (b > .01)
         {
             double y = Math.Clamp(_guideBAt, .75, Math.Max(.75, _start.ScreenHeight - .75));
-            MoveLook.Guide(drawing, new Rect(_x - GuideReach, y - .75, width + 2 * GuideReach, 1.5), b);
+            MoveLook.Guide(drawing, new Rect(_x - GuideReach, y - .75, width + 2 * GuideReach, 1.5), b, look: Look);
         }
     }
 
@@ -340,11 +344,11 @@ internal sealed class MoveGhost : FrameworkElement
             {
                 double thickness = Math.Max(.5, docked.Depth * fill);
                 var bar = new RectangleGeometry(new Rect(docked.Along - length / 2, _start.Gap + (docked.Depth - thickness) / 2, length, thickness), thickness / 2, thickness / 2);
-                MoveLook.Surface(drawing, bar, 1, veil: false);
-                MoveLook.Outline(drawing, bar, 1, hangs: false);
+                MoveLook.Surface(drawing, bar, 1, veil: false, look: Look);
+                MoveLook.Outline(drawing, bar, 1, hangs: false, look: Look);
                 double size = MoveLook.IconSize(28);
                 // The line is too thin to hold the icon: it shows just past the line.
-                MoveLook.Icon(drawing, new Point(docked.Along, _start.Gap + docked.Depth + 4 + size / 2), size, fill);
+                MoveLook.Icon(drawing, new Point(docked.Along, _start.Gap + docked.Depth + 4 + size / 2), size, fill, look: Look);
             }
             else
             {
@@ -353,10 +357,10 @@ internal sealed class MoveGhost : FrameworkElement
                 {
                     var outline = IslandBorder.BuildOutline(length, depth, _start.Shoulder, new CornerRadius(0, 0, _start.Corner, _start.Corner), 0);
                     drawing.PushTransform(new TranslateTransform(docked.Along - length / 2, 0));
-                    MoveLook.Surface(drawing, outline, 1, veil: false);
-                    MoveLook.Outline(drawing, outline, 1, hangs: true);
+                    MoveLook.Surface(drawing, outline, 1, veil: false, look: Look);
+                    MoveLook.Outline(drawing, outline, 1, hangs: true, look: Look);
                     drawing.Pop();
-                    MoveLook.Icon(drawing, new Point(docked.Along, depth / 2), MoveLook.IconSize(Math.Min(docked.Length, docked.Depth)), Math.Clamp(fill * 2 - 1, 0, 1));
+                    MoveLook.Icon(drawing, new Point(docked.Along, depth / 2), MoveLook.IconSize(Math.Min(docked.Length, docked.Depth)), Math.Clamp(fill * 2 - 1, 0, 1), look: Look);
                 }
             }
             drawing.Pop(); drawing.Pop();
@@ -365,7 +369,7 @@ internal sealed class MoveGhost : FrameworkElement
         if (Lit(_guideA, now) is var guide && guide > .01)
         {
             drawing.PushTransform(new MatrixTransform(ToScreen(home.Edge, home.Line)));
-            MoveLook.Guide(drawing, new Rect(_guideAAt - .75, 0, 1.5, _start.Gap + home.Depth + GuideReach), guide);
+            MoveLook.Guide(drawing, new Rect(_guideAAt - .75, 0, 1.5, _start.Gap + home.Depth + GuideReach), guide, look: Look);
             drawing.Pop();
         }
     }
@@ -380,24 +384,26 @@ internal static class MoveLook
     public static double IconSize(double surface) => Math.Clamp(surface * .52, 12, 24);
 
     // The surface: opaque while dragged, or over the island a veil of the surface color that quiets its content under the icon.
-    public static void Surface(DrawingContext drawing, Geometry outline, double opacity, bool veil)
+    public static void Surface(DrawingContext drawing, Geometry outline, double opacity, bool veil, PanelLook? look = null)
     {
+        var Look = look ?? PanelTheme.Main;
         if (opacity < .01) return;
         drawing.PushOpacity((veil ? .86 : 1) * opacity);
-        drawing.DrawGeometry(UI.Brush(PanelTheme.Hex("surface")), null, outline);
+        drawing.DrawGeometry(UI.Brush(Look.Hex("surface")), null, outline);
         drawing.Pop();
     }
 
     // The lit outline. A notch hangs from the screen edge (hangs): its line along the edge is left dark.
-    public static void Outline(DrawingContext drawing, Geometry outline, double opacity, bool hangs)
+    public static void Outline(DrawingContext drawing, Geometry outline, double opacity, bool hangs, PanelLook? look = null)
     {
+        var Look = look ?? PanelTheme.Main;
         if (opacity < .01 || outline.IsEmpty()) return;
         var bounds = outline.Bounds;
         if (hangs) drawing.PushClip(new RectangleGeometry(new Rect(bounds.X - 24, bounds.Y + 1.5, bounds.Width + 48, bounds.Height + 24)));
-        string accent = ResizeGripLayer.Accent;
+        string accent = ResizeGripLayer.AccentOf(Look);
         foreach (var (width, alpha) in new[] { (10.0, .06), (6.0, .11), (3.4, .2) })
         {
-            drawing.PushOpacity(alpha * ResizeGripLayer.GlowStrength * opacity);
+            drawing.PushOpacity(alpha * ResizeGripLayer.GlowOf(Look) * opacity);
             drawing.DrawGeometry(null, Pen(accent, width), outline);
             drawing.Pop();
         }
@@ -408,8 +414,9 @@ internal static class MoveLook
     }
 
     // Four arrows from the middle, drawn rather than taken from a font, in the accent color.
-    public static void Icon(DrawingContext drawing, Point centre, double size, double opacity)
+    public static void Icon(DrawingContext drawing, Point centre, double size, double opacity, PanelLook? look = null)
     {
+        var Look = look ?? PanelTheme.Main;
         if (opacity < .01) return;
         double a = size / 2, head = size * .2;
         var geometry = new StreamGeometry();
@@ -427,16 +434,17 @@ internal static class MoveLook
         }
         geometry.Freeze();
         drawing.PushOpacity(opacity);
-        drawing.DrawGeometry(null, Pen(ResizeGripLayer.Accent, Math.Max(1.4, Math.Round(size / 11 * 2) / 2), round: true), geometry);
+        drawing.DrawGeometry(null, Pen(ResizeGripLayer.AccentOf(Look), Math.Max(1.4, Math.Round(size / 11 * 2) / 2), round: true), geometry);
         drawing.Pop();
     }
 
     // A thin line in the accent color that fades out toward its ends.
-    public static void Guide(DrawingContext drawing, Rect line, double opacity)
+    public static void Guide(DrawingContext drawing, Rect line, double opacity, PanelLook? look = null)
     {
+        var Look = look ?? PanelTheme.Main;
         if (opacity < .01) return;
         drawing.PushOpacity(.9 * opacity);
-        drawing.DrawRectangle(Fade(ResizeGripLayer.Accent, line.Height > line.Width), null, line);
+        drawing.DrawRectangle(Fade(ResizeGripLayer.AccentOf(Look), line.Height > line.Width), null, line);
         drawing.Pop();
     }
 

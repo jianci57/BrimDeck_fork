@@ -29,12 +29,15 @@ public sealed partial class SettingsWindow : Window, IKeepsAppFonts
     private readonly TextBlock _status = new() { Visibility = Visibility.Collapsed, TextWrapping = TextWrapping.Wrap };
     private ScrollViewer _scroll = null!;
     // The notifications page: reading the system's notifications (SettingsNotifications.cs).
-    private const int NotificationsPage = 17;
+    private const int NotificationsPage = 19;
     private static string[] _pages => [Loc.T("常规", "General"), Loc.T("收起外观", "Collapsed view"), Loc.T("展开外观", "Expanded view"),
         Loc.T("配额与统计", "Quotas and usage"), Loc.T("模型价格", "Model prices"), Loc.T("样式", "Style"), Loc.T("播放器", "Players"), Loc.T("关于 BrimDeck", "About BrimDeck"), Loc.T("面板主题", "Panel theme"), Loc.T("显示与读数", "Display and readings"), Loc.T("增强传感器", "Enhanced sensors"), Loc.T("快捷键", "Shortcuts"), Loc.T("显示与设备", "Display and devices"),
-        Loc.T("剪贴板", "Clipboard"), Loc.T("文件中转", "File transfer"), Loc.T("快捷操作", "Quick actions"), Loc.T("调试", "Debug"), Loc.T("通知", "Notifications")];
-    // Notifications precede AI usage; the music gestures, monitor, shelf, devices and debug pages retain their own groups.
-    private static readonly int[] PageOrder = [0, 1, 2, ThemePage, HotkeysPage, NotificationsPage, 3, 4, 5, 6, MusicGesturesPage, MonitorSettingsPage, SensorsPage, ClipboardSettingsPage, TransferSettingsPage, DevicesSettingsPage, DebugPage, 7];
+        Loc.T("剪贴板", "Clipboard"), Loc.T("文件中转", "File transfer"), Loc.T("快捷操作", "Quick actions"), Loc.T("显示器与配置", "Displays and profiles"), Loc.T("页面布局", "Page layout"), Loc.T("调试", "Debug"), Loc.T("通知", "Notifications")];
+    // The order of the pages in the navigation; the theme page (ThemePage), the shortcuts (HotkeysPage) and the notifications
+    // (NotificationsPage) are listed with the basic pages, and the system monitor's page (MonitorSettingsPage) has its own group
+    // after music, then the clipboard's pages (the layout first), the debug page and About. The profiles page (ProfilesPage)
+    // closes the basic pages.
+    private static readonly int[] PageOrder = [0, 1, 2, ThemePage, HotkeysPage, NotificationsPage, ProfilesPage, 3, 4, 5, 6, MusicGesturesPage, MonitorSettingsPage, SensorsPage, ShelfLayoutSettingsPage, ClipboardSettingsPage, TransferSettingsPage, DevicesSettingsPage, DebugPage, 7];
     private int _page;
     private bool _preview;
     private StackPanel? _appRows;
@@ -68,8 +71,8 @@ public sealed partial class SettingsWindow : Window, IKeepsAppFonts
     {
         _app = app;
         Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("/BrimDeck;component/SettingsResources.xaml", UriKind.Relative) });
-        using (Fonts.Plain()) Fonts.Publish(Resources);
-        Style = (Style)FindResource(typeof(Window));
+        using (OwnFonts()) Fonts.Publish(Resources);
+        Style =(Style)FindResource(typeof(Window));
         // Sizes are DIPs, so the window looks the same at any scale factor. The default fits the page layout (the content
         // column is at most 858 wide); the last closed size replaces it. Either is fitted to the work area of the screen
         // the window opens on, which CenterScreen takes as the one under the mouse pointer.
@@ -118,11 +121,11 @@ public sealed partial class SettingsWindow : Window, IKeepsAppFonts
         _app.Updates.Changed += UpdatesChanged;
         Native.SensorGuard.Changed += SensorStopsChanged;
         SizeChanged += (_, _) => { if (_priceTable is not null) _priceTable.Height = Math.Max(220, ActualHeight - PriceTableReserve); };
-        Closed += (_, _) => { WatchThemeFolder(false); EndAppDrag(false, false); _notificationsCleanup?.Invoke(); _notificationsCleanup = null; _updateOpenGeneration++; _app.Updates.Changed -= UpdatesChanged; Native.SensorGuard.Changed -= SensorStopsChanged; SystemEvents.UserPreferenceChanged -= SystemThemeChanged; _app.Prices.Changed -= PricesChanged; _exceptionsReservedHeight = 0; _exceptionsOpen = false; _exceptionsHost = null; _scroll.ScrollChanged -= ExceptionsScrollChanged; if (!_app.Exiting) { _app.Deck.Preview(false); _app.FlushSettings(); } };
+        Closed += (_, _) => { WatchThemeFolder(false); EndAppDrag(false, false); _notificationsCleanup?.Invoke(); _notificationsCleanup = null; _updateOpenGeneration++; _app.Updates.Changed -= UpdatesChanged; Native.SensorGuard.Changed -= SensorStopsChanged; SystemEvents.UserPreferenceChanged -= SystemThemeChanged; _app.Prices.Changed -= PricesChanged; _exceptionsReservedHeight = 0; _exceptionsOpen = false; _exceptionsHost = null; _scroll.ScrollChanged -= ExceptionsScrollChanged; if (!_app.Exiting) { _app.PreviewDeck.Preview(false); _app.FlushSettings(); } };
         StateChanged += (_, _) =>
         {
             UpdateCaption();
-            if (WindowState == WindowState.Minimized) { _preview = false; _app.Deck.Preview(false); }
+            if (WindowState == WindowState.Minimized) { _preview = false; _app.PreviewDeck.Preview(false); }
         };
         RebuildTheme();
     }
@@ -142,8 +145,13 @@ public sealed partial class SettingsWindow : Window, IKeepsAppFonts
     }
     private void PricesChanged()
     { if (!Dispatcher.HasShutdownStarted) Dispatcher.BeginInvoke(() => { if (IsLoaded) RefreshPriceRows(); }); }
-    // The window keeps the app's own fonts whatever interface font the user chose (Fonts.Plain): it is where the font is chosen, and it stays readable.
-    internal void RebuildTheme() { using (Fonts.Plain()) RebuildThemeCore(); }
+    // The window keeps the app's own fonts whatever interface font the user chose (Fonts.Plain), unless the user asked for it to follow
+    // the chosen one (DeckSettings.SettingsFollowsFont). The font row keeps them either way (AppearanceSection), so a font that is
+    // hard to read can be changed back. Fonts.Use leaves this window alone (IKeepsAppFonts); a change of font or of the switch rebuilds it.
+    private IDisposable? OwnFonts() => S.SettingsFollowsFont ? null : Fonts.Plain();
+    // The family for what this window builds or draws outside a rebuild (a dialog, a popup, a tick label).
+    internal FontFamily SettingsFont(UiFontRole role) => S.SettingsFollowsFont && !Fonts.IsPlain ? Fonts.Of(role) : Fonts.PlainOf(role);
+    internal void RebuildTheme() { using (OwnFonts()) { Fonts.Publish(Resources); RebuildThemeCore(); } }
     private void RebuildThemeCore()
     {
         RememberFocus();
@@ -152,7 +160,7 @@ public sealed partial class SettingsWindow : Window, IKeepsAppFonts
         // A language change rebuilds the window the same way.
         Title = Loc.T("BrimDeck 设置", "BrimDeck Settings");
         _palette = new(SettingsPalette.IsDark(S.Theme)); _palette.Apply(Resources);
-        Background = UI.Brush(Surface); Foreground = UI.Brush(TextPrimary); FontFamily = Fonts.PlainOf(UiFontRole.Panel);
+        Background = UI.Brush(Surface); Foreground = UI.Brush(TextPrimary); FontFamily = SettingsFont(UiFontRole.Panel);
         // Detach reused panels before rebuilding the window's theme-specific surfaces.
         _navigation.Children.Clear(); _content.Children.Clear();
         if (_navigation.Parent is ScrollViewer oldNavigation) oldNavigation.Content = null;
@@ -215,14 +223,14 @@ public sealed partial class SettingsWindow : Window, IKeepsAppFonts
     // The product name on one line: a heavier "Brim" followed by a light "Deck".
     private TextBlock Wordmark(double size)
     {
-        var name = new TextBlock { FontFamily = Fonts.PlainOf(UiFontRole.Text), FontSize = size, Foreground = UI.Brush(TextPrimary) };
+        var name = new TextBlock { FontFamily = SettingsFont(UiFontRole.Text), FontSize = size, Foreground = UI.Brush(TextPrimary) };
         name.Inlines.Add(new Run("Brim") { FontWeight = FontWeights.SemiBold });
         name.Inlines.Add(new Run("Deck") { FontWeight = FontWeights.Light, Foreground = UI.Brush(_palette.Dark ? "#C5C5CB" : "#565661") });
         AutomationProperties.SetName(name, "BrimDeck"); return name;
     }
     private TextBlock TextLine(string text, double size = 13, string color = "#F1F1F4", FontWeight? weight = null)
     {
-        var block = UI.Line(text, size, color, weight); block.FontFamily = Fonts.PlainOf(UiFontRole.Panel);
+        var block = UI.Line(text, size, color, weight); block.FontFamily = SettingsFont(UiFontRole.Panel);
         string? resource = color == TextPrimary ? "SettingsTextPrimary" : color == TextSecondary ? "SettingsTextSecondary" :
             color is "#F0A6AA" or "#B12E3A" ? "SettingsError" : null;
         if (resource is not null) block.SetResourceReference(TextBlock.ForegroundProperty, resource);
@@ -304,7 +312,7 @@ public sealed partial class SettingsWindow : Window, IKeepsAppFonts
         }, System.Windows.Threading.DispatcherPriority.Loaded);
     }
 
-    public void ShowPage(int page) { using (Fonts.Plain()) ShowPageCore(page); }
+    public void ShowPage(int page) { using (OwnFonts()) ShowPageCore(page); }
     private void ShowPageCore(int page)
     {
         if (page < 0 || page >= _pages.Length) return;
@@ -316,7 +324,7 @@ public sealed partial class SettingsWindow : Window, IKeepsAppFonts
         _appRowMotionVersions.Clear();
         _sourceRows.Clear();
         _appRows = null;
-        if (page != _page && _preview) { _preview = false; _app.Deck.Preview(false); }
+        if (page != _page && _preview) { _preview = false; _app.PreviewDeck.Preview(false); }
         // Rebuilding the same page after a change keeps the reader where they were; only switching pages starts at the top.
         double keep = page == _page ? Math.Max(_scroll.VerticalOffset, _keptOffset) : 0; _keptOffset = 0;
         // The exception list's reserved height only lasts for this visit of the page.
@@ -329,9 +337,9 @@ public sealed partial class SettingsWindow : Window, IKeepsAppFonts
         _page = page; _navigation.Children.Clear(); _content.Children.Clear(); _aboutUpdateView = null; _scroll.ScrollToTop();
         foreach (int i in PageOrder)
         {
-            if (i is 0 or 3 or 5 or 7 or NotificationsPage or MonitorSettingsPage or ClipboardSettingsPage or DevicesSettingsPage or DebugPage)
+            if (i is 0 or 3 or 5 or 7 or NotificationsPage or MonitorSettingsPage or ShelfLayoutSettingsPage or ClipboardSettingsPage or DevicesSettingsPage or DebugPage)
             {
-                var group = TextLine(i switch { 0 => Loc.T("基础设置", "Basics"), NotificationsPage => Loc.T("通知", "Notifications"), 3 => Loc.T("AI 用量", "AI usage"), MonitorSettingsPage => Loc.T("系统监控", "System monitor"), ClipboardSettingsPage => Loc.T("中转站", "Shelf"), DevicesSettingsPage => Loc.T("设备电量", "Device batteries"), DebugPage => Loc.T("调试", "Debug"), 5 => Loc.T("音乐", "Music"), _ => Loc.T("关于", "About") },10.5,TextTertiary);
+                var group = TextLine(i switch { 0 => Loc.T("基础设置", "Basics"), NotificationsPage => Loc.T("通知", "Notifications"), 3 => Loc.T("AI 用量", "AI usage"), MonitorSettingsPage => Loc.T("系统监控", "System monitor"), ShelfLayoutSettingsPage => Loc.T("中转站", "Shelf"), ClipboardSettingsPage => Loc.T("中转站", "Shelf"), DevicesSettingsPage => Loc.T("设备电量", "Device batteries"), DebugPage => Loc.T("调试", "Debug"), 5 => Loc.T("音乐", "Music"), _ => Loc.T("关于", "About") },10.5,TextTertiary);
                 group.Margin = new Thickness(12, i == 0 ? 0 : 24, 0, 8); _navigation.Children.Add(group);
             }
             int target=i; bool selected=page==i;
@@ -346,13 +354,13 @@ public sealed partial class SettingsWindow : Window, IKeepsAppFonts
         }
         // The About page is titled by the wordmark itself, so the name does not appear twice.
         var head = new DockPanel { Margin = new Thickness(0,0,0,page == 7 ? 10 : 20) };
-        if (page is < 4 or 5 or 6 or ThemePage or MonitorSettingsPage or HotkeysPage or DevicesSettingsPage or ClipboardSettingsPage or MusicGesturesPage or DebugPage)
+        if (page is < 4 or 5 or 6 or ThemePage or MonitorSettingsPage or HotkeysPage or DevicesSettingsPage or ClipboardSettingsPage or ShelfLayoutSettingsPage or MusicGesturesPage or DebugPage)
         {
             // Resets every setting on the page, so it asks first (SW-09, S-03); it keeps the look of the other "restore defaults" links.
             var reset=ActionButton(Loc.T("恢复默认", "Restore defaults"),()=>{ if(Confirm(Loc.T("恢复默认", "Restore defaults"),ResetConfirmText(page),Loc.T("恢复默认", "Restore defaults")))ResetPage(); }); reset.FontSize=11; DockPanel.SetDock(reset,Dock.Right); head.Children.Add(reset);
         }
         head.Children.Add(page == 7 ? Wordmark(28) : TextLine(_pages[page],24,TextPrimary,FontWeights.SemiBold)); _content.Children.Add(head);
-        switch(page) { case 0: General(); break; case 1: Compact(); break; case 2: Expanded(); break; case 3: Pages(); break; case 4: ModelPrices(); break; case 5: MusicStyle(); break; case 6: Players(); break; case 7: About(); break; case ThemePage: ThemesPage(); break; case MonitorSettingsPage: MonitorSettings(); break; case SensorsPage: SensorsSettings(); break; case HotkeysPage: HotkeysSettings(); break; case DevicesSettingsPage: DevicesSettings(); break; case ClipboardSettingsPage: ClipboardSettings(); break; case TransferSettingsPage: TransferSettings(); break; case MusicGesturesPage: MusicGesturesSettings(); break; case DebugPage: DebugSettings(); break; case NotificationsPage: NotificationsSettings(); break; }
+        switch(page) { case 0: General(); break; case 1: Compact(); break; case 2: Expanded(); break; case 3: Pages(); break; case 4: ModelPrices(); break; case 5: MusicStyle(); break; case 6: Players(); break; case 7: About(); break; case ThemePage: ThemesPage(); break; case MonitorSettingsPage: MonitorSettings(); break; case SensorsPage: SensorsSettings(); break; case HotkeysPage: HotkeysSettings(); break; case DevicesSettingsPage: DevicesSettings(); break; case ClipboardSettingsPage: ClipboardSettings(); break; case TransferSettingsPage: TransferSettings(); break; case ShelfLayoutSettingsPage: ShelfLayoutSettings(); break; case MusicGesturesPage: MusicGesturesSettings(); break; case ProfilesPage: ProfilesSettings(); break; case DebugPage: DebugSettings(); break; case NotificationsPage: NotificationsSettings(); break; }
         if (_content.Children[^1] is Border lastGroup) lastGroup.Margin = new Thickness(lastGroup.Margin.Left, lastGroup.Margin.Top, lastGroup.Margin.Right, 0);
         // Apply the offset before the frame is drawn, so the rebuilt page never shows its top for a frame.
         if (keep > 0) { _scroll.UpdateLayout(); _scroll.ScrollToVerticalOffset(keep); _scroll.UpdateLayout(); }
@@ -373,8 +381,12 @@ public sealed partial class SettingsWindow : Window, IKeepsAppFonts
         SensorsPage => "M 4,4 H 12 V 12 H 4 Z M 6,1 V 4 M 10,1 V 4 M 6,12 V 15 M 10,12 V 15 M 1,6 H 4 M 1,10 H 4 M 12,6 H 15 M 12,10 H 15",
         MusicGesturesPage => "M 1,8 H 15 M 4,5 L 1,8 L 4,11 M 12,5 L 15,8 L 12,11",
         HotkeysPage => "M 1,3 H 15 V 13 H 1 Z M 4,6 V 6.1 M 7,6 V 6.1 M 10,6 V 6.1 M 13,6 V 6.1 M 4,10 H 12",
+        // Three stacked layers.
+        ProfilesPage => "M 8,1.5 L 15,5 L 8,8.5 L 1,5 Z M 1,8 L 8,11.5 L 15,8 M 1,11 L 8,14.5 L 15,11",
         NotificationsPage => "M 8,1.5 C 5,1.5 3.5,4 3.5,6.5 L 3.5,10 L 2,12 H 14 L 12.5,10 L 12.5,6.5 C 12.5,4 11,1.5 8,1.5 Z M 6.7,14 A 1.3,1.3 0 0 0 9.3,14",
         ClipboardSettingsPage => "M 3,2.5 H 13 V 15 H 3 Z M 6,1 H 10 V 4 H 6 Z M 5.5,8 H 10.5 M 5.5,11 H 10.5",
+        // Two columns, the right one narrower.
+        ShelfLayoutSettingsPage => "M 1,2.5 H 15 V 13.5 H 1 Z M 10,2.5 V 13.5",
         TransferSettingsPage => "M 1.5,9 L 3.5,3 H 12.5 L 14.5,9 V 13 A 1,1 0 0 1 13.5,14 H 2.5 A 1,1 0 0 1 1.5,13 Z M 1.5,9 H 5.5 L 6.5,10.5 H 9.5 L 10.5,9 H 14.5",
         DebugPage => "M 6,1 H 10 M 7,1 V 6 L 3,13 A 1.5,1.5 0 0 0 4.5,15 H 11.5 A 1.5,1.5 0 0 0 13.5,13 L 9,6 V 1 M 4.6,9.5 H 11.4",
         ThemePage => "M 8,1 C 4,1 1,4 1,8 C 1,12 4,15 8,15 C 9.4,15 9.6,13.6 8.8,12.8 C 8,12 8.6,10.5 10,10.5 H 12 C 13.7,10.5 15,9.2 15,7.5 C 15,4 12,1 8,1 Z M 4.6,8 V 8.1 M 6,4.8 V 4.9 M 9.6,4.4 V 4.5 M 12,6.8 V 6.9",
@@ -424,12 +436,14 @@ public sealed partial class SettingsWindow : Window, IKeepsAppFonts
         var transparency = SliderRow(Loc.T("背景透明度", "Background transparency"), S.SurfaceTransparency, 0, DeckSettings.MaxSurfaceTransparency, 5, "%",
             value => Change(s => s.SurfaceTransparency = (int)value));
         // The interface font (UiFonts, Fonts): "Default" keeps the app's own fonts. The installed families are listed when the list is
-        // opened and not before, and the choice reaches every window at once (Fonts.Use) without a restart; this window is built again
-        // with the app's own fonts (Fonts.Plain), and only the preview line below is set in the chosen one.
+        // opened and not before, and the choice reaches every window at once (Fonts.Use) without a restart; this window is built again,
+        // in the chosen font only when the switch below asks for it (DeckSettings.SettingsFollowsFont). The font row and the switch are
+        // always in the app's own fonts (Fonts.Plain), so a font that is hard to read can be changed back from here.
         var fontDefault = Loc.T("默认", "Default");
         List<string> fontNames = S.UiFont.Length > 0 ? [fontDefault, S.UiFont] : [fontDefault];
         bool fontListed = false, fontFilling = false;
-        var font = new ComboBox { Width=150,Style=(Style)FindResource("SettingsCombo"),ItemsSource=fontNames,SelectedIndex=S.UiFont.Length > 0 ? 1 : 0,MaxDropDownHeight=320,IsTextSearchEnabled=true };
+        var font = new ComboBox { Width=150,Style=(Style)FindResource("SettingsCombo"),ItemsSource=fontNames,SelectedIndex=S.UiFont.Length > 0 ? 1 : 0,MaxDropDownHeight=320,IsTextSearchEnabled=true,
+            FontFamily=Fonts.PlainOf(UiFontRole.Panel) };
         AutomationProperties.SetName(font,Loc.T("界面字体", "Interface font")); AutomationProperties.SetAutomationId(font,"interface-font"); PopupMotion.Attach(font);
         font.DropDownOpened+=(_,_)=>
         {
@@ -449,67 +463,21 @@ public sealed partial class SettingsWindow : Window, IKeepsAppFonts
         };
         var fontSample = new TextBlock { Text=Loc.T("字体预览 Aa Bb 0123 中英文混排", "Font preview Aa Bb 0123 mixed text"),TextTrimming=TextTrimming.CharacterEllipsis,MaxWidth=260,
             FontFamily=Fonts.Sample(S.UiFont),FontSize=13,Foreground=UI.Brush(TextPrimary),VerticalAlignment=VerticalAlignment.Center };
+        FrameworkElement fontRow, followRow;
+        using (Fonts.Plain())
+        {
+            fontRow = Row(Loc.T("界面字体", "Interface font"),font,help: () => Loc.T("选择界面文字使用的字体，立即生效。图标、等宽的脚本编辑器和时钟的自带字体样式不受影响；字体缺失时会回到默认字体。",
+                "Choose the font the interface text is drawn in; it applies at once. Icons, the monospaced script editor and the clock styles that ship their own fonts are not affected; a missing font falls back to the default one."));
+            followRow = Toggle(Loc.T("字体应用到设置窗口", "Apply font to settings window"), S.SettingsFollowsFont,
+                on => { Change(s => s.SettingsFollowsFont = on); RebuildTheme(); });
+        }
         Group(Row(Loc.T("主题", "Theme"),SegmentBorder(themes)),Row(Loc.T("语言", "Language"),language),Row(Loc.T("缩放", "Scale"),scale),transparency,
-            Row(Loc.T("界面字体", "Interface font"),font,help: () => Loc.T("选择界面文字使用的字体，立即生效。图标、等宽的脚本编辑器和时钟的自带字体样式不受影响；字体缺失时会回到默认字体。",
-                "Choose the font the interface text is drawn in; it applies at once. Icons, the monospaced script editor and the clock styles that ship their own fonts are not affected; a missing font falls back to the default one.")),
-            Row(Loc.T("字体预览", "Font preview"),fontSample));
-        DisplayChoice(); Interaction(); WindowRules();
-    }
-    // Either the primary display, or any set of displays, each with its own switch. A chosen display that is not
-    // connected keeps its switch, marked, so that it can be removed. The last switch that is on cannot be turned off.
-    private void DisplayChoice()
-    {
-        SectionTitle(Loc.T("显示位置", "Display"));
-        var displays = Native.Displays.Current();
-        var modes = new UniformGrid { Columns = 2, Width = 240 };
-        foreach (var (placement, name) in new[] { (DisplayPlacement.Primary, Loc.T("跟随主显示器", "Primary display")), (DisplayPlacement.Chosen, Loc.T("自选显示器", "Choose displays")) })
-        {
-            var option = new RadioButton { Style = (Style)FindResource("SettingsSegment"), Content = name, IsChecked = S.Display == placement, GroupName = "Display" };
-            AutomationProperties.SetName(option, Loc.T("显示在 · ", "Show on · ") + name);
-            option.Checked += (_, _) =>
-            {
-                if (S.Display == placement) return;
-                // Choosing displays for the first time starts from the one BrimDeck is on now.
-                var start = displays.FirstOrDefault(d => d.Primary) ?? displays.FirstOrDefault();
-                Change(s =>
-                {
-                    s.Display = placement;
-                    if (placement == DisplayPlacement.Chosen && s.DisplayMonitors.Count == 0 && start is not null) s.DisplayMonitors.Add(new ChosenDisplay(start.Id, start.Name));
-                });
-                ShowPage(0);
-            };
-            modes.Children.Add(option);
-        }
-        var rows = new List<FrameworkElement> { Row(Loc.T("显示在", "Show on"), SegmentBorder(modes)) };
-        if (S.Display == DisplayPlacement.Chosen)
-        {
-            var entries = displays.Select(d => (d.Id, d.Name, Label: Native.Displays.Label(d, displays) + (d.Primary ? Loc.T(" · 主显示器", " · primary") : ""))).ToList();
-            entries.AddRange(S.DisplayMonitors.Where(c => displays.All(d => d.Id != c.Id))
-                .Select(c => (c.Id, c.Name, Label: (c.Name.Length > 0 ? c.Name : Loc.T("显示器", "Display")) + Loc.T("（未连接）", " (not connected)"))));
-            var switches = new List<(CheckBox Box, string Id)>();
-            void UpdateSwitches() { foreach (var (box, id) in switches) box.IsEnabled = !(box.IsChecked == true && S.DisplayMonitors.Count == 1); }
-            foreach (var (id, name, label) in entries)
-            {
-                var row = Toggle(label, S.DisplayMonitors.Any(c => c.Id == id), on =>
-                {
-                    Change(s =>
-                    {
-                        s.DisplayMonitors.RemoveAll(c => c.Id == id);
-                        if (on) s.DisplayMonitors.Add(new ChosenDisplay(id, name));
-                    });
-                    UpdateSwitches();
-                });
-                // The displays are items under "Show on", so their names are not set as headings.
-                if (row is Border { Child: CheckBox { Content: TextBlock text } box }) { text.FontWeight = FontWeights.Normal; switches.Add((box, id)); }
-                rows.Add(row);
-            }
-            UpdateSwitches();
-        }
-        Group([.. rows]);
+            fontRow,followRow,Row(Loc.T("字体预览", "Font preview"),fontSample));
+        Interaction(); WindowRules();
     }
     // Monitors were connected, removed or rearranged; the list of displays is built again.
     // A taskbar that appeared, moved or went away also shows or hides the collapsed group's anchor row.
-    internal void DisplaysChanged() { if (!IsLoaded) return; if (_page is 0 or 1) ShowPage(_page); }
+    internal void DisplaysChanged() { if (!IsLoaded) return; if (_page is 0 or 1 or ProfilesPage) ShowPage(_page); }
     // The style hotkey changed the collapsed style; the page's cards and options follow it.
     internal void CompactStyleChanged()
     {
@@ -687,8 +655,8 @@ public sealed partial class SettingsWindow : Window, IKeepsAppFonts
         {
             switch(_page)
             {
-                case 0:s.LaunchAtStartup=false;s.ShowTrayIcon=defaults.ShowTrayIcon;s.MemoryMode=defaults.MemoryMode;s.Theme=defaults.Theme;s.Language=Loc.SystemLanguage();s.OpenDelay=defaults.OpenDelay;s.ClickToExpand=defaults.ClickToExpand;s.CloseDelay=defaults.CloseDelay;s.Animations=defaults.Animations;s.AnimationDuration=defaults.AnimationDuration;s.AlwaysOnTop=defaults.AlwaysOnTop;s.ForceTopmost=defaults.ForceTopmost;s.Maximized=defaults.Maximized;s.Borderless=defaults.Borderless;s.Exclusive=defaults.Exclusive;s.FullscreenRules=[];s.Display=defaults.Display;s.DisplayMonitors=[];s.PanelScale=defaults.PanelScale;s.SurfaceTransparency=defaults.SurfaceTransparency;s.UiFont=defaults.UiFont;
-                    s.ClickThrough=defaults.ClickThrough;s.ClickThroughPanel=defaults.ClickThroughPanel;s.WindowCapture=defaults.WindowCapture;break;
+                case 0:s.LaunchAtStartup=false;s.ShowTrayIcon=defaults.ShowTrayIcon;s.MemoryMode=defaults.MemoryMode;s.Theme=defaults.Theme;s.Language=Loc.SystemLanguage();s.OpenDelay=defaults.OpenDelay;s.ClickToExpand=defaults.ClickToExpand;s.CloseDelay=defaults.CloseDelay;s.Animations=defaults.Animations;s.AnimationDuration=defaults.AnimationDuration;s.AlwaysOnTop=defaults.AlwaysOnTop;s.ForceTopmost=defaults.ForceTopmost;s.Maximized=defaults.Maximized;s.Borderless=defaults.Borderless;s.Exclusive=defaults.Exclusive;s.FullscreenRules=[];s.PanelScale=defaults.PanelScale;s.SurfaceTransparency=defaults.SurfaceTransparency;s.UiFont=defaults.UiFont;s.SettingsFollowsFont=defaults.SettingsFollowsFont;
+                    s.ClickThrough=defaults.ClickThrough;s.ClickThroughPanel=defaults.ClickThroughPanel;s.ClickThroughKeyboard=defaults.ClickThroughKeyboard;s.WindowCapture=defaults.WindowCapture;break;
                 case HotkeysPage:foreach(var kind in Enum.GetValues<HotkeyKind>())s.SetHotkey(kind,defaults.Hotkey(kind));break;
                 case 1:s.Style=defaults.Style;s.NotchSummary=defaults.NotchSummary;s.NotchMusic=defaults.NotchMusic;s.CapsuleSummary=defaults.CapsuleSummary;s.CapsuleMusic=defaults.CapsuleMusic;s.MusicIndicatorProgress=defaults.MusicIndicatorProgress;
                     s.NotchEqualizer=defaults.NotchEqualizer;s.CapsuleEqualizer=defaults.CapsuleEqualizer;s.NotchClock=defaults.NotchClock;s.CapsuleClock=defaults.CapsuleClock;s.ClockStyle=defaults.ClockStyle;s.ClockColor=defaults.ClockColor;s.ClockCustomColor=defaults.ClockCustomColor;s.ClockGradient=[.. PanelTheme.Current.ClockGradients[0].Stops];s.Clock24Hour=defaults.Clock24Hour;s.ClockSeconds=defaults.ClockSeconds;CopyCollapsedSize(s,defaults);s.GripDoubleClick=defaults.GripDoubleClick;
@@ -699,16 +667,17 @@ public sealed partial class SettingsWindow : Window, IKeepsAppFonts
                     s.MonitorPage=defaults.MonitorPage;s.MonitorWidth=defaults.MonitorWidth;s.MonitorHeight=defaults.MonitorHeight;s.PageOrder=defaults.PageOrder;
                     s.ClipboardPage=defaults.ClipboardPage;s.ClipboardWidth=defaults.ClipboardWidth;s.ClipboardHeight=defaults.ClipboardHeight;
                     s.DevicesPage=defaults.DevicesPage;s.DevicesWidth=defaults.DevicesWidth;s.DevicesHeight=defaults.DevicesHeight;break;
-                case MonitorSettingsPage:s.MonitorPalette=defaults.MonitorPalette;s.MonitorCustomColors=defaults.MonitorCustomColors;s.CompactWarningColor=null;s.CompactCriticalColor=null;s.CompactSmoothing=defaults.CompactSmoothing;s.MonitorInterval=defaults.MonitorInterval;s.MonitorProcesses=defaults.MonitorProcesses;s.MonitorSort=defaults.MonitorSort;s.MonitorMain=defaults.MonitorMain;s.MonitorProcessView=defaults.MonitorProcessView;
-                    s.CompactMonitor=defaults.CompactMonitor;s.CompactMonitorItems=defaults.CompactMonitorItems;s.CompactReadings=defaults.CompactReadings;s.NotchAutoWidth=defaults.NotchAutoWidth;s.CapsuleAutoWidth=defaults.CapsuleAutoWidth;s.MonitorTemperatures=defaults.MonitorTemperatures;s.MonitorStorage=defaults.MonitorStorage;s.MonitorPower=defaults.MonitorPower;s.MonitorGpuUsage=defaults.MonitorGpuUsage;break;
+                case MonitorSettingsPage:s.MonitorPalette=defaults.MonitorPalette;s.MonitorCustomColors=defaults.MonitorCustomColors;s.CompactWarningColor=null;s.CompactCriticalColor=null;s.CompactSmoothing=defaults.CompactSmoothing;s.CoreDisplay=defaults.CoreDisplay;s.MonitorInterval=defaults.MonitorInterval;s.MonitorProcesses=defaults.MonitorProcesses;s.MonitorSort=defaults.MonitorSort;s.MonitorMain=defaults.MonitorMain;s.MonitorProcessView=defaults.MonitorProcessView;
+                    s.CompactMonitor=defaults.CompactMonitor;s.CompactMonitorItems=defaults.CompactMonitorItems;s.CompactReadings=defaults.CompactReadings;s.NotchAutoWidth=defaults.NotchAutoWidth;s.CapsuleAutoWidth=defaults.CapsuleAutoWidth;s.MonitorTemperatures=defaults.MonitorTemperatures;s.MonitorStorage=defaults.MonitorStorage;s.MonitorPower=defaults.MonitorPower;s.MonitorFrames=defaults.MonitorFrames;s.ExpandedTable=null;s.MonitorGpuUsage=defaults.MonitorGpuUsage;s.MonitorTrafficPeriod=defaults.MonitorTrafficPeriod;break;
                 // The devices' order, names and switches stay; the page and its size are Expanded view's (case 2).
                 case DevicesSettingsPage:s.DeviceLowPercent=defaults.DeviceLowPercent;s.DeviceWarningPercent=defaults.DeviceWarningPercent;s.DeviceFigures=defaults.DeviceFigures;break;
+                case ShelfLayoutSettingsPage:s.ShelfShown=defaults.ShelfShown;s.ShelfArrangement=defaults.ShelfArrangement;s.ShelfFileShare=defaults.ShelfFileShare;s.ShelfHoverSwitch=defaults.ShelfHoverSwitch;s.ShelfMiddleSwitch=defaults.ShelfMiddleSwitch;s.ShelfSwipeSwitch=defaults.ShelfSwipeSwitch;break;
                 // The categories and phrases are the user's own data, not settings; the other page has nothing to restore.
-                case ClipboardSettingsPage:s.ClipboardRecord=defaults.ClipboardRecord;s.ClipboardExcluded=[];break;
+                case ClipboardSettingsPage:s.ClipboardRecord=defaults.ClipboardRecord;s.ClipboardExcluded=[];s.ClipboardKeepHistory=defaults.ClipboardKeepHistory;s.ClipboardKeepFor=defaults.ClipboardKeepFor;break;
                 // The current theme's application colors go back to its own; the other themes keep what was saved for them.
                 case 3:{var previous=s.Apps;s.QuotaAlerts=defaults.QuotaAlerts;s.IncludeWsl=defaults.IncludeWsl;s.QuotaRingStyle=defaults.QuotaRingStyle;s.QuotaRingRemaining=defaults.QuotaRingRemaining;s.QuotaRingLetters=defaults.QuotaRingLetters;s.Apps=defaults.Apps;PanelThemes.CarryAppChoices(s,previous);break;}
                 case 5:s.EqualizerAlways=defaults.EqualizerAlways;s.EqualizerBars=defaults.EqualizerBars;s.EqualizerMode=defaults.EqualizerMode;s.EqualizerColor=defaults.EqualizerColor;s.EqualizerCustomColor=defaults.EqualizerCustomColor;
-                    s.MusicText=defaults.MusicText;s.MusicEqualizerBars=defaults.MusicEqualizerBars;s.MusicTrackNotice=defaults.MusicTrackNotice;s.MusicPausedHide=defaults.MusicPausedHide;s.MusicInstrumentalTitle=defaults.MusicInstrumentalTitle;s.MusicCompactCover=defaults.MusicCompactCover;s.MusicPageCover=defaults.MusicPageCover;s.LyricsEnabled=defaults.LyricsEnabled;
+                    s.MusicText=defaults.MusicText;s.MusicEqualizerBars=defaults.MusicEqualizerBars;s.MusicTrackNotice=defaults.MusicTrackNotice;s.MusicPausedHide=defaults.MusicPausedHide;s.MusicInstrumentalTitle=defaults.MusicInstrumentalTitle;s.MusicLyricAutoWidth=defaults.MusicLyricAutoWidth;s.MusicTitleAutoWidth=defaults.MusicTitleAutoWidth;s.MusicCompactCover=defaults.MusicCompactCover;s.MusicPageCover=defaults.MusicPageCover;s.LyricsEnabled=defaults.LyricsEnabled;
                     s.MusicLyricColor=defaults.MusicLyricColor;s.MusicLyricCustomColor=defaults.MusicLyricCustomColor;break;
                 case MusicGesturesPage:s.MusicDragLeft=defaults.MusicDragLeft;s.MusicDragRight=defaults.MusicDragRight;s.MusicDragUp=defaults.MusicDragUp;s.MusicDragDown=defaults.MusicDragDown;
                     s.MusicSwipeLeft=defaults.MusicSwipeLeft;s.MusicSwipeRight=defaults.MusicSwipeRight;break;
@@ -727,12 +696,16 @@ public sealed partial class SettingsWindow : Window, IKeepsAppFonts
 
     // A page that is not shown cannot be previewed, so its sizes are only saved.
     private void Resize(Action<DeckSettings> edit, DeckPage page = DeckPage.Usage)
-    { bool shown = DeckPages.Shown(S, page); Change(edit); if (!shown) return; _preview = true; _app.Deck.Preview(true); _app.Deck.SelectPage(page, remember: false); }
+    { bool shown = DeckPages.Shown(S, page); Change(edit); if (!shown) return; _preview = true; _app.PreviewDeck.Preview(true); _app.PreviewDeck.SelectPage(page, remember: false); }
 
     private void Interaction()
     {
         SectionTitle(Loc.T("悬停与动画", "Hover and animation"));
-        var duration = SliderRow(Loc.T("展开与收起动画时长", "Animation duration"), S.AnimationDuration, 100, 1000, 20, Loc.T("毫秒", "ms"), value => Change(s => s.AnimationDuration = (int)value));
+        // motion-review F20: the length covers the panel's changes of shape: expanding and collapsing, and the collapsed surface's
+        // width, style and edge, the swell on start and the shrink on exit. Page switches, hover and press feedback keep their own pace.
+        var duration = SliderRow(Loc.T("动画时长", "Animation duration"), S.AnimationDuration, 100, 1000, 20, Loc.T("毫秒", "ms"), value => Change(s => s.AnimationDuration = (int)value),
+            Loc.T("展开、收起以及收起时外形变化的时长。",
+                "How long expanding, collapsing and changes of the collapsed shape take."));
         var openDelay = SliderRow(Loc.T("展开延迟", "Expand delay"), S.OpenDelay, 0, 2000, 50, Loc.T("毫秒", "ms"), value => Change(s => s.OpenDelay = (int)value),
             Loc.T("鼠标悬停在 BrimDeck 的收起面板或指示条上多久后，开始展开。0 毫秒表示立即开始展开。",
                 "How long the pointer rests on BrimDeck's collapsed panel or indicator before it starts to expand. 0 ms expands immediately."));
@@ -748,7 +721,9 @@ public sealed partial class SettingsWindow : Window, IKeepsAppFonts
             SliderRow(Loc.T("收起延迟", "Collapse delay"), S.CloseDelay, 0, 2000, 50, Loc.T("毫秒", "ms"), value => Change(s => s.CloseDelay = (int)value),
                 Loc.T("鼠标离开 BrimDeck 的展开面板范围多久后，开始收起。0 毫秒表示立即开始收起。",
                     "How long after the pointer leaves BrimDeck's expanded panel it starts to collapse. 0 ms collapses immediately.")),
-            Toggle(Loc.T("启用展开与收起动画", "Animate expanding and collapsing"), S.Animations, value => { Change(s => s.Animations = value); Enable(duration, value); }), duration);
+            Toggle(Loc.T("启用动画", "Animations"), S.Animations, value => { Change(s => s.Animations = value); Enable(duration, value); }, help:
+                Loc.T("控制面板展开收起、页面切换、悬停与按压反馈等全部动画。关闭，或 Windows 关闭了动画效果、使用高对比度时，界面不再有动画。",
+                    "Switches all animation on or off: the panel expanding and collapsing, page changes, hover and press feedback. With it off, or when Windows has animation effects off or uses high contrast, nothing animates.")), duration);
     }
 
     private void WindowRules()
@@ -788,10 +763,9 @@ public sealed partial class SettingsWindow : Window, IKeepsAppFonts
         });
         raise.BorderBrush = UI.Brush(_palette.Border);
         raise.Background = UI.Brush(_palette.Input);
-        keep.Children.Add(Toggle(Loc.T("持续置顶", "Keep on top"), S.ForceTopmost,
-            value => Change(s => s.ForceTopmost = value), help:
-            Loc.T("开启后，面板被其他置顶窗口遮挡时会立即恢复到上方，其他应用打开的菜单除外。仍遵循上面的显示与隐藏规则。若其他应用反复置顶自己，面板会暂停恢复几秒。",
-                "Restores the panel above other always-on-top windows as soon as it is covered, except for menus other apps open. Display and hide rules above still apply. If an app keeps raising itself, the panel pauses for a few seconds.")));
+        keep.Children.Add(Toggle(Loc.T("持续置顶", "Keep on top"), S.ForceTopmost, value => Change(s => s.ForceTopmost = value), help:
+            Loc.T("开启后，面板被其他置顶窗口遮住时仍显示在最上方，可以正常操作。其他应用的菜单除外。",
+                "When on, the panel stays above other always-on-top windows and works as usual. Menus from other apps are excepted.")));
         keep.Children.Add(new Border { Height = 1, Background = UI.Brush(_palette.RowDivider) });
         var topRows = new StackPanel();
         topRows.Children.Add(keep);
@@ -819,7 +793,7 @@ public sealed partial class SettingsWindow : Window, IKeepsAppFonts
         SectionTitle(Loc.T("应用", "Apps"));
         _appRows = new StackPanel();
         foreach (var entry in S.Apps) _appRows.Children.Add(AppRow(entry));
-        UpdateDividers();
+        UpdateDividers(); UpdateShowLimit();
         var list = new StackPanel();
         var headings = AppColumns(); headings.Height = 34;
         AddHeadings(headings, new[]
@@ -830,25 +804,22 @@ public sealed partial class SettingsWindow : Window, IKeepsAppFonts
             (Loc.T("主题", "Theme"), 4, Loc.T("本列进度条和配额环的颜色。配额环始终使用这个颜色。", "The color of this column's progress bars and quota ring. The quota ring always uses this color.")),
             (Loc.T("预警", "Warning"), 5, Loc.T("已用达到 70%（即剩余 30%）时，进度条和数字改用这个颜色。", "At 70% used (30% left), progress bars and numbers change to this color.")),
             (Loc.T("告警", "Critical"), 6, Loc.T("已用达到 90%（即剩余 10%）时，进度条和数字改用这个颜色。", "At 90% used (10% left), progress bars and numbers change to this color.")),
-            (Loc.T("显示", "Show"), 7, "")
+            (Loc.T("显示", "Show"), 7, Loc.T($"最多同时显示 {AppPresets.MaximumShownApps} 个应用。关闭的应用保留其设置。", $"Up to {AppPresets.MaximumShownApps} apps are shown at once. Apps switched off keep their settings."))
         });
         list.Children.Add(headings);
         list.Children.Add(new Border { Child = _appRows, BorderBrush = UI.Brush(Divider), BorderThickness = new Thickness(0, 1, 0, 1) });
-        bool atLimit = S.Apps.Count >= AppPresets.MaximumApps;
         var add = ActionButton("", () =>
         {
-            if (S.Apps.Count >= AppPresets.MaximumApps) return;
-            Change(s => s.Apps.Add(new AppEntry { QuotaSource = ProviderId.Claude, UsageSource = ProviderId.Claude }));
+            // Past the display limit a new app is added switched off.
+            Change(s => s.Apps.Add(new AppEntry { QuotaSource = ProviderId.Codex, UsageSource = ProviderId.Codex, Enabled = !s.ShownAppsFull }));
             ShowPage(3);
         });
-        add.IsEnabled = !atLimit; add.Opacity = atLimit ? .45 : 1;
         var addContent = new StackPanel { Orientation = Orientation.Horizontal };
         addContent.Children.Add(Stroke("M 5,0 L 5,10 M 0,5 L 10,5", 10, 10, TextSecondary));
         var addLabel = TextLine(Loc.T("添加应用", "Add app"), 12.5, TextSecondary); addLabel.Margin = new Thickness(8, 0, 0, 0); addLabel.VerticalAlignment = VerticalAlignment.Center; addContent.Children.Add(addLabel);
         add.Content = addContent; add.HorizontalAlignment = HorizontalAlignment.Left; add.Margin = new Thickness(10, 6, 0, 6); add.Padding = new Thickness(10, 6, 12, 6);
-        add.ToolTip = atLimit ? Loc.T($"最多配置 {AppPresets.MaximumApps} 个应用；移除一行后可以继续添加", $"Up to {AppPresets.MaximumApps} apps. Remove a row to add another.")
-            : Loc.T($"最多配置 {AppPresets.MaximumApps} 个应用；同一配额来源或统计应用可以重复选择", $"Up to {AppPresets.MaximumApps} apps. The same quota source or usage app can be chosen more than once.");
-        ToolTipService.SetShowOnDisabled(add, true);
+        add.ToolTip = Loc.T($"同一配额来源或统计应用可以重复选择。已显示 {AppPresets.MaximumShownApps} 个应用时，新添加的应用默认不显示。",
+            $"The same quota source or usage app can be chosen more than once. With {AppPresets.MaximumShownApps} apps shown, a new app is added switched off.");
         AutomationProperties.SetName(add, Loc.T("添加应用", "Add app"));
         list.Children.Add(add);
         _content.Children.Add(list);
@@ -907,7 +878,9 @@ public sealed partial class SettingsWindow : Window, IKeepsAppFonts
         Grid.SetColumn(theme, 4); row.Children.Add(theme); Grid.SetColumn(warning, 5); row.Children.Add(warning); Grid.SetColumn(critical, 6); row.Children.Add(critical);
         var toggle = new CheckBox { Style = (Style)FindResource("SettingsToggle"), IsChecked = entry.Enabled, Padding = new Thickness(0), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
         AutomationProperties.SetName(toggle, Loc.T("显示 ", "Show ") + name); AutomationProperties.SetAutomationId(toggle, "enabled-" + entry.InstanceId.ToString("N"));
-        toggle.Checked += (_, _) => Change(s => s.Entry(entry.InstanceId)!.Enabled = true); toggle.Unchecked += (_, _) => Change(s => s.Entry(entry.InstanceId)!.Enabled = false);
+        toggle.Tag = ShowToggleTag; ToolTipService.SetShowOnDisabled(toggle, true);
+        toggle.Checked += (_, _) => { Change(s => s.Entry(entry.InstanceId)!.Enabled = true); UpdateShowLimit(); };
+        toggle.Unchecked += (_, _) => { Change(s => s.Entry(entry.InstanceId)!.Enabled = false); UpdateShowLimit(); };
         Grid.SetColumn(toggle, 7); row.Children.Add(toggle);
         AttachDrag(handle, name);
         // Removing drops the app's colors and sources with it, so it asks first (SW-09).
@@ -935,7 +908,7 @@ public sealed partial class SettingsWindow : Window, IKeepsAppFonts
     {
         string role = quota ? Loc.T("配额来源", "Quota source") : Loc.T("统计应用", "Usage app");
         ProviderId selected = quota ? entry.QuotaSource : entry.UsageSource;
-        string Label(ProviderId id) => AppPresets.Name(id);
+        string Label(ProviderId id) => quota ? AppPresets.Name(id) : ProviderCatalog.UsageName(id);
         var select = new DropDownButton { Style = (Style)FindResource("SettingsButton"), Value = () => Label(selected) };
         var selectContent = new DockPanel();
         var chevron = Chevron(); chevron.Foreground = UI.Brush(TextSecondary); chevron.Margin = new Thickness(8, ChevronDrop.Top, 0, ChevronDrop.Bottom); DockPanel.SetDock(chevron, Dock.Right); selectContent.Children.Add(chevron);
@@ -1023,7 +996,8 @@ public sealed partial class SettingsWindow : Window, IKeepsAppFonts
             }
             return double.PositiveInfinity;
         }
-        select.Click += (_, _) => { if (!menu.IsOpen) FitMenuToScreen(select, menu, surface, MenuLimit()); };
+        // The list sits right against its button, as the other drop-downs of the settings do.
+        select.Click += (_, _) => { if (!menu.IsOpen) { FitMenuToScreen(select, menu, surface, MenuLimit()); menu.VerticalOffset = 0; } };
         TogglePopup(select, menu);
         return select;
     }
@@ -1052,13 +1026,21 @@ public sealed partial class SettingsWindow : Window, IKeepsAppFonts
 
     // A popup that closes when the mouse goes down outside it also closes when its own button is pressed.
     // While the popup is open the button ignores the mouse, so that press only closes the popup and does not open it again.
-    private static void TogglePopup(ButtonBase button, Popup popup)
+    // WPF then passes that press on to the window: the popup is already shut (IsOpen is false) but Closed comes only after the
+    // press has been routed, so the popup stays in _shownPopups until then and the app rows let the press only close it.
+    private void TogglePopup(ButtonBase button, Popup popup)
     {
-        popup.Opened += (_, _) => button.IsHitTestVisible = false;
+        popup.Opened += (_, _) => { button.IsHitTestVisible = false; _shownPopups.Add(popup); };
         PopupMotion.Attach(popup);
-        popup.Closed += (_, _) => button.IsHitTestVisible = true;
+        popup.Closed += (_, _) =>
+        {
+            button.IsHitTestVisible = true; _shownPopups.Remove(popup);
+            // A reading that came while the list was open left the rows as they were (QuotasChanged); they are brought up to date now.
+            Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, QuotasChanged);
+        };
         button.Click += (_, _) => popup.IsOpen = !popup.IsOpen;
     }
+    private readonly HashSet<Popup> _shownPopups = [];
 
     // One line of the application menu: the name at the left, an optional note at the right.
     private Button MenuEntry(string name, string note, bool enabled, bool current)
@@ -1166,7 +1148,22 @@ public sealed partial class SettingsWindow : Window, IKeepsAppFonts
         int index = _appRows.Children.IndexOf(old);
         _sourceRows.Remove(id);
         _appRows.Children.RemoveAt(index); _appRows.Children.Insert(index, AppRow(entry));
-        UpdateDividers();
+        UpdateDividers(); UpdateShowLimit();
+    }
+
+    private const string ShowToggleTag = "show";
+    // With the most apps shown, the switches of the others are disabled until one is switched off.
+    private void UpdateShowLimit()
+    {
+        if (_appRows is null) return;
+        bool full = S.ShownAppsFull;
+        foreach (var toggle in _appRows.Children.OfType<Border>().Select(border => border.Child).OfType<Grid>()
+            .SelectMany(row => row.Children.OfType<CheckBox>()).Where(box => ShowToggleTag.Equals(box.Tag)))
+        {
+            bool blocked = full && toggle.IsChecked != true;
+            toggle.IsEnabled = !blocked;
+            toggle.ToolTip = blocked ? Loc.T($"最多同时显示 {AppPresets.MaximumShownApps} 个应用，请先关闭一个", $"Up to {AppPresets.MaximumShownApps} apps can be shown. Switch one off first.") : null;
+        }
     }
 
     private void UpdateDividers() { if (_appRows is not null) UpdateDividers(_appRows); }
@@ -1190,13 +1187,17 @@ public sealed partial class SettingsWindow : Window, IKeepsAppFonts
         Group(Row(Loc.T("当前版本", "Current version"),version),
             Row(Loc.T("开源许可证", "License"),TextLine("Apache License 2.0",12,TextSecondary)),
             Row(Loc.T("项目主页", "Homepage"),Link("GitHub ↗","https://github.com/MoFeng2223/BrimDeck")),
-            Row(Loc.T("问题与建议", "Issues and suggestions"),Link(Loc.T("提交反馈 ↗", "Send feedback ↗"),"https://github.com/MoFeng2223/BrimDeck/issues")));
+            Row(Loc.T("问题与建议", "Issues and suggestions"),Link(Loc.T("提交反馈 ↗", "Send feedback ↗"),"https://github.com/MoFeng2223/BrimDeck/issues")),
+            // The README's community section in the interface language, so the ways to reach us can change without a new version.
+            Row(Loc.T("交流", "Community"),Link(Loc.T("查看交流方式 ↗", "Join the community ↗"),Loc.T(
+                "https://github.com/MoFeng2223/BrimDeck/blob/main/README.zh-CN.md#%E4%BA%A4%E6%B5%81",
+                "https://github.com/MoFeng2223/BrimDeck/blob/main/README.md#community"))));
     }
 
     // External links are plain text, so their right edge lines up with the values in the rows above.
     private Button Link(string text, string url)
     {
-        var link = ActionButton(text, () => UI.OpenUrl(url)); link.Style = (Style)FindResource("SettingsLink"); link.ToolTip = url; return link;
+        var link = ActionButton(text, () => UI.OpenUrl(url)); link.Style = (Style)FindResource("SettingsLink"); link.ToolTip = Uri.UnescapeDataString(url); return link;
     }
 
     // Sections and groups are added to the page, or to the panel being collected while one is.

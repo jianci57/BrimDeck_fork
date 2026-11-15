@@ -21,7 +21,7 @@ try
     var updates = new AppUpdates(backend, data);
     var portable = backend.Mode == UpdateMode.Portable;
     if (!updates.CanInstall) throw new Exception("Installed or portable copy was not recognized: " + AppContext.BaseDirectory);
-    // The portable helper could not replace the files, put the old ones back and started this version again.
+    // The portable helper or the installer could not put the new version in place, restored the old one and started it again.
     if (updates.RestartFailed) { File.WriteAllText(result, $"KEPT {updates.CurrentVersion} {updates.Stage}: {updates.Error}"); return; }
     if (updates.CurrentVersion == "0.1.1")
     {

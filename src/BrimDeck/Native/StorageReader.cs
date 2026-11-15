@@ -52,7 +52,7 @@ internal sealed class StorageReader
         _reading = Task.Run(() =>
         {
             try { Read(temperatures, Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency, generation); }
-            catch (Exception ex) when (ex is not OutOfMemoryException) { Debug.WriteLine(ex); }
+            catch (Exception ex) when (ex is not OutOfMemoryException) { MonitorLog.Note("storage", ex); }
             finally { if (Volatile.Read(ref _generation) == generation) Volatile.Write(ref _running, 0); }
         });
     }
@@ -162,7 +162,7 @@ internal sealed class StorageReader
                     var volume = new StorageVolume(letter, label, (ulong)Math.Max(0, drive.TotalSize), (ulong)Math.Max(0, drive.TotalFreeSpace));
                     volumes.Add((volume, placed.Disk));
                 }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Debug.WriteLine(ex); }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { MonitorLog.Note("storage", ex); }
             }
         }
         finally { Marshal.FreeHGlobal(extents); }

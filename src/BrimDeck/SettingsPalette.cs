@@ -44,6 +44,8 @@ internal sealed record SettingsPalette(bool Dark)
         Brush("SettingsAccentFill", "#2374DE");
         // A small label that is on (a category kept): the accent's text on a pale wash of it.
         Brush("SettingsAccentText", Accent); Brush("SettingsAccentTint", Dark ? "#24324A" : "#E4EEFC");
+        // A deeper wash, for a part inside something already on the pale wash (the monitor sketch's memory and rates).
+        Brush("SettingsAccentTintStrong", Dark ? "#2F4A75" : "#C8DCFA");
         Brush("SettingsAccentHover", "#1964C7");
         Brush("SettingsSliderAccent", Accent); Brush("SettingsTrackBrush", Dark ? "#42424A" : "#D3D6DF");
         Brush("SettingsBorder", Border); Brush("SettingsInput", Input); Brush("SettingsPopup", Popup);

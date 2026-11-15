@@ -22,12 +22,20 @@ internal sealed class HidInfo
     // The battery usages the collection's feature reports carry (HidBattery.IsBattery): report id, page, usage, link collection
     // and logical range.
     public List<(byte ReportId, ushort Page, ushort Usage, ushort Link, int Min, int Max)> FeatureBatteries = [];
-    // MI_xx in the path: the USB interface; -1 when the path has none.
-    public int Interface => System.Text.RegularExpressions.Regex.Match(Path, "mi_([0-9a-f]{2})", System.Text.RegularExpressions.RegexOptions.IgnoreCase) is { Success: true } m
-        ? Convert.ToInt32(m.Groups[1].Value, 16) : -1;
+    // The ids of the output and feature reports the collection declares (0 where it numbers none).
+    public HashSet<byte> OutputIds = [], FeatureIds = [];
+    // MI_xx in the path: the USB interface; -1 when the path has none. Worked out once: the readers ask for it every pass.
+    public int Interface => _interface ??= Hid.Number(Hid.InterfaceIn, Path);
     // COLxx in the path: the top-level collection where the interface has several; -1 when the path has none.
-    public int Collection => System.Text.RegularExpressions.Regex.Match(Path, "&col([0-9a-f]{2})", System.Text.RegularExpressions.RegexOptions.IgnoreCase) is { Success: true } m
-        ? Convert.ToInt32(m.Groups[1].Value, 16) : -1;
+    public int Collection => _collection ??= Hid.Number(Hid.CollectionIn, Path);
+    // The device the collection belongs to, the same for all its collections (Hid.Group).
+    public string Group => _group ??= Hid.Group(Path);
+    private int? _interface, _collection;
+    private string? _group;
+    // Which reader takes the collection, worked out once by the battery worker from the attributes above (HidBatteries.Sort).
+    internal bool Sorted;
+    internal Func<HidInfo, HashSet<string>, IEnumerable<BrimDeck.Core.DeviceBattery>>? Dongle;
+    internal (BrimDeck.Core.BrandFamily Family, IReadOnlyList<BrimDeck.Core.BrandWay> Ways)? Brand;
     // Reached through Bluetooth (classic or LE) rather than USB.
     public bool Bluetooth => Hid.IsBluetooth(Path);
 }
@@ -71,6 +79,15 @@ internal static class Hid
         return match.Success ? (Convert.ToInt32(match.Groups[1].Value, 16), Convert.ToInt32(match.Groups[2].Value, 16)) : (0, 0);
     }
 
+    private const System.Text.RegularExpressions.RegexOptions Options = System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled;
+    internal static readonly System.Text.RegularExpressions.Regex InterfaceIn = new("mi_([0-9a-f]{2})", Options), CollectionIn = new("&col([0-9a-f]{2})", Options);
+    private static readonly System.Text.RegularExpressions.Regex ColIn = new("&col[0-9a-f]+", Options), MiIn = new("&mi_[0-9a-f]+", Options), TailIn = new(@"&[0-9a-f]{4}#\{", Options);
+    internal static int Number(System.Text.RegularExpressions.Regex pattern, string path)
+        => pattern.Match(path) is { Success: true } m ? Convert.ToInt32(m.Groups[1].Value, 16) : -1;
+    // A path without its collection and interface (and the number some drivers put before the class), so every collection of
+    // one device has the same.
+    internal static string Group(string path) => TailIn.Replace(MiIn.Replace(ColIn.Replace(path.ToLowerInvariant(), ""), ""), "#{");
+
     // Whether a path is a collection reached through Bluetooth (classic or LE) rather than USB.
     public static bool IsBluetooth(string path) => path.Contains("{00001124-", StringComparison.OrdinalIgnoreCase) || path.Contains("{00001812-", StringComparison.OrdinalIgnoreCase)
         || path.Contains("bthledevice", StringComparison.OrdinalIgnoreCase);
@@ -95,6 +112,8 @@ internal static class Hid
                     HidP_GetCaps(preparsed, caps);
                     info.Usage = caps[0]; info.UsagePage = caps[1]; info.InputLength = caps[2]; info.OutputLength = caps[3]; info.FeatureLength = caps[4];
                     if (batteries && caps[30] > 0) info.FeatureBatteries = Batteries(preparsed, caps[30]);
+                    info.OutputIds = ReportIds(preparsed, 1, caps[26], caps[27]);
+                    info.FeatureIds = ReportIds(preparsed, 2, caps[29], caps[30]);
                 }
                 finally { HidD_FreePreparsedData(preparsed); }
             }
@@ -121,6 +140,26 @@ internal static class Hid
             found.Add((buffer[at + 2], page, usage, BitConverter.ToUInt16(buffer, at + 6), BitConverter.ToInt32(buffer, at + 40), BitConverter.ToInt32(buffer, at + 44)));
         }
         return found;
+    }
+
+    // The report ids of one report type (1 output, 2 feature), from its button and value capabilities. HIDP_BUTTON_CAPS and
+    // HIDP_VALUE_CAPS are both 72 bytes with the report id at 2.
+    private static HashSet<byte> ReportIds(IntPtr preparsed, int type, int buttons, int values)
+    {
+        var ids = new HashSet<byte>();
+        foreach (var (count, read) in new (int, Func<byte[], ushort, (int, ushort)>)[]
+        {
+            (buttons, (buffer, length) => (HidP_GetButtonCaps(type, buffer, ref length, preparsed), length)),
+            (values, (buffer, length) => (HidP_GetValueCaps(type, buffer, ref length, preparsed), length)),
+        })
+        {
+            if (count <= 0) continue;
+            var buffer = new byte[72 * count];
+            var (status, length) = read(buffer, (ushort)count);
+            if (status != HIDP_STATUS_SUCCESS) continue;
+            for (int i = 0; i < length; i++) ids.Add(buffer[i * 72 + 2]);
+        }
+        return ids;
     }
 
     // A battery usage's value from a feature report read on the collection.
@@ -189,6 +228,7 @@ internal static class Hid
     [DllImport("hid.dll")] [return: MarshalAs(UnmanagedType.U1)] internal static extern bool HidD_FreePreparsedData(IntPtr data);
     [DllImport("hid.dll")] private static extern int HidP_GetCaps(IntPtr data, [Out] ushort[] caps);
     [DllImport("hid.dll")] private static extern int HidP_GetValueCaps(int reportType, [Out] byte[] caps, ref ushort length, IntPtr data);
+    [DllImport("hid.dll")] private static extern int HidP_GetButtonCaps(int reportType, [Out] byte[] caps, ref ushort length, IntPtr data);
     [DllImport("hid.dll")] private static extern int HidP_GetUsageValue(int reportType, ushort page, ushort link, ushort usage, out uint value, IntPtr data, byte[] report, uint length);
     [DllImport("hid.dll")] [return: MarshalAs(UnmanagedType.U1)] internal static extern bool HidD_FlushQueue(IntPtr handle);
     [DllImport("hid.dll")] [return: MarshalAs(UnmanagedType.U1)] private static extern bool HidD_GetProductString(IntPtr handle, byte[] buffer, int length);

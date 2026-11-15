@@ -1,11 +1,12 @@
 namespace BrimDeck.Core;
 
-// The devices page: the battery of the wireless keyboards, mice, headphones, controllers and pens connected to the PC, from
+// The devices page: the battery of the wireless keyboards, mice, headphones, controllers, pens and phones connected to the PC, from
 // whatever reports it (DeviceSource). Every source gives readings in this one shape; the roster merges them, one entry per
 // device, in a steady order, so the page never reorders itself as readings come and go.
 
-// What a device is, for its icon and its place in the order. Saved by number with a device's choices (DeviceChoice.Kind).
-public enum DeviceKind { Mouse, Keyboard, Headphones, Earbuds, Controller, Pen, Speaker, Other }
+// What a device is, for its icon and its place in the order. Saved by number with a device's choices (DeviceChoice.Kind), so a
+// new kind goes last.
+public enum DeviceKind { Mouse, Keyboard, Headphones, Earbuds, Controller, Pen, Speaker, Other, Phone }
 
 // Where a reading comes from, roughly from the most to the least exact. A device seen by more than one source keeps the
 // reading of the first in this order that has a percentage (DeviceRoster.Merge).
@@ -54,6 +55,10 @@ public sealed class DeviceChoice
     public string? ChargeColor { get; set; }
     public string? WarningColor { get; set; }
     public string? CriticalColor { get; set; }
+    // The device's vendor and product ("VVVV:PPPP", DeviceBattery.Hardware), and whether its battery is read: turned off, nothing
+    // is sent to it any more (DeviceReadSwitches) and it is listed without a reading.
+    public string? Hardware { get; set; }
+    public bool Read { get; set; } = true;
     public DeviceChoice Copy() => (DeviceChoice)MemberwiseClone();
 }
 
@@ -62,6 +67,21 @@ public sealed class DeviceChoice
 public static class DeviceLists
 {
     public const int MaximumLabel = 60;
+
+    // The devices whose reading the user turned off.
+    public static IEnumerable<string> ReadOff(IReadOnlyList<DeviceChoice> choices)
+        => choices.Where(choice => !choice.Read && !string.IsNullOrEmpty(choice.Hardware)).Select(choice => choice.Hardware!).Distinct(StringComparer.OrdinalIgnoreCase);
+    // The sources whose readers send to or listen on the device's USB collections, which the read switch stops; the others
+    // (Windows' Bluetooth and controller levels) have no switch, and their choices keep no hardware.
+    public static bool ReadSwitchable(DeviceSource source)
+        => source is DeviceSource.Hid or DeviceSource.Logitech or DeviceSource.Razer or DeviceSource.SteelSeries or DeviceSource.HyperX or DeviceSource.Sony;
+    // The read switch is the hardware's: every choice of that hardware takes it (two keys of one device, such as the one it
+    // was read under and the one it was listed under before it answered, never disagree).
+    public static void SetRead(List<DeviceChoice> choices, string hardware, bool on)
+    {
+        foreach (var choice in choices)
+            if (string.Equals(choice.Hardware, hardware, StringComparison.OrdinalIgnoreCase)) choice.Read = on;
+    }
 
     public static DeviceChoice? Find(IReadOnlyList<DeviceChoice> choices, string key)
     {
@@ -96,7 +116,12 @@ public static class DeviceLists
         return [.. listed.Select(key =>
         {
             var choice = Find(choices, key)?.Copy() ?? new DeviceChoice { Key = key };
-            if (all.FirstOrDefault(device => device.Key == key) is { } device) { choice.Name = device.Name; choice.Kind = device.Kind; }
+            if (all.FirstOrDefault(device => device.Key == key) is { } device)
+            {
+                choice.Name = device.Name; choice.Kind = device.Kind;
+                if (ReadSwitchable(device.Source)) choice.Hardware = device.Hardware ?? choice.Hardware;
+                else { choice.Hardware = null; choice.Read = true; }
+            }
             return choice;
         })];
     }
@@ -121,6 +146,8 @@ public static class Devices
     {
         if (category is { Length: > 0 })
         {
+            // Not "Phone" alone, which a headphone category carries too.
+            if (category.Contains("Communication.Phone", StringComparison.OrdinalIgnoreCase)) return DeviceKind.Phone;
             if (category.Contains("Mouse", StringComparison.OrdinalIgnoreCase) || category.Contains("Pointing", StringComparison.OrdinalIgnoreCase)) return DeviceKind.Mouse;
             if (category.Contains("Keyboard", StringComparison.OrdinalIgnoreCase)) return DeviceKind.Keyboard;
             if (category.Contains("Gaming", StringComparison.OrdinalIgnoreCase) || category.Contains("Gamepad", StringComparison.OrdinalIgnoreCase)) return DeviceKind.Controller;
@@ -136,6 +163,7 @@ public static class Devices
     // The Bluetooth appearance's category (its upper ten bits) and the HID subcategories (Bluetooth Assigned Numbers, 2.6).
     public static DeviceKind? Appearance(int appearance) => (appearance >> 6) switch
     {
+        0x001 => DeviceKind.Phone,
         0x00F => appearance switch { 0x03C1 => DeviceKind.Keyboard, 0x03C2 => DeviceKind.Mouse, 0x03C3 or 0x03C4 => DeviceKind.Controller, 0x03C5 or 0x03C7 => DeviceKind.Pen, _ => null },
         // Wearable audio: earbud, then headset, headphones and neck band.
         0x025 => appearance == 0x0941 ? DeviceKind.Earbuds : DeviceKind.Headphones,
@@ -172,14 +200,14 @@ public static class Devices
     public static int Rank(DeviceKind kind) => kind switch
     {
         DeviceKind.Mouse => 0, DeviceKind.Keyboard => 1, DeviceKind.Headphones => 2, DeviceKind.Earbuds => 3, DeviceKind.Controller => 4, DeviceKind.Pen => 5,
-        DeviceKind.Speaker => 6, _ => 7
+        DeviceKind.Speaker => 6, DeviceKind.Phone => 7, _ => 8
     };
 
     public static string KindName(DeviceKind kind) => kind switch
     {
         DeviceKind.Mouse => Loc.T("鼠标", "Mouse"), DeviceKind.Keyboard => Loc.T("键盘", "Keyboard"), DeviceKind.Headphones => Loc.T("头戴耳机", "Headphones"),
         DeviceKind.Earbuds => Loc.T("入耳耳机", "Earbuds"), DeviceKind.Controller => Loc.T("手柄", "Controller"), DeviceKind.Pen => Loc.T("笔", "Pen"),
-        DeviceKind.Speaker => Loc.T("音箱", "Speaker"), _ => Loc.T("设备", "Device")
+        DeviceKind.Speaker => Loc.T("音箱", "Speaker"), DeviceKind.Phone => Loc.T("手机", "Phone"), _ => Loc.T("设备", "Device")
     };
 
     public static string SourceName(DeviceSource source) => source switch

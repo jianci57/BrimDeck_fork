@@ -242,7 +242,8 @@ public sealed partial class SettingsWindow
     {
         var menu = new ContextMenu { PlacementTarget = anchor, Placement = PlacementMode.Bottom };
         menu.Resources["MenuSurface"] = UI.Brush(_palette.Popup);
-        menu.Resources["MenuInk"] = UI.Brush(_palette.Primary);
+        // The highlighted item keeps the settings ink: the app's own (the dark panel menus') is near white, unreadable on a light hover.
+        menu.Resources["MenuInk"] = menu.Resources["MenuInkHover"] = UI.Brush(_palette.Primary);
         menu.Resources["MenuEdge"] = UI.Brush(_palette.Border);
         menu.Resources["MenuHover"] = UI.Brush(_palette.Dark ? "#25252B" : "#E8E9EF");
         menu.Resources["MenuRule"] = UI.Brush(_palette.Divider);

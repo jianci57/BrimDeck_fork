@@ -63,6 +63,16 @@ internal static class EdgeFrameTests
             && CompactColumn.Rings(0, 12, 6, 44) == (0, 0));
         var stack = CompactColumn.Stack([20, 24, 12], 8);
         check("Parts stack with the gap between them", stack.Tops.SequenceEqual([0d, 28, 60]) && stack.Length == 72 && CompactColumn.Stack([], 8).Length == 0);
+        var table = new List<CompactReading>
+        {
+            new() { Item = CompactMonitorItems.Cpu }, new() { Item = CompactMonitorItems.Upload },
+            new() { Item = CompactMonitorItems.Storage, Visible = false }, new() { Item = CompactMonitorItems.Power },
+            new() { Item = CompactMonitorItems.Charge, Visible = false }, new() { Item = CompactMonitorItems.Frames, Visible = false }
+        };
+        var none = table.Select(reading => { var copy = reading.Copy(); copy.Visible = false; return copy; }).ToList();
+        check("Only the readings the table shows take a line in the column, CPU alone when none is shown",
+            CompactColumn.Readings(table).Select(reading => reading.Item).SequenceEqual([CompactMonitorItems.Cpu, CompactMonitorItems.Upload, CompactMonitorItems.Power])
+            && CompactColumn.Readings(none).Select(reading => reading.Item).SequenceEqual([CompactMonitorItems.Cpu]));
         check("A column that fits is centred; a longer one glides by what does not fit",
             CompactColumn.Place(72, 100) == (14, 0) && CompactColumn.Place(130, 100) == (0, 30) && CompactColumn.Place(double.NaN, 10) == (5, 0));
     }

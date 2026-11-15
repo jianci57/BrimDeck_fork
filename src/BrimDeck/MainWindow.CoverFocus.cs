@@ -19,9 +19,8 @@ public partial class MainWindow
         void Press(bool down)
         {
             pressed = down;
-            bool animate = Settings.Animations && SystemParameters.ClientAreaAnimation;
-            MusicControlButton.Animate(press, ScaleTransform.ScaleXProperty, down ? .94 : 1, animate, Soft.Hover);
-            MusicControlButton.Animate(press, ScaleTransform.ScaleYProperty, down ? .94 : 1, animate, Soft.Hover);
+            // The cover is pressed as the transport buttons are (motion-review F11).
+            Soft.Pressed(press, down, Animates);
         }
         art.MouseLeftButtonDown += (_, e) =>
         {

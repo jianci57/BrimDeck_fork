@@ -322,6 +322,27 @@ public static class KimiUsage
     public static string Source(string product, bool global) =>
         product + (global ? Loc.T(" · kimi.ai 账户", " · kimi.ai account") : Loc.T(" · kimi.com 账户", " · kimi.com account"));
 
+    // Kimi Open Platform (ProviderId.KimiPlatform): a pay-as-you-go API key of the Open Platform, which bills apart from the
+    // membership. platform.kimi.com keys are answered at api.moonshot.cn in CNY, platform.kimi.ai keys at api.moonshot.ai in USD;
+    // either host refuses the other's keys with HTTP 401.
+    //   GET /v1/users/me/balance: { code: 0, data: { available_balance, voucher_balance, cash_balance }, scode, status }.
+    //   available_balance is cash plus vouchers; at or below 0 the API cannot be called. cash_balance turns negative when the
+    //   account owes, and available_balance is then the voucher balance alone.
+    public const string PlatformChina = "https://api.moonshot.cn", PlatformGlobal = "https://api.moonshot.ai";
+
+    public static List<UsageMetric> PlatformBalance(JsonElement root, string currency, out bool available)
+    {
+        var data = root.Get("data");
+        if (root.Get("code").Number() is not 0 || Amount(data.Get("available_balance")) is not { } total) throw new InvalidDataException();
+        available = total > 0;
+        var metrics = new List<UsageMetric> { new(MetricKind.Balance, "账户余额") { Id = "total", Amount = total, Currency = currency } };
+        if (Amount(data.Get("cash_balance")) is { } cash) metrics.Add(new(MetricKind.Balance, "现金余额") { Id = "cash", Amount = cash, Currency = currency });
+        if (Amount(data.Get("voucher_balance")) is { } voucher) metrics.Add(new(MetricKind.Balance, "代金券余额") { Id = "voucher", Amount = voucher, Currency = currency });
+        return metrics;
+    }
+
+    private static decimal? Amount(JsonElement value) => value.ValueKind == JsonValueKind.Number && value.TryGetDecimal(out var number) ? number : null;
+
     public static string Plan(JsonElement root) => root.Get("user_level_name").Text().Trim() is { Length: > 0 and <= 40 } name ? name : "";
 
     // Kimi Code names a model "<provider>/<model>" ("kimi-code/k3.1-pro"); its own models are listed under [models] in

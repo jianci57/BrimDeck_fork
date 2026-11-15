@@ -20,7 +20,7 @@ public sealed class LogReader
         public int Errors;
         public string Model = "unknown", LastTotal = "";
     }
-    // Claude and Codex read different folders; each keeps only the files its latest read visited.
+    // Claude, CodeAgent and Codex read different folders; each keeps only the files its latest read visited.
     private readonly Dictionary<ProviderId, Dictionary<string, CacheItem>> _caches = [];
     // The merged entries of the latest read, kept while no file changed and the start date stayed: most refreshes find nothing new.
     private readonly Dictionary<ProviderId, (DateTimeOffset Cutoff, List<TokenEntry> Entries)> _merged = [];
@@ -109,7 +109,8 @@ public sealed class LogReader
     }
 
     // ParseLine reads only lines with one of these keys.
-    private static readonly byte[][] UsageKeys = ["\"token_count\""u8.ToArray(), "\"turn_context\""u8.ToArray(), "\"usage\""u8.ToArray()];
+    // WorkBuddy's replies carry "rawUsage", usually with its own "usage" as well.
+    private static readonly byte[][] UsageKeys = ["\"token_count\""u8.ToArray(), "\"turn_context\""u8.ToArray(), "\"usage\""u8.ToArray(), "\"rawUsage\""u8.ToArray()];
     private static bool HasUsageKey(ReadOnlySpan<byte> span) => AppendedLines.Holds(span, UsageKeys);
 
     // Pi records disjoint token categories. Read only accounting metadata, never message content or auth files.
@@ -143,6 +144,68 @@ public sealed class LogReader
             input, read, write - hour, hour, output, cost));
     }
 
+    // Command Code writes each message as one line {"type":"message","timestamp","message":{"meta":{"messageId"}},"model","usage"}, the
+    // usage only on the model's replies: {inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, cacheWriteTokens1h, costUsd}.
+    // inputTokens includes the cache reads and writes; Command Code charges only the rest as uncached input, and costUsd is its own
+    // estimate at its list prices. The message id is kept by a resumed or forked session, so a copied message is counted once.
+    private static void ParseCommandCode(JsonElement obj, DateTimeOffset? time, CacheItem item)
+    {
+        if (obj.Get("type").Text() != "message" || time is null || time < item.Cutoff) return;
+        var usage = obj.Get("usage");
+        if (usage.ValueKind != JsonValueKind.Object) return;
+        long input = usage.Get("inputTokens").Count(), read = usage.Get("cacheReadTokens").Count(), write = usage.Get("cacheWriteTokens").Count();
+        long hour = Math.Min(write, usage.Get("cacheWriteTokens1h").Count());
+        decimal? cost = null;
+        var reported = usage.Get("costUsd");
+        if (reported.ValueKind == JsonValueKind.Number && reported.TryGetDecimal(out var value) && value >= 0) cost = value;
+        var key = obj.Get("message").Get("meta").Get("messageId").Text();
+        if (key.Length == 0) key = obj.Get("id").Text();
+        if (key.Length == 0) key = $"{time:O}:{usage.GetRawText()}";
+        var model = obj.Get("model").Text();
+        Add(item, new("cmd:" + key, time.Value, string.Intern(model.Length == 0 ? "unknown" : model), Math.Max(0, input - read - write), read,
+            write - hour, hour, usage.Get("outputTokens").Count(), cost));
+    }
+
+    // WorkBuddy writes each model reply as one line {"type":"message","role":"assistant","timestamp":<ms>,"providerData":{"messageId",
+    // "stepSeq","model","rawUsage","usage"}}. rawUsage is the gateway's OpenAI-style usage: prompt_tokens includes the cache reads
+    // (prompt_tokens_details.cached_tokens, also given as prompt_cache_hit_tokens) and writes (cache_creation_input_tokens), and
+    // completion_tokens includes the reasoning. providerData.usage is WorkBuddy's own summary of the same counts, used when rawUsage is
+    // missing. The credits WorkBuddy records are not dollars, so the cost is left to the model price table.
+    private static void ParseWorkBuddy(JsonElement obj, DateTimeOffset? time, CacheItem item, string prefix)
+    {
+        if (obj.Get("type").Text() != "message" || obj.Get("role").Text() != "assistant" || time is null || time < item.Cutoff) return;
+        var data = obj.Get("providerData");
+        var raw = data.Get("rawUsage");
+        long input, read, write, output;
+        if (raw.ValueKind == JsonValueKind.Object)
+        {
+            input = raw.Get("prompt_tokens").Count();
+            read = Math.Max(raw.Get("prompt_tokens_details").Get("cached_tokens").Count(),
+                Math.Max(raw.Get("prompt_cache_hit_tokens").Count(), raw.Get("cache_read_input_tokens").Count()));
+            write = Math.Max(raw.Get("cache_creation_input_tokens").Count(), raw.Get("prompt_cache_write_tokens").Count());
+            output = raw.Get("completion_tokens").Count();
+        }
+        else
+        {
+            var usage = data.Get("usage");
+            if (usage.ValueKind != JsonValueKind.Object) return;
+            input = usage.Get("inputTokens").Count();
+            read = usage.Get("inputTokensDetails").Items().Select(detail => detail.Get("cached_tokens").Count()).DefaultIfEmpty().Max();
+            write = 0;
+            output = usage.Get("outputTokens").Count();
+        }
+        read = Math.Min(read, input);
+        write = Math.Min(write, input - read);
+        var key = data.Get("messageId").Text();
+        key = key.Length > 0 ? $"{key}:{data.Get("stepSeq").Number()}" : obj.Get("id").Text();
+        if (key.Length == 0) key = $"{time:O}:{input}:{read}:{write}:{output}";
+        var model = data.Get("model").Text();
+        // The name shown is the channel's ("hy4-free"); the price is looked up by the model's own name ("Hy4").
+        var priced = data.Get("requestModelName").Text().Trim();
+        Add(item, new(prefix + key, time.Value, string.Intern(model.Length == 0 ? "unknown" : model), input - read - write, read, write, 0, output)
+            { PriceModel = priced.Length == 0 ? null : string.Intern(priced) });
+    }
+
     // Claude writes one line per content block of a message, each with the message's usage so far: a repeat of the entry just added
     // replaces it when at least as complete, so the cache holds each message once. Repeats across files are merged in Read.
     private static void Add(CacheItem item, TokenEntry entry)
@@ -164,6 +227,14 @@ public sealed class LogReader
             if (id == ProviderId.Pi)
             {
                 ParsePi(obj, time, item);
+            }
+            else if (id == ProviderId.CommandCode)
+            {
+                ParseCommandCode(obj, time, item);
+            }
+            else if (id is ProviderId.WorkBuddy or ProviderId.WorkBuddyAi)
+            {
+                ParseWorkBuddy(obj, time, item, id == ProviderId.WorkBuddyAi ? "wbai:" : "wb:");
             }
             else if (id == ProviderId.Codex)
             {
@@ -198,6 +269,21 @@ public sealed class LogReader
                 }
                 Add(item, new($"codex:{time:O}:{Convert.ToHexString(digest[..16])}", time.Value, item.Model, input - cached, cached, write, 0, output));
             }
+            else if (id == ProviderId.CodeAgent && type == "query-metrics")
+            {
+                // CodeAgent's observability/obs.jsonl records each model request with its usage. A session record can keep only the
+                // empty usage of a message whose request was cut short; the same message id here gives the real counts, and Read keeps
+                // the larger of the two. Requests outside the conversation (such as session titles) appear only here.
+                if (time is null || time < item.Cutoff) return;
+                var usage = obj.Get("usage");
+                if (usage.ValueKind != JsonValueKind.Object) return;
+                var key = obj.Get("message_id").Text();
+                if (key.Length == 0) key = $"{time:O}:{usage.GetRawText()}";
+                var creation = usage.Get("cache_creation_input_tokens").Count();
+                var hour = Math.Min(creation, usage.Get("cache_creation").Get("ephemeral_1h_input_tokens").Count());
+                Add(item, new("cac:" + key, time.Value, string.Intern(obj.Get("model").Text()), usage.Get("input_tokens").Count(),
+                    usage.Get("cache_read_input_tokens").Count(), creation - hour, hour, usage.Get("output_tokens").Count()));
+            }
             else
             {
                 if (type != "assistant" || time is null || time < item.Cutoff) return;
@@ -209,7 +295,7 @@ public sealed class LogReader
                 var key = message.Get("id").Text();
                 if (key.Length == 0) key = obj.Get("uuid").Text();
                 if (key.Length == 0) key = $"{time:O}:{usage.GetRawText()}";
-                Add(item, new("claude:" + key, time.Value, string.Intern(message.Get("model").Text()), usage.Get("input_tokens").Count(),
+                Add(item, new((id == ProviderId.CodeAgent ? "cac:" : "claude:") + key, time.Value, string.Intern(message.Get("model").Text()), usage.Get("input_tokens").Count(),
                     usage.Get("cache_read_input_tokens").Count(), creation - hour, hour, usage.Get("output_tokens").Count()));
             }
         }
@@ -303,11 +389,9 @@ public static class QuotaParser
         if (groups.ValueKind != JsonValueKind.Array) groups = root.Get("groups");
         foreach (var group in groups.Items())
             foreach (var bucket in group.Get("buckets").Items())
-                if (bucket.Get("remainingFraction").Number() is { } fraction)
+                if (bucket.Get("remainingFraction").Number() is { } fraction && bucket.Get("disabled").ValueKind != JsonValueKind.True)
                 {
-                    var id = bucket.Get("bucketId").Text();
-                    var label = id switch { "gemini-5h" => "Gemini · 5 小时", "gemini-weekly" => "Gemini · 每周", "3p-5h" => "Claude · 5 小时", "3p-weekly" => "Claude · 每周", _ => id };
-                    int? minutes = id switch { "gemini-5h" or "3p-5h" => 300, "gemini-weekly" or "3p-weekly" => 10080, _ => null };
+                    var (label, minutes) = AntigravityBucket(bucket, group.Get("displayName").Text());
                     result.Add(new(label, (1 - Math.Clamp(fraction, 0, 1)) * 100, bucket.Get("resetTime").Date(), minutes));
                 }
         if (result.Count > 0) return result;
@@ -316,5 +400,28 @@ public static class QuotaParser
             if (model.Get("quotaInfo").Get("remainingFraction").Number() is { } fraction)
                 result.Add(new(model.Get("label").Text(), (1 - Math.Clamp(fraction, 0, 1)) * 100, model.Get("quotaInfo").Get("resetTime").Date()));
         return result;
+    }
+
+    // A quota summary bucket carries an id ("gemini-weekly", "3p-5h"), a window ("weekly", "5h") and sits in a group named by the
+    // service ("Gemini Models", "Claude and GPT models"). Google AI Pro adds a weekly-only Gemini 4 Argon quota whose id has not
+    // been seen, so the window decides the period and an id naming Argon gets a group of its own. Other unknown buckets are
+    // grouped by the service's group name.
+    private static (string Label, int? Minutes) AntigravityBucket(JsonElement bucket, string groupName)
+    {
+        var id = bucket.Get("bucketId").Text();
+        var window = bucket.Get("window").Text().ToLowerInvariant();
+        if (window.Length == 0) window = id.EndsWith("-5h", StringComparison.OrdinalIgnoreCase) ? "5h" : id.EndsWith("-weekly", StringComparison.OrdinalIgnoreCase) ? "weekly" : "";
+        var (period, minutes) = window switch
+        {
+            "5h" => ("5 小时", (int?)300),
+            "daily" or "1d" => ("每日", 1440),
+            "weekly" or "7d" => ("每周", 10080),
+            _ => (bucket.Get("displayName").Text() is { Length: > 0 } name ? name : id, (int?)null)
+        };
+        var group = id.Contains("argon", StringComparison.OrdinalIgnoreCase) ? "Argon"
+            : id.StartsWith("gemini-", StringComparison.OrdinalIgnoreCase) ? "Gemini"
+            : id.StartsWith("3p-", StringComparison.OrdinalIgnoreCase) ? "Claude"
+            : groupName.Replace('·', ' ').Trim();
+        return (group.Length > 0 ? $"{group} · {period.Replace('·', ' ').Trim()}" : period, minutes);
     }
 }

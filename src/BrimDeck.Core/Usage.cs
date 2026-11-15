@@ -14,6 +14,9 @@ public sealed record TokenEntry(string Key, DateTimeOffset Time, string Model,
     long Input, long CacheRead, long CacheWrite, long CacheWriteHour, long Output, decimal? ReportedCostUsd = null, bool FittedCost = false)
 {
     public long Total => Input + CacheRead + CacheWrite + CacheWriteHour + Output;
+    // The name to look the price up by when the record names the model its own way; null prices it by Model. WorkBuddy names a
+    // model by its channel ("hy4-free") and keeps the model's own name apart ("Hy4", the catalog's tencent/hy4).
+    public string? PriceModel { get; init; }
 }
 
 // The most recent account quota values; Local marks values taken from the desktop application's own usage history.
@@ -29,6 +32,9 @@ public sealed class ProviderSnapshot(ProviderId id)
     public string Scope { get; set; } = "";
     public Dictionary<string, string> Details { get; set; } = [];
     public bool IsStale { get; set; }
+    // Set on a snapshot restored from the previous run (UsageLastSeen): when its data was read. It is never a fresh reading, so it neither
+    // raises a level notice nor seeds a level (QuotaLevels).
+    public DateTimeOffset? LastSeenAt { get; set; }
     private List<UsageMetric>? _metrics;
     public List<UsageMetric> Metrics { get => _metrics ?? Quotas.Select(UsageMetric.FromQuota).ToList(); set => _metrics = value; }
     public string Plan { get; set; } = "";
@@ -48,6 +54,8 @@ public sealed class ProviderSnapshot(ProviderId id)
     // worked out from it; null until they are.
     public bool WeeklyShares { get; set; }
     public TokenPrices? WeeklyPrices { get; set; }
+    // The prices the application itself lists for its models, by model name (CommandCodeUsage.ReadPrices); null when it lists none.
+    public IReadOnlyDictionary<string, ModelPrice>? ListedPrices { get; set; }
     // A shallow copy: setting a property of the copy leaves this snapshot as it was, but the two share their lists.
     public ProviderSnapshot Copy() => (ProviderSnapshot)MemberwiseClone();
 }

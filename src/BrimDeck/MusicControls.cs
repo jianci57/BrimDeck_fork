@@ -4,55 +4,55 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Shapes;
+using BrimDeck.Core;
 
 namespace BrimDeck;
 
 public sealed class MusicControlButton : Button
 {
+    // The look of the panel this element is drawn in (PanelLook.Of); the main look outside a panel.
+    private PanelLook Look => PanelLook.Of(this);
     private bool _animationsEnabled;
     public bool AnimationsEnabled
     {
         get => _animationsEnabled;
         set { if (_animationsEnabled == value) return; _animationsEnabled = value; UpdateState(); }
     }
+    // Over the button by touch or a pen, which only stands in for a pointer while it presses: no hover is shown for it
+    // (motion-review F4).
+    private bool _touched;
     protected override void OnPropertyChanged(DependencyPropertyChangedEventArgs e)
     {
         base.OnPropertyChanged(e);
         if (e.Property == IsMouseOverProperty || e.Property == IsPressedProperty || e.Property == IsEnabledProperty) UpdateState();
+    }
+    protected override void OnMouseEnter(MouseEventArgs e) { _touched = e.StylusDevice is not null; base.OnMouseEnter(e); UpdateState(); }
+    protected override void OnMouseMove(MouseEventArgs e) { base.OnMouseMove(e); Source(e); }
+    // Touch or a pen taking over from a mouse that is already over the button sends no MouseEnter: presses and moves say who it is.
+    protected override void OnPreviewMouseDown(MouseButtonEventArgs e) { Source(e); base.OnPreviewMouseDown(e); }
+    private void Source(MouseEventArgs e)
+    {
+        bool touch = e.StylusDevice is not null;
+        if (_touched == touch) return;
+        _touched = touch; UpdateState();
     }
     public override void OnApplyTemplate() { base.OnApplyTemplate(); UpdateState(); }
     private void UpdateState()
     {
         if (Template?.FindName("Hover", this) is Ellipse hover)
         {
-            double opacity = !IsEnabled ? 0 : IsPressed ? .16 : (bool)GetValue(IsMouseOverProperty) ? .10 : 0;
-            Animate(hover, OpacityProperty, opacity, AnimationsEnabled, opacity >= hover.Opacity ? Soft.Hover : Soft.HoverOut);
+            double opacity = !IsEnabled ? 0 : IsPressed ? .16 : PressFeedback.Hovers((bool)GetValue(IsMouseOverProperty), _touched) ? .10 : 0;
+            Soft.Glide(hover, OpacityProperty, opacity, AnimationsEnabled, IsPressed ? Soft.PressFill : opacity >= hover.Opacity ? Soft.Hover : Soft.HoverOut);
         }
-        if (Template?.FindName("ControlScale", this) is ScaleTransform scale)
-        {
-            double value = IsEnabled && IsPressed ? .94 : 1;
-            Animate(scale, ScaleTransform.ScaleXProperty, value, false, 0);
-            Animate(scale, ScaleTransform.ScaleYProperty, value, false, 0);
-        }
-    }
-    internal static void Animate(Animatable target, DependencyProperty property, double value, bool animate, int milliseconds)
-    {
-        double from = (double)target.GetValue(property);
-        target.BeginAnimation(property, null); target.SetValue(property, value);
-        if (animate && from != value) target.BeginAnimation(property, new DoubleAnimation(from, value, TimeSpan.FromMilliseconds(milliseconds))
-        { EasingFunction = Soft.Follow, FillBehavior = FillBehavior.Stop });
-    }
-    private static void Animate(UIElement target, DependencyProperty property, double value, bool animate, int milliseconds)
-    {
-        double from = (double)target.GetValue(property);
-        target.BeginAnimation(property, null); target.SetValue(property, value);
-        if (animate && from != value) target.BeginAnimation(property, new DoubleAnimation(from, value, TimeSpan.FromMilliseconds(milliseconds))
-        { EasingFunction = Soft.Follow, FillBehavior = FillBehavior.Stop });
+        // The press shrinks the button as it does the cover (motion-review F11), where it used to jump to its size at once.
+        if (Template?.FindName("ControlScale", this) is ScaleTransform scale) Soft.Pressed(scale, IsEnabled && IsPressed, AnimationsEnabled);
     }
 }
 
 public sealed class MusicSeekSlider : Slider
 {
+    // The look of the panel this element is drawn in (PanelLook.Of); the main look outside a panel.
+    private PanelLook Look => PanelLook.Of(this);
     public static readonly DependencyProperty BarHeightProperty = DependencyProperty.Register(nameof(BarHeight), typeof(double), typeof(MusicSeekSlider), new PropertyMetadata(4d));
     public static readonly DependencyProperty BubbleXProperty = DependencyProperty.Register(nameof(BubbleX), typeof(double), typeof(MusicSeekSlider), new PropertyMetadata(0d));
     public static readonly DependencyProperty BubbleTextProperty = DependencyProperty.Register(nameof(BubbleText), typeof(string), typeof(MusicSeekSlider), new PropertyMetadata(""));
@@ -85,24 +85,31 @@ public sealed class MusicSeekSlider : Slider
     private void UpdateState(bool animate = true)
     {
         animate &= AnimationsEnabled && IsLoaded;
-        bool active = IsEnabled && ((bool)GetValue(IsMouseOverProperty) || Seeking);
-        double height = active ? HoverHeight : RestHeight, fromHeight = BarHeight;
-        BeginAnimation(BarHeightProperty, null); BarHeight = height;
-        if (animate && fromHeight != height) BeginAnimation(BarHeightProperty, new DoubleAnimation(fromHeight, height, TimeSpan.FromMilliseconds(Soft.Hover))
-        { EasingFunction = Soft.Follow, FillBehavior = FillBehavior.Stop });
+        // Touch and a pen do not hover (motion-review F4); a drag to seek still raises the bar.
+        bool active = IsEnabled && (PressFeedback.Hovers((bool)GetValue(IsMouseOverProperty), _touched) || Seeking);
+        Soft.Glide(this, BarHeightProperty, active ? HoverHeight : RestHeight, animate);
         // On a dark surface the hover color is lighter, on a light one darker, so hovering only ever adds contrast.
-        bool dark = PanelTheme.Current.IsDark;
+        bool dark = Look.Current.IsDark;
         byte Shift(byte value) => (byte)Math.Round(dark ? value + (255 - value) * .12 : value * .88);
         var color = active ? Color.FromArgb(Accent.A, Shift(Accent.R), Shift(Accent.G), Shift(Accent.B)) : Accent;
-        var from = _fill.Color; _fill.BeginAnimation(SolidColorBrush.ColorProperty, null); _fill.Color = color;
-        if (animate && from != color) _fill.BeginAnimation(SolidColorBrush.ColorProperty, new ColorAnimation(from, color, TimeSpan.FromMilliseconds(Soft.Hover)) { EasingFunction = Soft.Follow, FillBehavior = FillBehavior.Stop });
+        Soft.Glide(_fill, color, animate);
         Cursor = IsEnabled ? Cursors.Hand : Cursors.Arrow;
         BubbleVisible = active ? Visibility.Visible : Visibility.Collapsed;
         UpdateBubble();
     }
+    private bool _touched;
+    protected override void OnMouseEnter(MouseEventArgs e) { _touched = e.StylusDevice is not null; base.OnMouseEnter(e); UpdateState(); }
+    protected override void OnPreviewMouseDown(MouseButtonEventArgs e) { Source(e); base.OnPreviewMouseDown(e); }
+    private void Source(MouseEventArgs e)
+    {
+        bool touch = e.StylusDevice is not null;
+        if (_touched == touch) return;
+        _touched = touch; UpdateState();
+    }
     protected override void OnMouseMove(MouseEventArgs e)
     {
         base.OnMouseMove(e);
+        Source(e);
         if (Seeking && IsMouseCaptured && Mouse.LeftButton == MouseButtonState.Pressed)
             Value = Math.Clamp(e.GetPosition(this).X / Math.Max(1, ActualWidth), 0, 1);
         UpdateBubble();

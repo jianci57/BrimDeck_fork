@@ -7,7 +7,8 @@ namespace BrimDeck;
 // Mouse pass-through (DeckSettings.ClickThrough). The window lets every click through to the window beneath (WS_EX_TRANSPARENT)
 // and hovering does not open the panel; only the shortcuts do. Open, the panel takes clicks only with ClickThroughPanel on, and
 // then closes by the usual rules once the pointer has been inside. Otherwise it ignores the pointer and stays open until a
-// shortcut or Esc closes it. A preview from the settings window behaves as usual.
+// shortcut closes it. A panel opened by a shortcut takes the keyboard and Esc only with ClickThroughKeyboard on, so that a game
+// keeps its keys. A preview from the settings window behaves as usual.
 public partial class MainWindow
 {
     private bool _passingClicks;
@@ -15,6 +16,10 @@ public partial class MainWindow
     internal bool ClickThrough => Settings.ClickThrough && !_preview;
     // The open panel neither takes clicks nor closes when the pointer leaves.
     private bool PanelIgnoresPointer => ClickThrough && _expanded && !Settings.ClickThroughPanel;
+    // Whether a panel opened by a shortcut takes the keyboard (PanelKeyboard) and Esc.
+    private bool PanelTakesKeyboard => !ClickThrough || Settings.ClickThroughKeyboard;
+    // Esc is held while the panel is open and takes the keyboard, and in move mode.
+    private bool HoldsEscape => _expanded && !_preview && PanelTakesKeyboard || _moveArmed;
 
     // From TrackPointer: true while the pointer is to be ignored. Whatever hovering had started is dropped, and the checks slow
     // down, as nothing they find is used.
@@ -29,8 +34,11 @@ public partial class MainWindow
     }
 
     // From SetExpanded: the window lets clicks through while pass-through is on, unless the open panel takes them.
+    // Turned on while the panel is open, a panel that may not take the keyboard gives back what it holds.
     private void ApplyClickThrough()
     {
+        if (!PanelTakesKeyboard) ReleaseKeyboard(giveBack: true);
+        _escapeDismissal?.SetEnabled(HoldsEscape);
         bool passing = ClickThrough && !(_expanded && Settings.ClickThroughPanel);
         if (passing == _passingClicks) return;
         var handle = new WindowInteropHelper(this).Handle;

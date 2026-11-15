@@ -15,12 +15,15 @@ internal sealed class ModelDateWindow : Window
     internal event Action? Cancelled;
     internal UsageDateRange? SelectedRange => Picker.SelectedRange;
 
-    internal ModelDateWindow(UsageDateRange range)
+    // look: the look of the panel it opens from; a look of its own also gives the window that panel's brushes.
+    internal ModelDateWindow(UsageDateRange range, PanelLook? look = null)
     {
+        look ??= PanelTheme.Main;
+        PanelLook.Set(this, look); look.PublishTo(Resources, onlyOwn: true);
         Title = Loc.T("按时间", "By date"); Width = 246; WindowStyle = WindowStyle.None;
         ResizeMode = ResizeMode.NoResize; AllowsTransparency = true; Background = Brushes.Transparent; ShowInTaskbar = false; Topmost = true;
         FontFamily = UI.PanelFont;
-        Picker = new ModelDatePicker(range) { VerticalAlignment = VerticalAlignment.Top };
+        Picker = new ModelDatePicker(range, look.Current) { VerticalAlignment = VerticalAlignment.Top };
         Picker.Applied += selected => { Applied?.Invoke(selected); Close(); };
         Picker.Cancelled += () => { Cancelled?.Invoke(); Close(); };
         Content = Picker;

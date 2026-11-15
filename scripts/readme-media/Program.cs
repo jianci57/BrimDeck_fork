@@ -162,6 +162,13 @@ internal sealed class Renderer(App app, string output, string language, string[]
             if (scenes.Contains("settings")) await SettingsPage("settings", 3);
             // The music page at its presets and at the ends of its size range; for checking layout changes, not for the README.
             if (scenes.Contains("music-sizes")) await MusicSizes();
+            // The clipboard page side by side and stacked, at three sizes, and the stacked cards trading places; for checking, not for the README.
+            if (scenes.Contains("shelf-settings-stacked")) { _settings.ShelfArrangement = ShelfArrangement.Stacked; await SettingsPage("shelf-layout-settings-stacked", 17); }
+            if (scenes.Contains("shelf-layout")) { await ShelfLayouts(); await SettingsPage("shelf-layout-settings", 17); }
+            // Every way the two columns show their entries, with their states; for checking, not for the README.
+            if (scenes.Contains("shelf-views")) await ShelfViews();
+            // What the pictures do not show, measured: see ShelfMeasures.
+            if (scenes.Contains("shelf-measures")) await ShelfMeasures();
         }
         finally { Directory.Delete(folder, true); }
     }
@@ -908,9 +915,358 @@ internal sealed class Renderer(App app, string output, string language, string[]
 
     // The settings window is built without being shown: its content is taken out, laid out at the default size and
     // captured with the window's resources.
-    private async Task SettingsPage(string name, int page)
+    private async Task ShelfLayouts()
     {
-        const double scale = 1.5, width = 960, height = 640;
+        const double scale = 2;
+        void Build() => Program.Call(_deck, "RenderShelf", [typeof(bool)], false);
+        void Front(ShelfSide side) => Program.SetField(_deck, "_shelfFront", side);
+        _settings.Animations = false;
+        SelectPage(DeckPage.Clipboard);
+        _deck.SetExpanded(true, true);
+        foreach (var (width, height) in new (double, double)[] { (440, 140), (620, 220), (860, 320) })
+        {
+            _settings.ClipboardWidth = width; _settings.ClipboardHeight = height; Refresh();
+            _settings.ShelfArrangement = ShelfArrangement.Split; Build();
+            await Save($"shelf-split-{width}x{height}", scale);
+            _settings.ShelfArrangement = ShelfArrangement.Stacked;
+            Front(ShelfSide.Clipboard); Build();
+            await Save($"shelf-stacked-clips-{width}x{height}", scale);
+            Front(ShelfSide.Files); Build();
+            await Save($"shelf-stacked-files-{width}x{height}", scale);
+        }
+        // The cards trading places at the default size, taken at moments of the swap.
+        _settings.ClipboardWidth = 620; _settings.ClipboardHeight = 220; Refresh();
+        _settings.Animations = true;
+        Front(ShelfSide.Clipboard); Build();
+        await Settle();
+        Program.Call(_deck, "BringForward", [typeof(ShelfSide)], ShelfSide.Files);
+        var start = DateTime.UtcNow;
+        foreach (int ms in new[] { 40, 90, 150, 230, 350, 600 })
+        {
+            var wait = start.AddMilliseconds(ms) - DateTime.UtcNow;
+            if (wait > TimeSpan.Zero) await Task.Delay(wait);
+            Write(Capture(scale), Path.Combine(output, $"shelf-swap-{ms}ms.png"));
+            Console.WriteLine($"shelf-swap-{ms}ms");
+        }
+        _settings.ShelfArrangement = ShelfArrangement.Split;
+        SelectPage(DeckPage.Usage);
+        _deck.SetExpanded(false, true);
+        await Settle();
+    }
+
+    // Every way the clipboard and the file transfer show their entries (ClipView, FileView), at three sizes; then, at the default
+    // size, entries under the pointer, several chosen, a file that is gone, one column alone, the stacked cards, an empty category
+    // and an empty page; and the settings' cards. For checking the layout, not for the README.
+    private async Task ShelfViews()
+    {
+        const double scale = 1.5;
+        var data = (ShelfData)_shelf.GetType().GetProperty("Data", Program.Any)!.GetValue(_shelf)!;
+        var picked = (HashSet<Guid>)Program.Field(_deck, "_picked")!;
+        void Build() => Program.Call(_deck, "RenderShelf", [typeof(bool)], false);
+        void Tab(ShelfSide side, Guid? category) => Program.Call(_shelf, "ShowTab", [typeof(ShelfSide), typeof(Guid?)], side, category);
+        // The pointer on an entry: the entry's own handler lights it and shows its buttons.
+        async Task Hover(params Guid[] ids)
+        {
+            await Settle();
+            var rows = (System.Collections.IDictionary)Program.Field(_deck, "_shelfRows")!;
+            foreach (var id in ids)
+                if (rows[id] is { } row && row.GetType().GetField("Item1")!.GetValue(row) is UIElement frame)
+                    frame.RaiseEvent(new System.Windows.Input.MouseEventArgs(System.Windows.Input.Mouse.PrimaryDevice, 0) { RoutedEvent = System.Windows.Input.Mouse.MouseEnterEvent });
+        }
+        // More files than the README's: a real picture, a folder, a very long name, and a file that is gone.
+        string folder = Path.GetDirectoryName(data.Files[0].Path)!;
+        string picture = Path.Combine(folder, Loc.T("风景.png", "Landscape.png"));
+        File.WriteAllBytes(picture, Png(Cover(640, 400)));
+        string designs = Path.Combine(folder, Loc.T("设计稿", "Designs"));
+        Directory.CreateDirectory(designs);
+        string longName = Path.Combine(folder, Loc.T("2026 年第三季度华东区销售数据汇总（最终版）(2).xlsx", "Sales figures for the third quarter of 2026, eastern region (final) (2).xlsx"));
+        File.WriteAllBytes(longName, new byte[2048]);
+        string gone = Path.Combine(folder, Loc.T("已删除的文件.pdf", "Deleted file.pdf"));
+        var added = new[] { picture, designs, longName, gone }.Select((path, i) => new TransferFile { Path = path, Added = _now.AddMinutes(-1 - i) }).ToList();
+        data.Files.InsertRange(0, added);
+        var clips = data.Clips; var files = data.Files;
+
+        _settings.Animations = false; _settings.ShelfArrangement = ShelfArrangement.Split; _settings.ShelfShown = ShelfShown.Both;
+        SelectPage(DeckPage.Clipboard);
+        _deck.SetExpanded(true, true);
+        async Task Shot(string name, double width, double height, ClipView clipView, FileView fileView, double share = 40, Func<Task>? then = null)
+        {
+            _settings.ClipboardWidth = width; _settings.ClipboardHeight = height;
+            _settings.ShelfClipView = clipView; _settings.ShelfFileView = fileView; _settings.ShelfFileShare = share;
+            Refresh(); Build();
+            if (then is not null) await then();
+            await Save(name, scale);
+        }
+        foreach (var (width, height) in new (double, double)[] { (440, 140), (620, 220), (860, 320) })
+        {
+            string size = $"{width}x{height}";
+            await Shot($"views-{size}-1-single-single", width, height, ClipView.Single, FileView.Single);
+            await Shot($"views-{size}-2-three-two", width, height, ClipView.Three, FileView.Two);
+            await Shot($"views-{size}-3-blocks-grid", width, height, ClipView.Blocks, FileView.Grid);
+            await Shot($"views-{size}-4-single-row", width, height, ClipView.Single, FileView.Row);
+            await Shot($"views-{size}-5-three-column", width, height, ClipView.Three, FileView.Column, 20);
+        }
+        // Under the pointer.
+        await Shot("state-1-hover-single-single", 620, 220, ClipView.Single, FileView.Single, then: () => Hover(clips[0].Id, files[0].Id));
+        await Shot("state-1-hover-single-single-narrow", 620, 220, ClipView.Single, FileView.Single, 20, () => Hover(clips[1].Id, files[2].Id));
+        await Shot("state-1-hover-three-two", 620, 220, ClipView.Three, FileView.Two, then: () => Hover(clips[1].Id, files[1].Id));
+        await Shot("state-1-hover-blocks-grid", 620, 220, ClipView.Blocks, FileView.Grid, then: () => Hover(clips[2].Id, files[1].Id));
+        await Shot("state-1-hover-single-row", 620, 220, ClipView.Single, FileView.Row, then: () => Hover(files[2].Id));
+        await Shot("state-1-hover-single-column", 620, 220, ClipView.Single, FileView.Column, 20, () => Hover(files[0].Id));
+        await Shot("state-1-hover-blocks-grid-440", 440, 140, ClipView.Blocks, FileView.Grid, then: () => Hover(clips[0].Id, files[1].Id));
+        // Several chosen: three files next to each other and one apart, then the same of the clipboard.
+        picked.UnionWith([files[0].Id, files[1].Id, files[2].Id, files[4].Id]);
+        await Shot("state-2-picked-files-single", 620, 220, ClipView.Single, FileView.Single);
+        await Shot("state-2-picked-files-two", 620, 220, ClipView.Single, FileView.Two);
+        await Shot("state-2-picked-files-grid", 620, 220, ClipView.Single, FileView.Grid);
+        await Shot("state-2-picked-files-row", 620, 220, ClipView.Single, FileView.Row);
+        await Shot("state-2-picked-files-column", 620, 220, ClipView.Single, FileView.Column, 20);
+        picked.Clear(); picked.UnionWith([clips[0].Id, clips[1].Id, clips[2].Id, clips[4].Id]);
+        await Shot("state-2-picked-clips-single", 620, 220, ClipView.Single, FileView.Single);
+        await Shot("state-2-picked-clips-three", 620, 220, ClipView.Three, FileView.Single);
+        await Shot("state-2-picked-clips-blocks", 620, 220, ClipView.Blocks, FileView.Single);
+        picked.Clear();
+        // The one column dragged to its narrowest: a strip, whose header keeps the name, one "⌄" for the filters, and "清除".
+        await Shot("state-6-strip-440x140", 440, 140, ClipView.Single, FileView.Column, 8);
+        await Shot("state-6-strip-620x220", 620, 220, ClipView.Three, FileView.Column, 8, () => Hover(files[0].Id));
+        await Shot("state-6-strip-860x320", 860, 320, ClipView.Blocks, FileView.Column, 8);
+        picked.UnionWith([files[0].Id, files[1].Id]);
+        await Shot("state-6-strip-picked-620x220", 620, 220, ClipView.Single, FileView.Column, 8);
+        picked.Clear();
+        // One column alone.
+        _settings.ShelfShown = ShelfShown.Files;
+        await Shot("state-3-files-only-grid", 620, 220, ClipView.Single, FileView.Grid);
+        await Shot("state-3-files-only-row", 620, 220, ClipView.Single, FileView.Row);
+        await Shot("state-3-files-only-two", 620, 220, ClipView.Single, FileView.Two);
+        await Shot("state-3-files-only-column", 620, 220, ClipView.Single, FileView.Column);
+        _settings.ShelfShown = ShelfShown.Clipboard;
+        await Shot("state-3-clips-only-blocks", 620, 220, ClipView.Blocks, FileView.Single);
+        await Shot("state-3-clips-only-three", 620, 220, ClipView.Three, FileView.Single);
+        _settings.ShelfShown = ShelfShown.Both;
+        // Stacked.
+        _settings.ShelfArrangement = ShelfArrangement.Stacked;
+        Program.SetField(_deck, "_shelfFront", ShelfSide.Files);
+        await Shot("state-4-stacked-files-grid", 620, 220, ClipView.Blocks, FileView.Grid);
+        await Shot("state-4-stacked-files-row", 620, 220, ClipView.Blocks, FileView.Row);
+        Program.SetField(_deck, "_shelfFront", ShelfSide.Clipboard);
+        await Shot("state-4-stacked-clips-blocks", 620, 220, ClipView.Blocks, FileView.Grid);
+        await Shot("state-4-stacked-clips-three", 620, 220, ClipView.Three, FileView.Grid);
+        _settings.ShelfArrangement = ShelfArrangement.Split;
+        // The same under other panel themes: 像素方块 (square corners, stronger lines), 海岛假日 by day and by night, 海岛假日 2
+        // by day, and 浅色. An entry under the pointer in each column, several chosen, and the empty page.
+        var theme = Type.GetType("BrimDeck.PanelTheme, BrimDeck")!;
+        // Marked as read, so that no theme folder of this computer is.
+        theme.GetProperty("Loaded", Program.Any)!.SetValue(null, true);
+        var use = theme.GetMethod("Use", Program.Any)!;
+        int hour = DateTime.Now.Hour;
+        string day = PanelThemes.FormatDaylight(TimeSpan.FromHours((hour + 23) % 24), TimeSpan.FromHours((hour + 11) % 24));
+        string night = PanelThemes.FormatDaylight(TimeSpan.FromHours((hour + 1) % 24), TimeSpan.FromHours((hour + 13) % 24));
+        foreach (var (id, daylight, tag) in new[] { (PanelThemes.PixelBlocks, "", "pixel"), ("island-holiday", day, "islandday"), ("island-holiday", night, "islandnight"), (PanelThemes.IslandHoliday2, day, "island2"), (PanelThemes.Light, "", "light") })
+        {
+            _settings.PanelTheme = id; _settings.ThemeDaylight = daylight;
+            use.Invoke(null, [_settings, false, false]); Refresh();
+            await Shot($"theme-{tag}-1-three-two-hover", 620, 220, ClipView.Three, FileView.Two, then: () => Hover(clips[1].Id, files[1].Id));
+            await Shot($"theme-{tag}-2-blocks-grid-hover", 620, 220, ClipView.Blocks, FileView.Grid, then: () => Hover(clips[2].Id, files[1].Id));
+            picked.UnionWith([clips[0].Id, clips[1].Id, clips[4].Id]);
+            await Shot($"theme-{tag}-3-picked-single-row", 620, 220, ClipView.Single, FileView.Row);
+            picked.Clear(); picked.UnionWith([clips[0].Id, clips[1].Id, clips[3].Id]);
+            await Shot($"theme-{tag}-4-picked-blocks-single", 620, 220, ClipView.Blocks, FileView.Single);
+            picked.Clear(); picked.UnionWith([files[0].Id, files[1].Id, files[4].Id]);
+            await Shot($"theme-{tag}-5-picked-three-grid", 620, 220, ClipView.Three, FileView.Grid);
+            picked.Clear();
+            var holdClips = clips.ToList(); var holdFiles = files.ToList();
+            clips.Clear(); files.Clear();
+            await Shot($"theme-{tag}-6-empty", 620, 220, ClipView.Single, FileView.Single);
+            clips.AddRange(holdClips); files.AddRange(holdFiles);
+        }
+        _settings.PanelTheme = PanelThemes.Dark; _settings.ThemeDaylight = "";
+        use.Invoke(null, [_settings, false, false]); Refresh();
+        // A category with nothing in it, "常用" emptied, and then nothing at all.
+        string[] colors = ["#E5A385", "#9CB9FF"];
+        var noClips = Shelf.AddCategory(data, ShelfSide.Clipboard, Loc.T("新分类", "New"), colors);
+        var noFiles = Shelf.AddCategory(data, ShelfSide.Files, Loc.T("新分类", "New"), colors);
+        Tab(ShelfSide.Clipboard, noClips.Id); Tab(ShelfSide.Files, noFiles.Id);
+        await Shot("state-5-empty-category-620x220", 620, 220, ClipView.Single, FileView.Single);
+        await Shot("state-5-empty-category-440x140", 440, 140, ClipView.Blocks, FileView.Grid);
+        Tab(ShelfSide.Clipboard, null); Tab(ShelfSide.Files, null);
+        var keptClips = clips.ToList(); var keptFiles = files.ToList();
+        clips.Clear(); files.Clear();
+        await Shot("state-5-empty-440x140", 440, 140, ClipView.Single, FileView.Single);
+        await Shot("state-5-empty-620x220", 620, 220, ClipView.Three, FileView.Row);
+        await Shot("state-5-empty-860x320", 860, 320, ClipView.Blocks, FileView.Grid);
+        Tab(ShelfSide.Clipboard, ShelfData.Favorites);
+        await Shot("state-5-empty-favorites-620x220", 620, 220, ClipView.Single, FileView.Single);
+        await Shot("state-5-empty-favorites-440x140", 440, 140, ClipView.Single, FileView.Single);
+        Tab(ShelfSide.Clipboard, null);
+        clips.AddRange(keptClips); files.AddRange(keptFiles);
+        foreach (var file in added) files.Remove(file);
+        Shelf.DeleteCategory(data, ShelfSide.Clipboard, noClips.Id); Shelf.DeleteCategory(data, ShelfSide.Files, noFiles.Id);
+        // The settings' cards, with a choice made in each row.
+        _settings.ShelfClipView = ClipView.Three; _settings.ShelfFileView = FileView.Grid; _settings.ShelfFileShare = 40;
+        await SettingsPage("views-settings", 17, 1000);
+        _settings.ShelfClipView = ClipView.Single; _settings.ShelfFileView = FileView.Two;
+        SelectPage(DeckPage.Usage);
+        _deck.SetExpanded(false, true);
+    }
+
+    // What a picture does not show, measured with many entries and written to measures.txt: that the pointer on a file of the one
+    // row moves no other file, at the row's start, scrolled and at its end; and how long a list takes to lay out a frame of
+    // scrolling, in every way of showing entries (the rows that come into view are built in that time).
+    private async Task ShelfMeasures()
+    {
+        var report = new System.Text.StringBuilder();
+        var data = (ShelfData)_shelf.GetType().GetProperty("Data", Program.Any)!.GetValue(_shelf)!;
+        string folder = Path.GetDirectoryName(data.Files[0].Path)!;
+        _settings.Animations = false;
+        SelectPage(DeckPage.Clipboard);
+        _deck.SetExpanded(true, true);
+        var files = data.Files; var clips = data.Clips;
+        var moreFiles = Enumerable.Range(1, 60).Select(i =>
+        {
+            string path = Path.Combine(folder, $"measure {i:00}.{(i % 3 == 0 ? "png" : i % 3 == 1 ? "txt" : "docx")}");
+            File.WriteAllBytes(path, i % 3 == 0 ? Png(Cover(320, 200)) : new byte[512]);
+            return new TransferFile { Path = path, Added = _now.AddMinutes(-30 - i) };
+        }).ToList();
+        var moreClips = Enumerable.Range(1, 200).Select(i => new ClipEntry
+        {
+            Kind = ClipKind.Text, Text = string.Join("\n", Enumerable.Range(0, 1 + i % 4).Select(line => $"measure {i} line {line} lorem ipsum dolor sit amet")), Copied = _now.AddMinutes(-60 - i), Source = "notepad"
+        }).ToList();
+        files.AddRange(moreFiles); clips.AddRange(moreClips);
+        _settings.ShelfArrangement = ShelfArrangement.Split; _settings.ShelfShown = ShelfShown.Both;
+        _settings.ClipboardWidth = 620; _settings.ClipboardHeight = 220; _settings.ShelfFileShare = 40;
+        var rows = (System.Collections.IDictionary)Program.Field(_deck, "_shelfRows")!;
+        List<System.Windows.Controls.ScrollViewer> Viewers()
+        {
+            var found = new List<System.Windows.Controls.ScrollViewer>();
+            void Walk(DependencyObject at)
+            {
+                if (at is System.Windows.Controls.ScrollViewer { Tag: ShelfSide } viewer) found.Add(viewer);
+                for (int i = 0; i < VisualTreeHelper.GetChildrenCount(at); i++) Walk(VisualTreeHelper.GetChild(at, i));
+            }
+            Walk(_deck);
+            return found;
+        }
+
+        // The one row: where every file in view stands before and after the pointer comes onto one of them.
+        _settings.ShelfClipView = ClipView.Single; _settings.ShelfFileView = FileView.Row;
+        Refresh(); Program.Call(_deck, "RenderShelf", [typeof(bool)], false);
+        await Settle();
+        var across = Viewers().First(viewer => (ShelfSide)viewer.Tag == ShelfSide.Files);
+        Dictionary<Guid, double> Places() => files.Where(file => rows.Contains(file.Id)).Select(file => (file.Id, Frame: rows[file.Id]!.GetType().GetField("Item1")!.GetValue(rows[file.Id]) as FrameworkElement))
+            .Where(entry => entry.Frame is { IsVisible: true } frame && across.IsAncestorOf(frame))
+            .ToDictionary(entry => entry.Id, entry => entry.Frame!.TranslatePoint(new Point(0, 0), across).X);
+        foreach (double offset in new[] { 0d, 37, 300, 1500, 1e6 })
+        {
+            across.ScrollToHorizontalOffset(offset);
+            await Settle();
+            var before = Places(); double was = across.HorizontalOffset;
+            var under = before.Where(place => place.Value > 20 && place.Value < across.ViewportWidth - 80).Select(place => place.Key).First();
+            if (rows[under]!.GetType().GetField("Item1")!.GetValue(rows[under]) is UIElement onto)
+                onto.RaiseEvent(new System.Windows.Input.MouseEventArgs(System.Windows.Input.Mouse.PrimaryDevice, 0) { RoutedEvent = System.Windows.Input.Mouse.MouseEnterEvent });
+            await Settle();
+            var after = Places();
+            double moved = before.Keys.Where(after.ContainsKey).Max(id => Math.Abs(after[id] - before[id]));
+            report.AppendLine($"row at {was:0.#}: the pointer on a file moves the others by {moved:0.##} DIP (offset then {across.HorizontalOffset:0.#}, extent {across.ExtentWidth:0.#})");
+            if (rows[under]!.GetType().GetField("Item1")!.GetValue(rows[under]) is UIElement frame)
+                frame.RaiseEvent(new System.Windows.Input.MouseEventArgs(System.Windows.Input.Mouse.PrimaryDevice, 0) { RoutedEvent = System.Windows.Input.Mouse.MouseLeaveEvent });
+        }
+
+        // The pointer on an entry changes that entry alone: the page is drawn before, with the pointer on each entry in view in
+        // turn, and after it has left; what differs outside the entry, and what is left changed once it has gone, is reported.
+        string[] names = ["微信.lnk", "网易云音乐.lnk", "Microsoft Edge.lnk", "BrimDeck-硬盘温度监控.zip", "Visual Studio Code.lnk", "QQ.lnk", "QQ音乐.lnk", "Google Chrome.lnk"];
+        var named = names.Select((name, i) => { string path = Path.Combine(folder, name); File.WriteAllBytes(path, new byte[64]); return new TransferFile { Path = path, Added = _now.AddMinutes(-i) }; }).ToList();
+        files.InsertRange(0, named);
+        byte[] Pixels(out int width)
+        {
+            var image = Capture(1);
+            width = image.PixelWidth;
+            var bits = new byte[image.PixelWidth * image.PixelHeight * 4];
+            image.CopyPixels(bits, image.PixelWidth * 4, 0);
+            return bits;
+        }
+        // The pixels that differ, but for those inside `but`; and the box they lie in.
+        static (int Count, Int32Rect Box) Differ(byte[] one, byte[] other, int width, Rect but)
+        {
+            int count = 0, left = int.MaxValue, top = int.MaxValue, right = -1, bottom = -1;
+            for (int i = 0; i < one.Length; i += 4)
+            {
+                if (Math.Abs(one[i] - other[i]) <= 6 && Math.Abs(one[i + 1] - other[i + 1]) <= 6 && Math.Abs(one[i + 2] - other[i + 2]) <= 6) continue;
+                int x = i / 4 % width, y = i / 4 / width;
+                if (but.Contains(x + .5, y + .5)) continue;
+                count++; left = Math.Min(left, x); top = Math.Min(top, y); right = Math.Max(right, x); bottom = Math.Max(bottom, y);
+            }
+            return (count, count == 0 ? default : new Int32Rect(left, top, right - left + 1, bottom - top + 1));
+        }
+        async Task Quick() { for (int i = 0; i < 3; i++) await Dispatcher.Yield(DispatcherPriority.ApplicationIdle); }
+        void Pointer(UIElement on, bool enters) => on.RaiseEvent(new System.Windows.Input.MouseEventArgs(System.Windows.Input.Mouse.PrimaryDevice, 0)
+            { RoutedEvent = enters ? System.Windows.Input.Mouse.MouseEnterEvent : System.Windows.Input.Mouse.MouseLeaveEvent });
+        foreach (var (width, height) in new (double, double)[] { (440, 140), (620, 220), (860, 320) })
+            foreach (var (clipView, fileView) in new[] { (ClipView.Single, FileView.Single), (ClipView.Three, FileView.Two), (ClipView.Blocks, FileView.Grid), (ClipView.Single, FileView.Row), (ClipView.Three, FileView.Column) })
+            {
+                _settings.ClipboardWidth = width; _settings.ClipboardHeight = height; _settings.ShelfClipView = clipView; _settings.ShelfFileView = fileView;
+                Refresh(); Program.Call(_deck, "RenderShelf", [typeof(bool)], false);
+                await Settle();
+                var rest = Pixels(out int stride);
+                var stage = new Rect(0, 0, _stage.ActualWidth, _stage.ActualHeight);
+                var shown = clips.Select(clip => (clip.Id, Side: "clipboard " + clipView, Name: clip.Text.Split('\n')[0])).Concat(files.Select(file => (file.Id, Side: "files " + fileView, file.Name)))
+                    .Where(entry => rows.Contains(entry.Id)).Select(entry => (entry.Side, entry.Name, Frame: (FrameworkElement)rows[entry.Id]!.GetType().GetField("Item1")!.GetValue(rows[entry.Id])!))
+                    .Where(entry => entry.Frame.IsVisible && _stage.IsAncestorOf(entry.Frame)).Select(entry => (entry.Side, entry.Name, entry.Frame, Box: entry.Frame.TransformToAncestor(_stage).TransformBounds(new Rect(entry.Frame.RenderSize))))
+                    .Where(entry => stage.Contains(entry.Box)).ToList();
+                int wrong = 0;
+                foreach (var entry in shown)
+                {
+                    Pointer(entry.Frame, true);
+                    await Quick();
+                    var lit = Differ(rest, Pixels(out _), stride, Rect.Inflate(entry.Box, 1, 1));
+                    if (lit.Count > 0 && wrong < 2) { Write(Capture(2), Path.Combine(output, $"wrong-{width}-{fileView}-{wrong}-lit.png")); Pointer(entry.Frame, false); await Quick(); Write(Capture(2), Path.Combine(output, $"wrong-{width}-{fileView}-{wrong}-rest.png")); }
+                    Pointer(entry.Frame, false);
+                    await Quick();
+                    var left = Differ(rest, Pixels(out _), stride, Rect.Empty);
+                    if (lit.Count == 0 && left.Count == 0) continue;
+                    wrong++;
+                    report.AppendLine($"{width}x{height} {entry.Side} \"{entry.Name}\" at {entry.Box.X:0},{entry.Box.Y:0} {entry.Box.Width:0}x{entry.Box.Height:0}: under the pointer {lit.Count} pixels differ outside it ({lit.Box}); after it left {left.Count} differ ({left.Box})");
+                    if (left.Count > 0) rest = Pixels(out _);
+                }
+                report.AppendLine($"{width}x{height} {clipView} + {fileView}: {shown.Count} entries tried, {wrong} change something else");
+            }
+        foreach (var file in named) files.Remove(file);
+
+        // A frame of scrolling: the list moved by 12 DIP and laid out, over its whole length or 150 frames.
+        foreach (var (clipView, fileView) in new[] { (ClipView.Single, FileView.Single), (ClipView.Three, FileView.Two), (ClipView.Blocks, FileView.Grid), (ClipView.Single, FileView.Row), (ClipView.Three, FileView.Column) })
+        {
+            _settings.ShelfClipView = clipView; _settings.ShelfFileView = fileView;
+            Refresh(); Program.Call(_deck, "RenderShelf", [typeof(bool)], false);
+            await Settle();
+            foreach (var viewer in Viewers())
+            {
+                var side = (ShelfSide)viewer.Tag; bool sideways = viewer.ScrollableWidth > 1;
+                double room = sideways ? viewer.ScrollableWidth : viewer.ScrollableHeight;
+                var times = new List<double>();
+                var watch = new Stopwatch();
+                for (double at = 12; at < room && times.Count < 150; at += 12)
+                {
+                    watch.Restart();
+                    if (sideways) viewer.ScrollToHorizontalOffset(at); else viewer.ScrollToVerticalOffset(at);
+                    viewer.UpdateLayout();
+                    times.Add(watch.Elapsed.TotalMilliseconds);
+                }
+                if (times.Count == 0) { report.AppendLine($"{side} {(side == ShelfSide.Clipboard ? clipView : fileView)}: nothing to scroll"); continue; }
+                times.Sort();
+                report.AppendLine($"{side} {(side == ShelfSide.Clipboard ? clipView : fileView)}: {times.Count} frames, mean {times.Average():0.00} ms, median {times[times.Count / 2]:0.00} ms, worst {times[^1]:0.00} ms, over 8 ms {times.Count(time => time > 8)}");
+            }
+        }
+        foreach (var file in moreFiles) files.Remove(file);
+        foreach (var clip in moreClips) clips.Remove(clip);
+        File.WriteAllText(Path.Combine(output, "measures.txt"), report.ToString());
+        Console.Write(report);
+        _settings.ShelfClipView = ClipView.Single; _settings.ShelfFileView = FileView.Two;
+        SelectPage(DeckPage.Usage);
+        _deck.SetExpanded(false, true);
+    }
+
+    private async Task SettingsPage(string name, int page, double height = 640)
+    {
+        const double scale = 1.5, width = 960;
         _settings.Theme = SettingsTheme.Dark;
         var window = new SettingsWindow(app);
         window.ShowPage(page);
@@ -1020,6 +1376,10 @@ internal sealed class Renderer(App app, string output, string language, string[]
     {
         for (int i = 0; i < 3; i++) await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
         await Task.Delay(120);
-        for (int i = 0; i < 2; i++) await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+        // The files' icons and the clipboard's thumbnails are read on other threads; the picture waits for them.
+        for (int i = 0; i < 400 && (int)Pending.GetValue(null)! + (int)Reading.GetValue(null)! > 0; i++) await Task.Delay(15);
+        for (int i = 0; i < 3; i++) await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
     }
+    private static readonly PropertyInfo Pending = Type.GetType("BrimDeck.ShelfFiles, BrimDeck")!.GetProperty("Pending", Program.Any)!,
+        Reading = Type.GetType("BrimDeck.ShelfService, BrimDeck")!.GetProperty("Reading", Program.Any)!;
 }

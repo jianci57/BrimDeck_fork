@@ -104,10 +104,10 @@ internal static class UI
     }
     // A progress ring: a faint track with a colored arc that starts at the top and runs clockwise, as the system readings' dials
     // and the device batteries' rings do.
-    public static Grid Ring(double percent, string color, double size, double thickness, string? track = null)
+    public static Grid Ring(double percent, string color, double size, double thickness, string? track = null, PanelLook? look = null)
     {
         var ring = new Grid { Width = size, Height = size };
-        ring.Children.Add(new Ellipse { Stroke = Brush(track ?? PanelTheme.Hex("ringTrack")), StrokeThickness = thickness });
+        ring.Children.Add(new Ellipse { Stroke = Brush(track ?? (look ?? PanelTheme.Main).Hex("ringTrack")), StrokeThickness = thickness });
         double fraction = Math.Clamp(percent / 100, 0, 1);
         if (fraction >= .999) ring.Children.Add(new Ellipse { Stroke = Brush(color), StrokeThickness = thickness });
         else if (fraction > 0)
@@ -117,11 +117,11 @@ internal static class UI
     // Progress rings, one inside the other, outside in, gap apart between their strokes, as Ring draws one; a null share draws its
     // track alone, and NaN nothing at all, while the rings inside it keep their places (QuotaRing.Shares). All are geometry about the
     // same centre: a ring nested by margins would have its offset rounded to device pixels apart from its size, and sit off centre.
-    public static Grid NestedRings(IReadOnlyList<double?> shares, string color, double size, double thickness, double gap)
+    public static Grid NestedRings(IReadOnlyList<double?> shares, string color, double size, double thickness, double gap, PanelLook? look = null)
     {
         var ring = new Grid { Width = size, Height = size };
         var center = new Point(size / 2, size / 2);
-        Brush track = Brush(PanelTheme.Hex("ringTrack")), fill = Brush(color);
+        Brush track = Brush((look ?? PanelTheme.Main).Hex("ringTrack")), fill = Brush(color);
         double radius = size / 2 - thickness / 2;
         foreach (var share in shares)
         {

@@ -33,8 +33,8 @@ public partial class MainWindow
             var left = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(_header.Side - 6, 0, 0, 0) };
             var back = ToolbarGlyph("M 5,0 L 0,5 L 5,10", Loc.T("返回", "Back"), CloseDetail);
             left.Children.Add(back);
-            left.Children.Add(Label(DetailKind(detail.Side, detail.Id), 13, UI.Primary, HorizontalAlignment.Left, left: 4));
-            if (at >= 0) left.Children.Add(Label($"{at + 1} / {list.Count}", 11.5, UI.Tertiary, HorizontalAlignment.Left, left: 8));
+            left.Children.Add(Label(DetailKind(detail.Side, detail.Id), 13, Look.Primary, HorizontalAlignment.Left, left: 4));
+            if (at >= 0) left.Children.Add(Label($"{at + 1} / {list.Count}", 11.5, Look.Tertiary, HorizontalAlignment.Left, left: 8));
             var arrows = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, right, 0) };
             var up = ToolbarGlyph("M 0,5 L 5,0 L 10,5", Loc.T("上一条", "Previous"), () => StepDetail(-1));
             var down = ToolbarGlyph("M 0,0 L 5,5 L 10,0", Loc.T("下一条", "Next"), () => StepDetail(1));
@@ -59,13 +59,13 @@ public partial class MainWindow
             // "×" at the right: it empties the box, or closes the search when the box is already empty.
             // A plain cross, drawn in a 20 DIP square about its middle (10, 10) so it sits centered; a cross laid out by its own bounds
             // is pushed off by its pen. The square is what takes the press.
-            var cross = new Path { Data = Geometry.Parse("M 6.5,6.5 L 13.5,13.5 M 13.5,6.5 L 6.5,13.5"), Stroke = UI.Brush(UI.Tertiary), StrokeThickness = 1.4,
+            var cross = new Path { Data = Geometry.Parse("M 6.5,6.5 L 13.5,13.5 M 13.5,6.5 L 6.5,13.5"), Stroke = UI.Brush(Look.Tertiary), StrokeThickness = 1.4,
                 StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round };
             var clear = new Border { Width = 20, Height = 20, Background = Brushes.Transparent, Child = cross, Cursor = Cursors.Hand,
                 HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0) };
             AutomationProperties.SetName(clear, Loc.T("清空搜索", "Clear search"));
-            clear.MouseEnter += (_, _) => cross.Stroke = UI.Brush(UI.Primary);
-            clear.MouseLeave += (_, _) => cross.Stroke = UI.Brush(UI.Tertiary);
+            clear.MouseEnter += (_, _) => cross.Stroke = UI.Brush(Look.Primary);
+            clear.MouseLeave += (_, _) => cross.Stroke = UI.Brush(Look.Tertiary);
             clear.MouseLeftButtonDown += (_, e) => e.Handled = true;
             clear.MouseLeftButtonUp += (_, e) =>
             {
@@ -74,11 +74,19 @@ public partial class MainWindow
                 box.Text = ""; box.Focus();
             };
             host.Children.Add(clear);
-            host.Children.Add(new Path { Data = Geometry.Parse("M 10.5,3.5 A 7,7 0 1 1 10.5,17.5 A 7,7 0 1 1 10.5,3.5 Z M 15.6,15.6 L 21,21"), Stroke = UI.Brush(UI.Tertiary), StrokeThickness = 2,
+            host.Children.Add(new Path { Data = Geometry.Parse("M 10.5,3.5 A 7,7 0 1 1 10.5,17.5 A 7,7 0 1 1 10.5,3.5 Z M 15.6,15.6 L 21,21"), Stroke = UI.Brush(Look.Tertiary), StrokeThickness = 2,
                 Stretch = Stretch.Uniform, Width = 12, Height = 12, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(9, 0, 0, 0), IsHitTestVisible = false });
             // The text starts 28 in (the box's padding 26 and the text box's own 2), where the caret blinks; the hint starts just after
             // it, so the caret does not cross its first letter.
-            var hint = Label(Loc.T("搜索剪贴板与文件", "Search clipboard and files"), 12.5, UI.Tertiary, HorizontalAlignment.Left, left: 30);
+            // It names the columns shown (DeckSettings.ShelfShown), and so does the box.
+            string what = Settings.ShelfShown switch
+            {
+                ShelfShown.Clipboard => Loc.T("搜索剪贴板", "Search clipboard"),
+                ShelfShown.Files => Loc.T("搜索文件", "Search files"),
+                _ => Loc.T("搜索剪贴板与文件", "Search clipboard and files")
+            };
+            AutomationProperties.SetName(box, what);
+            var hint = Label(what, 12.5, Look.Tertiary, HorizontalAlignment.Left, left: 30);
             hint.IsHitTestVisible = false; hint.Visibility = box.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed; hint.Tag = "hint";
             host.Children.Add(hint);
             ShelfToolbar.Children.Add(host);
@@ -104,7 +112,6 @@ public partial class MainWindow
     private TextBox NewSearchBox()
     {
         var box = new TextBox { Style = (Style)FindResource("ShelfTextBox") };
-        AutomationProperties.SetName(box, Loc.T("搜索剪贴板与文件", "Search clipboard and files"));
         TakeKeyboardOnClick(box);
         box.TextChanged += (_, _) =>
         {
@@ -142,6 +149,7 @@ public partial class MainWindow
     // opening only when one of them was ended: a page closed as it was built opens as it is.
     private void ResetShelf()
     {
+        StopDeckHover();
         bool ended = _shelfEdit is not null || _shelfDetail is not null || _shelfSearching || _shelfQuery.Length > 0 || _picked.Count > 0;
         if (_shelfEdit is not null || _shelfSearching) EndTyping();
         _shelfEdit = null; _shelfDetail = null; _shelfSearching = false; _shelfQuery = ""; _picked.Clear();
@@ -164,6 +172,14 @@ public partial class MainWindow
     private void TakeKeyboardOnClick(TextBox box) => box.PreviewMouseLeftButtonDown += (_, _) => { if (!IsActive || !box.IsKeyboardFocusWithin) BeginTyping(box); };
     private void EndTyping()
     {
+        // A panel holding the keyboard for a hotkey keeps it until it closes (PanelKeyboard): the focus goes back to the search
+        // button, or to the page's button, instead of the keyboard going back to the window it came from.
+        if (PanelKeys.Holding)
+        {
+            Dispatcher.BeginInvoke(() => { if (PanelKeys.Holding && _expanded) Keyboard.Focus(ShelfSearchButton.IsVisible ? ShelfSearchButton : PageButton(CurrentPage)); },
+                System.Windows.Threading.DispatcherPriority.Input);
+            return;
+        }
         if (IsActive && PasteInput.IsOther(_app.Shelf.TypingTarget)) PasteInput.Activate(_app.Shelf.TypingTarget);
     }
     private void RefocusTyping()
@@ -201,7 +217,7 @@ public partial class MainWindow
         grid.Children.Add(box);
         var bar = new Grid { Margin = new Thickness(0, 6, 0, 0) };
         bar.ColumnDefinitions.Add(new ColumnDefinition()); bar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        bar.Children.Add(Label(Loc.T("编辑 · Ctrl+Enter 保存 · Esc 取消", "Edit · Ctrl+Enter saves · Esc cancels"), layout.Aux, UI.Tertiary, HorizontalAlignment.Left));
+        bar.Children.Add(Label(Loc.T("编辑 · Ctrl+Enter 保存 · Esc 取消", "Edit · Ctrl+Enter saves · Esc cancels"), layout.Aux, Look.Tertiary, HorizontalAlignment.Left));
         var buttons = new StackPanel { Orientation = Orientation.Horizontal };
         var cancel = PillButton(Loc.T("取消", "Cancel"), false, () => { _shelfEdit = null; EndTyping(); RenderShelf(); });
         var save = PillButton(Loc.T("保存", "Save"), true, CommitText); save.Margin = new Thickness(6, 0, 0, 0);
@@ -216,7 +232,7 @@ public partial class MainWindow
         string text = _editBox.Text;
         _editCommitting = true;
         _shelfEdit = null;
-        if (text.Trim().Length > 0 && ShelfData.Clips.FirstOrDefault(c => c.Id == id) is { } clip) { clip.Text = text; clip.Kind = Shelf.Classify(text); clip.Html = ""; clip.Rtf = ""; }
+        if (text.Trim().Length > 0 && ShelfData.Clips.FirstOrDefault(c => c.Id == id) is { } clip) { clip.Text = text; clip.Kind = Shelf.Classify(text); _app.Shelf.DropRich(clip.Id); }
         EndTyping();
         _editCommitting = false;
         _app.Shelf.Edited();
@@ -260,7 +276,7 @@ public partial class MainWindow
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(Math.Max(200, Math.Ceiling(actions.DesiredSize.Width) + 2)) });
             grid.Children.Add(content);
             // The page's own divider between the content and its facts, as between the two columns.
-            var divider = new Border { Width = 1, Background = UI.Brush(UI.Hairline), HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 4, 0, 4) };
+            var divider = new Border { Width = 1, Background = UI.Brush(Look.Hairline), HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 4, 0, 4) };
             Grid.SetColumn(divider, 1); grid.Children.Add(divider);
             var info = new DockPanel { LastChildFill = false };
             actions.Margin = new Thickness(0, 8, 0, 0);
@@ -270,8 +286,8 @@ public partial class MainWindow
             {
                 var row = new Grid { Margin = new Thickness(0, 0, 0, layout.Tier == ShelfTier.Compact ? 2 : 6) };
                 row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(52) }); row.ColumnDefinitions.Add(new ColumnDefinition());
-                row.Children.Add(Label(label, layout.Aux, UI.Tertiary, HorizontalAlignment.Left));
-                FrameworkElement shown = Label(value, layout.Aux, UI.Secondary, HorizontalAlignment.Left);
+                row.Children.Add(Label(label, layout.Aux, Look.Tertiary, HorizontalAlignment.Left));
+                FrameworkElement shown = Label(value, layout.Aux, Look.Secondary, HorizontalAlignment.Left);
                 if (change is not null) shown = LinkText(value, layout.Aux, change);
                 Grid.SetColumn(shown, 1); row.Children.Add(shown);
                 list.Children.Add(row);
@@ -290,8 +306,8 @@ public partial class MainWindow
         foreach (var (_, value, change) in facts)
         {
             if (value.Length == 0) continue;
-            if (!first) line.Children.Add(Label("  ·  ", layout.Aux, UI.Tertiary, HorizontalAlignment.Left));
-            line.Children.Add(change is not null ? LinkText(value, layout.Aux, change) : Label(value, layout.Aux, UI.Tertiary, HorizontalAlignment.Left));
+            if (!first) line.Children.Add(Label("  ·  ", layout.Aux, Look.Tertiary, HorizontalAlignment.Left));
+            line.Children.Add(change is not null ? LinkText(value, layout.Aux, change) : Label(value, layout.Aux, Look.Tertiary, HorizontalAlignment.Left));
             first = false;
         }
         bottom.Children.Add(line);
@@ -302,23 +318,23 @@ public partial class MainWindow
     // The value and the settings window's chevron, which is centered on the text where the "⌄" character sat low.
     private FrameworkElement LinkText(string text, double size, Action<FrameworkElement> click)
     {
-        var label = Label(text, size, UI.Secondary, HorizontalAlignment.Left);
+        var label = Label(text, size, Look.Secondary, HorizontalAlignment.Left);
         var chevron = SettingsWindow.Chevron();
-        chevron.FontSize = size; chevron.Foreground = UI.Brush(UI.Secondary);
+        chevron.FontSize = size; chevron.Foreground = UI.Brush(Look.Secondary);
         chevron.Margin = new Thickness(4, SettingsWindow.ChevronDrop.Top, 0, SettingsWindow.ChevronDrop.Bottom);
         var link = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center, Background = Brushes.Transparent, Cursor = Cursors.Hand };
         link.Children.Add(label); link.Children.Add(chevron);
         void Paint(string color) { label.Foreground = UI.Brush(color); chevron.Foreground = UI.Brush(color); }
-        link.MouseEnter += (_, _) => Paint(UI.Primary);
-        link.MouseLeave += (_, _) => Paint(UI.Secondary);
+        link.MouseEnter += (_, _) => Paint(Look.Primary);
+        link.MouseLeave += (_, _) => Paint(Look.Secondary);
         link.MouseLeftButtonUp += (_, e) => { e.Handled = true; click(link); };
         return link;
     }
     // A read-only text box, so the text can be selected; the whole entry is pasted with the button.
-    private static TextBox ReadOnlyText(string text, double size, FontFamily font) => new()
+    private TextBox ReadOnlyText(string text, double size, FontFamily font) => new()
     {
-        Text = text, IsReadOnly = true, BorderThickness = new Thickness(0), Background = Brushes.Transparent, Foreground = UI.Brush(UI.Primary), CaretBrush = Brushes.Transparent,
-        FontFamily = font, FontSize = size, TextWrapping = TextWrapping.Wrap, Padding = new Thickness(0), SelectionBrush = UI.Brush(UI.Accent), FocusVisualStyle = null,
+        Text = text, IsReadOnly = true, BorderThickness = new Thickness(0), Background = Brushes.Transparent, Foreground = UI.Brush(Look.Primary), CaretBrush = Brushes.Transparent,
+        FontFamily = font, FontSize = size, TextWrapping = TextWrapping.Wrap, Padding = new Thickness(0), SelectionBrush = UI.Brush(Look.Accent), FocusVisualStyle = null,
         VerticalScrollBarVisibility = ScrollBarVisibility.Disabled
     };
     private FrameworkElement ClipDetail(ClipEntry clip, ShelfLayout layout)
@@ -336,18 +352,18 @@ public partial class MainWindow
             {
                 var panel = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
                 double swatch = Math.Min(96, Math.Max(48, ContentCanvas.Height - _header.Row - 60));
-                panel.Children.Add(new Border { Width = swatch, Height = swatch, CornerRadius = new CornerRadius(PanelTheme.Corner(10)), Background = new SolidColorBrush(Color.FromRgb(c.R, c.G, c.B)),
-                    BorderBrush = UI.Brush(UI.Hairline), BorderThickness = new Thickness(1) });
+                panel.Children.Add(new Border { Width = swatch, Height = swatch, CornerRadius = new CornerRadius(Look.Corner(10)), Background = new SolidColorBrush(Color.FromRgb(c.R, c.G, c.B)),
+                    BorderBrush = UI.Brush(Look.Hairline), BorderThickness = new Thickness(1) });
                 var forms = new StackPanel { Margin = new Thickness(16, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
                 var (hex, rgb, hsl) = Shelf.ColorForms(c);
                 foreach (var (name, value) in new[] { ("HEX", hex), ("RGB", rgb), ("HSL", hsl) })
                 {
                     var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 2, 0, 2), Cursor = Cursors.Hand, Background = Brushes.Transparent, ToolTip = Loc.T("单击粘贴这种写法", "Click to paste this form") };
-                    row.Children.Add(new TextBlock { Text = name, Width = 40, FontFamily = UI.PanelFont, FontSize = layout.Aux, Foreground = UI.Brush(UI.Tertiary), VerticalAlignment = VerticalAlignment.Center });
-                    var text = new TextBlock { Text = value, FontFamily = new FontFamily("Cascadia Mono, Consolas"), FontSize = size - 1, Foreground = UI.Brush(UI.Primary), VerticalAlignment = VerticalAlignment.Center };
+                    row.Children.Add(new TextBlock { Text = name, Width = 40, FontFamily = UI.PanelFont, FontSize = layout.Aux, Foreground = UI.Brush(Look.Tertiary), VerticalAlignment = VerticalAlignment.Center });
+                    var text = new TextBlock { Text = value, FontFamily = new FontFamily("Cascadia Mono, Consolas"), FontSize = size - 1, Foreground = UI.Brush(Look.Primary), VerticalAlignment = VerticalAlignment.Center };
                     row.Children.Add(text);
-                    row.MouseEnter += (_, _) => text.Foreground = UI.Brush(UI.Accent);
-                    row.MouseLeave += (_, _) => text.Foreground = UI.Brush(UI.Primary);
+                    row.MouseEnter += (_, _) => text.Foreground = UI.Brush(Look.Accent);
+                    row.MouseLeave += (_, _) => text.Foreground = UI.Brush(Look.Primary);
                     row.MouseLeftButtonUp += (_, e) => { e.Handled = true; _app.Shelf.Paste(ShelfService.TextData(value), done => text.Text = value + (done ? Loc.T("  已粘贴", "  pasted") : Loc.T("  已复制", "  copied"))); };
                     forms.Children.Add(row);
                 }
@@ -358,8 +374,8 @@ public partial class MainWindow
             {
                 var (host, _) = Shelf.SplitLink(clip.Text);
                 var panel = new StackPanel();
-                panel.Children.Add(Label(host, size + 2, UI.Primary, HorizontalAlignment.Left));
-                var url = ReadOnlyText(clip.Text.Trim(), size - 1, UI.PanelFont); url.Foreground = UI.Brush(UI.Secondary); url.Margin = new Thickness(0, 6, 0, 10);
+                panel.Children.Add(Label(host, size + 2, Look.Primary, HorizontalAlignment.Left));
+                var url = ReadOnlyText(clip.Text.Trim(), size - 1, UI.PanelFont); url.Foreground = UI.Brush(Look.Secondary); url.Margin = new Thickness(0, 6, 0, 10);
                 panel.Children.Add(url);
                 var open = PillButton(Loc.T("在浏览器中打开", "Open in browser"), false, () => { if (Shelf.IsLink(clip.Text.Trim())) OpenFile(clip.Text.Trim()); });
                 open.HorizontalAlignment = HorizontalAlignment.Left; panel.Children.Add(open);
@@ -371,7 +387,7 @@ public partial class MainWindow
                 var font = new FontFamily("Cascadia Mono, Consolas, Microsoft YaHei UI");
                 var grid = new Grid();
                 grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); grid.ColumnDefinitions.Add(new ColumnDefinition());
-                var numbers = new TextBlock { Text = string.Join("\n", Enumerable.Range(1, lines.Length)), FontFamily = font, FontSize = size - 1.5, Foreground = UI.Brush(UI.Tertiary),
+                var numbers = new TextBlock { Text = string.Join("\n", Enumerable.Range(1, lines.Length)), FontFamily = font, FontSize = size - 1.5, Foreground = UI.Brush(Look.Tertiary),
                     TextAlignment = TextAlignment.Right, Margin = new Thickness(0, 0, 12, 0) };
                 var code = ReadOnlyText(string.Join("\n", lines), size - 1.5, font); code.TextWrapping = TextWrapping.NoWrap;
                 Grid.SetColumn(code, 1); grid.Children.Add(numbers); grid.Children.Add(code);
@@ -394,8 +410,8 @@ public partial class MainWindow
         var name = ReadOnlyText(file.Name, layout.DetailBody + 1, UI.PanelFont); name.FontWeight = FontWeights.SemiBold; name.Opacity = exists ? 1 : .55;
         text.Children.Add(name);
         string type = ShelfFiles.TypeName(file.Path);
-        text.Children.Add(Label(exists ? type : Loc.T("原文件已不存在（被移动或删除）", "The original is gone (moved or deleted)"), layout.Aux, exists ? UI.Secondary : "#E5C890", HorizontalAlignment.Left, top: 4));
-        var folder = ReadOnlyText(System.IO.Path.GetDirectoryName(file.Path) ?? "", layout.Aux, UI.PanelFont); folder.Foreground = UI.Brush(UI.Tertiary); folder.Margin = new Thickness(0, 4, 0, 0);
+        text.Children.Add(Label(exists ? type : Loc.T("原文件已不存在（被移动或删除）", "The original is gone (moved or deleted)"), layout.Aux, exists ? Look.Secondary : "#E5C890", HorizontalAlignment.Left, top: 4));
+        var folder = ReadOnlyText(System.IO.Path.GetDirectoryName(file.Path) ?? "", layout.Aux, UI.PanelFont); folder.Foreground = UI.Brush(Look.Tertiary); folder.Margin = new Thickness(0, 4, 0, 0);
         text.Children.Add(folder);
         Grid.SetColumn(text, 1); grid.Children.Add(text);
         return PassWheel(new ScrollViewer { Content = grid, Focusable = false });
@@ -476,6 +492,7 @@ public partial class MainWindow
     private void DeleteClips(IReadOnlyList<ClipEntry> clips)
     {
         if (_shelfDetail is { Side: ShelfSide.Clipboard } detail && clips.Any(c => c.Id == detail.Id)) _shelfDetail = null;
+        foreach (var clip in clips) _picked.Remove(clip.Id);
         _app.Shelf.Remove(clips);
     }
     private void RemoveFiles(IReadOnlyList<TransferFile> files)
@@ -526,17 +543,19 @@ public partial class MainWindow
     // check: null for an action; false or true for a choice, whose check column shows the one chosen.
     private MenuItem Item(string label, Action act, string? icon = null, string? hint = null, bool danger = false, bool? check = null, bool enabled = true, string? dot = null, bool star = false)
     {
-        string color = danger ? PanelTheme.Hex("danger") : UI.Primary;
+        string color = danger ? Look.Hex("danger") : Look.Primary;
         var header = new DockPanel { LastChildFill = true };
         void Lead(FrameworkElement part) { DockPanel.SetDock(part, System.Windows.Controls.Dock.Left); header.Children.Add(part); }
         if (check is { } chosen)
-            Lead(new Path { Data = Geometry.Parse("M 1.5,5.2 L 4,7.7 L 8.5,2.5"), Stroke = UI.Brush(UI.Primary), StrokeThickness = 1.6, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
+            Lead(new Path { Data = Geometry.Parse("M 1.5,5.2 L 4,7.7 L 8.5,2.5"), Stroke = UI.Brush(Look.Primary), StrokeThickness = 1.6, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
                 StrokeLineJoin = PenLineJoin.Round, Width = 10, Height = 10, Margin = new Thickness(1, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center, Visibility = chosen ? Visibility.Visible : Visibility.Hidden });
-        if (icon is not null) Lead(MenuGlyph(icon, danger ? color : UI.Secondary));
-        if (star) { var mark = StarGlyph(10, UI.Secondary, filled: false); mark.Margin = new Thickness(0, 0, 7, 0); mark.VerticalAlignment = VerticalAlignment.Center; Lead(mark); }
+        if (icon is not null) Lead(MenuGlyph(icon, danger ? color : Look.Secondary));
+        if (star) { var mark = StarGlyph(10, Look.Secondary, filled: false); mark.Margin = new Thickness(0, 0, 7, 0); mark.VerticalAlignment = VerticalAlignment.Center; Lead(mark); }
         if (dot is not null) Lead(new Ellipse { Width = 7, Height = 7, Fill = UI.Brush(dot), Margin = new Thickness(1, 0, 7, 0), VerticalAlignment = VerticalAlignment.Center });
-        header.Children.Add(new TextBlock { Text = label, Foreground = UI.Brush(color), VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis });
-        var item = new MenuItem { Style = (Style)FindResource("ShelfMenuItem"), Header = header, InputGestureText = hint ?? "", IsEnabled = enabled };
+        var text = new TextBlock { Text = label, Foreground = UI.Brush(color), VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
+        header.Children.Add(text);
+        var item = new MenuItem { Style = (Style)FindResource("ShelfMenuItem"), Header = header, InputGestureText = hint ?? "", IsEnabled = enabled, ToolTip = label };
+        item.ToolTipOpening += (_, e) => { if (!UI.IsCut(text)) e.Handled = true; };
         AutomationProperties.SetName(item, label);
         if (check == true) AutomationProperties.SetItemStatus(item, Loc.T("已选中", "Selected"));
         item.Click += (_, e) => { e.Handled = true; CloseMenu(); act(); };
@@ -551,8 +570,8 @@ public partial class MainWindow
     private MenuItem Submenu(string label, string icon, IEnumerable<object> items)
     {
         var header = new DockPanel { LastChildFill = true };
-        var glyph = MenuGlyph(icon, UI.Secondary); DockPanel.SetDock(glyph, System.Windows.Controls.Dock.Left); header.Children.Add(glyph);
-        header.Children.Add(new TextBlock { Text = label, Foreground = UI.Brush(UI.Primary), VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis });
+        var glyph = MenuGlyph(icon, Look.Secondary); DockPanel.SetDock(glyph, System.Windows.Controls.Dock.Left); header.Children.Add(glyph);
+        header.Children.Add(new TextBlock { Text = label, Foreground = UI.Brush(Look.Primary), VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis });
         var item = new MenuItem { Style = (Style)FindResource("ShelfMenuItem"), Header = header };
         AutomationProperties.SetName(item, label);
         foreach (var child in items) item.Items.Add(child);
@@ -578,8 +597,12 @@ public partial class MainWindow
         menu.HorizontalOffset = -12 * _scale;
         menu.VerticalOffset = (atPointer ? -12 : 4 - 12) * _scale;
         UI.Scale(menu, _scale);
+        // The panel does not take the foreground, so a press in another app goes to that app and the menu never learns of it:
+        // the menu would stay open, and hold the panel open with it. A press outside this app's windows closes it.
+        var press = new PointerPressObserver(Dispatcher, point => { if (menu.IsOpen && !WindowsHost.OwnWindowAt(point)) menu.IsOpen = false; });
         menu.Closed += (_, _) =>
         {
+            press.Dispose();
             if (ReferenceEquals(_shelfMenu, menu)) _shelfMenu = null;
             Dispatcher.BeginInvoke(() => { if (_expanded && !_pointerInside && !ShelfHolds) PointerChanged(false); });
         };
@@ -588,6 +611,8 @@ public partial class MainWindow
 
     private ContextMenu ClipMenu(ClipEntry clip)
     {
+        // On one of several chosen entries, the menu acts on all of them (MainWindow.ShelfSelect.cs).
+        if (_picked.Contains(clip.Id) && ShelfData.Clips.Where(c => _picked.Contains(c.Id)).ToList() is { Count: > 1 } chosen) return ClipsMenu(chosen);
         var menu = NewMenu();
         bool textual = clip.Kind != ClipKind.Image;
         menu.Items.Add(Item(Loc.T("粘贴", "Paste"), () => PasteClip(clip), MenuIcons.Paste));
@@ -668,15 +693,16 @@ public partial class MainWindow
         return menu;
     }
     // The user's categories, with their counts, when they do not fit beside "全部" and "常用".
-    private ContextMenu CategoryListMenu(ShelfSide side)
+    private ContextMenu CategoryListMenu(ShelfSide side, bool all = false)
     {
         var menu = NewMenu();
         var selected = side == ShelfSide.Clipboard ? _clipTab : _fileTab;
         string Number(Guid id) => (side == ShelfSide.Clipboard ? ShelfData.Clips.Count(c => c.Categories.Contains(id)) : ShelfData.Files.Count(f => f.Categories.Contains(id))).ToString(CultureInfo.InvariantCulture);
-        void Choose(Guid id) { if (side == ShelfSide.Clipboard) _clipTab = id; else { _fileTab = id; _picked.Clear(); } RenderShelf(); }
+        void Choose(Guid? id) { if (side == ShelfSide.Clipboard) _clipTab = id; else _fileTab = id; _picked.Clear(); RenderShelf(); }
         // The check column only when one of them is the one shown, so the menu has no empty column at its left.
         var own = ShelfData.OwnCategories(side).ToList();
-        bool chosen = own.Any(category => category.Id == selected);
+        bool chosen = all || own.Any(category => category.Id == selected);
+        if (all) menu.Items.Add(Item(Loc.T("全部", "All"), () => Choose(null), check: selected is null));
         foreach (var category in own)
             menu.Items.Add(Item(category.Name, () => Choose(category.Id), hint: Number(category.Id), check: chosen ? selected == category.Id : null, dot: category.Color));
         return menu;

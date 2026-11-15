@@ -20,6 +20,8 @@ namespace BrimDeck;
 // do (Feedback).
 internal sealed class ModelDatePicker : Border
 {
+    // The look of the panel this element is drawn in (PanelLook.Of); the main look outside a panel.
+    private PanelLook Look => PanelLook.Of(this);
     private const double Inner = 228, FieldGap = 6, CellHeight = 24, Radius = 8, MessageGap = 5, MessageRise = 4, Faint = .3, Unavailable = .4;
     private static ResourceDictionary? _styles;
 
@@ -82,7 +84,7 @@ internal sealed class ModelDatePicker : Border
 
     internal ModelDatePicker(UsageDateRange range, PanelPalette? palette = null)
     {
-        _palette = palette ?? PanelTheme.Current;
+        _palette = palette ?? PanelTheme.Main.Current;
         _start = range.Start.Date; _end = range.End.Date; _month = new(_start.Year, _start.Month, 1);
         _styles ??= (ResourceDictionary)Application.LoadComponent(new Uri("/BrimDeck;component/ModelDetailsResources.xaml", UriKind.Relative));
         Resources.MergedDictionaries.Add(_styles);
@@ -206,7 +208,7 @@ internal sealed class ModelDatePicker : Border
 
     // Its own pace, whatever the panel's animation length, as the panel's hover and press feedback (DatePickerTiming.Fixed).
     private static DatePickerTiming Timing => DatePickerTiming.Fixed;
-    private static bool Moves => Soft.Enabled;
+    private bool Moves => Soft.At(this);
     private static double Clock() => Eased.Now;
     private string Hex(string token) => _palette[token].ToString();
     private Brush Brush(string token) => UI.Brush(Hex(token));

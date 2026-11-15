@@ -20,13 +20,14 @@ internal sealed class GpuProvider
     // A read that fails or misses an adapter never shuts it out for long (GpuDescriptions): it is asked about again after a pause
     // that grows from seconds to minutes, so an adapter that failed once returns, and a device DXGI never lists (an NPU) costs a
     // read now and then only.
-    private readonly GpuDescriptions _descriptions;
+    // Made with the first reading that has engines to describe: listing the adapters through DXGI and DXCore takes 36 to 51 ms at the first
+    // call, which a sampler that never reads an adapter (a strip of the processor, the memory and the network) need not pay.
+    private GpuDescriptions? _descriptions;
 
-    public GpuProvider(PdhQuery? pdh)
-    {
-        _pdh = pdh;
-        _descriptions = new GpuDescriptions(GpuAdapters.Read, Now());
-    }
+    public GpuProvider(PdhQuery? pdh) => _pdh = pdh;
+
+    // Lists the adapters now rather than with the first reading (the smooth memory mode does it at the start, off the page's way).
+    public void Describe() => _descriptions ??= new GpuDescriptions(GpuAdapters.Read, Now());
 
     // The counters are in the query only while something shows an adapter: the engine counter has an instance per process and engine,
     // often thousands, and is the costliest part of a collection. Called on every tick, before the collection. Whether the counters
@@ -50,8 +51,10 @@ internal sealed class GpuProvider
         var engines = _pdh!.Read(EnginePath);
         if (engines.Count == 0) return Reading<IReadOnlyList<GpuSample>>.Unavailable(Why.Waiting);
         var totals = _counters.Sum(engines, _memory ? _pdh.Read(MemoryPath) : [], _shared ? _pdh.Read(SharedPath) : []);
-        var adapters = _descriptions.For(totals.Keys, Now());
-        var samples = GpuReadings.Samples(totals, adapters, _descriptions.Described, Why.NoGpuMemory);
+        Describe();
+        var descriptions = _descriptions!;
+        var adapters = descriptions.For(totals.Keys, Now());
+        var samples = GpuReadings.Samples(totals, adapters, descriptions.Described, Why.NoGpuMemory);
         return samples.Count > 0 ? samples : Reading<IReadOnlyList<GpuSample>>.Unavailable(Why.NoGpu);
     }
 }
@@ -94,7 +97,7 @@ internal static class GpuAdapters
                 finally { Method<Release>(adapter, 2)(adapter); }
             }
         }
-        catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException or COMException) { Debug.WriteLine(ex); complete = false; }
+        catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException or COMException) { MonitorLog.Note("gpu adapters", ex); complete = false; }
         finally
         {
             if (factory != IntPtr.Zero) Method<Release>(factory, 2)(factory);
@@ -121,7 +124,7 @@ internal static class GpuAdapters
             }
             finally { var close = new CloseAdapter { Adapter = open.Adapter }; D3DKMTCloseAdapter(ref close); }
         }
-        catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException) { Debug.WriteLine(ex); return null; }
+        catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException) { MonitorLog.Note("gpu adapters", ex); return null; }
         finally { Marshal.FreeHGlobal(data); }
     }
     [StructLayout(LayoutKind.Sequential)] private struct OpenAdapterFromLuid { public uint Low; public int High; public uint Adapter; }
@@ -147,7 +150,7 @@ internal static class GpuAdapters
             byte integrated = 0, hardware = 0;
             return (property(adapter, 12, 1, ref integrated) >= 0 ? integrated != 0 : null, property(adapter, 11, 1, ref hardware) >= 0 ? hardware != 0 : null);
         }
-        catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException or COMException) { Debug.WriteLine(ex); return (null, null); }
+        catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException or COMException) { MonitorLog.Note("gpu adapters", ex); return (null, null); }
         finally
         {
             if (adapter != IntPtr.Zero) Method<Release>(adapter, 2)(adapter);

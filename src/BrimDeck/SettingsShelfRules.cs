@@ -46,18 +46,20 @@ public partial class SettingsWindow
     }
 
     // In the row, a small label that says what happens to what is in the category and changes it when clicked: "一直保留" (on)
-    // or "退出时清除" (off, it goes with the history when BrimDeck exits). Both words are laid out, the other hidden, so the label
-    // keeps its width.
+    // or, off, what happens to the history, which it goes with (HistoryFate: "退出时清除", "保留 30 天"). Both words are laid out,
+    // the other hidden, so the label keeps its width. Each word is centred in the label by its letters as drawn (InkCentredText),
+    // whatever the font and scale.
     private ToggleButton KeepSwitch(ShelfCategory category)
     {
-        TextBlock Word(string text) => new() { Text = text, FontFamily = Fonts.PlainOf(UiFontRole.Panel), HorizontalAlignment = HorizontalAlignment.Center };
+        InkCentredText Word(string text) => new(new TextBlock { Text = text, FontFamily = SettingsFont(UiFontRole.Panel) }) { HorizontalAlignment = HorizontalAlignment.Center };
         var kept = Word(Loc.T("一直保留", "Kept"));
-        var cleared = Word(Loc.T("退出时清除", "Cleared on exit"));
+        var cleared = Word(HistoryFate());
         void Show(bool on) { kept.Visibility = on ? Visibility.Visible : Visibility.Hidden; cleared.Visibility = on ? Visibility.Hidden : Visibility.Visible; }
         Show(category.Keep);
         var keep = new ToggleButton { Style = (Style)FindResource("SettingsStateChip"), IsChecked = category.Keep, Content = new Grid { Children = { kept, cleared } },
             Width = KeepChipWidth, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center };
         AutomationProperties.SetName(keep, Loc.T($"{category.Name}一直保留", $"Keep {category.Name}"));
+        foreach (var word in new[] { kept, cleared }) word.FitHeight(keep, KeepChipHeight, KeepChipWords());
         keep.Checked += (_, _) => { category.Keep = true; Show(true); ShelfEdited(); };
         keep.Unchecked += (_, _) => { category.Keep = false; Show(false); ShelfEdited(); };
         return keep;
@@ -65,17 +67,24 @@ public partial class SettingsWindow
 
     // Every label in that column is this wide and centred in it, so they line up whichever words they show.
     private static double KeepChipWidth => Loc.IsEnglish ? 108 : 86;
+    // Their height, the style's: the words make it one device pixel taller where that centres them (InkCentredText.FitHeight).
+    // Every label in the column weighs every word one may show, so they are all one height and keep it when clicked.
+    private const double KeepChipHeight = 22;
+    private string[] KeepChipWords() => [Loc.T("一直保留", "Kept"), HistoryFate()];
 
     // "常用"'s place in that column: the same label, on, with a lock before the words and paler, and not to be clicked: "常用" is
     // always kept.
     private FrameworkElement AlwaysKept()
     {
-        var lockIcon = Stroke("M 2,5 H 8 V 9.5 H 2 Z M 3.2,5 V 3.4 A 1.8,1.8 0 0 1 6.8,3.4 V 5", 10, 10, _palette.Accent); lockIcon.StrokeThickness = 1.2;
-        lockIcon.Margin = new Thickness(0, 0, 4, 0);
-        var words = new TextBlock { Text = Loc.T("一直保留", "Kept"), FontFamily = Fonts.PlainOf(UiFontRole.Panel), VerticalAlignment = VerticalAlignment.Center };
+        // The lock's outline runs from 1.05 to 8.95, centred in its 10 like the words beside it. It is not rounded to whole
+        // pixels, so that it stays in the middle where the label is an odd number of pixels tall.
+        var lockIcon = Stroke("M 2,4.45 H 8 V 8.95 H 2 Z M 3.2,4.45 V 2.85 A 1.8,1.8 0 0 1 6.8,2.85 V 4.45", 10, 10, _palette.Accent); lockIcon.StrokeThickness = 1.2;
+        lockIcon.Margin = new Thickness(0, 0, 4, 0); lockIcon.UseLayoutRounding = false;
+        var words = new InkCentredText(new TextBlock { Text = Loc.T("一直保留", "Kept"), FontFamily = SettingsFont(UiFontRole.Panel) });
         var mark = new ToggleButton { Style = (Style)FindResource("SettingsStateChip"), IsChecked = true, IsHitTestVisible = false, Focusable = false, Opacity = 0.6,
             Content = new StackPanel { Orientation = Orientation.Horizontal, Children = { lockIcon, words } },
             Width = KeepChipWidth, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center };
+        words.FitHeight(mark, KeepChipHeight, KeepChipWords());
         AutomationProperties.SetName(mark, Loc.T("常用一直保留", "Favorites are always kept"));
         return mark;
     }

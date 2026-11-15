@@ -18,6 +18,7 @@ public sealed record MediaTrack
     public bool IsQqMusic => Source == "QQ 音乐" || SongId.StartsWith("qq:", StringComparison.Ordinal) || SongId.StartsWith("qqid:", StringComparison.Ordinal);
     public bool IsAppleMusic => Source == "Apple Music";
     public bool IsKugou => Source == "酷狗音乐" || SongId.StartsWith("kugou:", StringComparison.Ordinal);
+    public bool IsQueMusic => Source == LyricsService.QueMusicSource;
     public MediaState State { get; init; }
     public bool IsNeteaseLog { get; init; }
     public bool PreviousRestricted { get; init; }
@@ -173,23 +174,47 @@ public sealed record CompactMusicLayout(double MiddleWidth, double RingSize, dou
     // keeps its width from line to line; a longer line scrolls in it.
     public const double TextSlot = 160;
 
+    // The middle text's room when it follows its length (DeckSettings.MusicLyricAutoWidth for the lyric, MusicTitleAutoWidth for
+    // the title), at scale 1. It is never shorter than FollowSlotMin, so a short line or the pause between lines does not shrink
+    // the surface to a sliver, and never longer than FollowSlotMax; longer text scrolls in it. FollowScreenShare is the largest
+    // share of the screen (the work area for the capsule) a surface may take because of the text; content that needs more
+    // without it keeps its own width.
+    public const double FollowSlotMin = 48, FollowSlotMax = 400, FollowScreenShare = .5;
+    // The room for text textWidth DIPs wide (its drawn width), at this scale, in whole DIPs: one DIP is added so rounding never
+    // makes fitting text scroll.
+    public static double FollowSlot(double textWidth, double scale)
+    {
+        double s = SafeScale(scale), wanted = double.IsFinite(textWidth) && textWidth > 0 ? Math.Ceiling(textWidth - 1e-9) + 1 : 0;
+        return Math.Clamp(wanted, Whole(FollowSlotMin * s), Whole(FollowSlotMax * s));
+    }
+    // The content width an auto-width surface takes with the middle text following its length: natural, the width with the
+    // text's room (NaturalWidth with FollowSlot); steady, the width with the fixed slot (TextSlot); limit, the content width that
+    // keeps the surface within FollowScreenShare of the screen. Text that would pass the limit stops there, unless the content
+    // needs more with the fixed slot, whose width it then keeps; a non-finite limit leaves the natural width.
+    public static double FollowWidth(double natural, double steady, double limit)
+    {
+        if (!double.IsFinite(limit) || natural <= limit) return natural;
+        return Math.Max(Math.Max(0, limit), Math.Min(steady, natural));
+    }
+
     // The width a row with this content takes without cutting or rotating anything: the cover, every ring, the lyric's fixed
     // slot, the system readings, the equalizer and the clock, with their gaps. An auto-width surface takes it
     // (CollapsedGeometry.Resolve). dpi (device pixels per DIP, 0 for none): the width is rounded up to whole device pixels. The row
     // is laid out in whole device pixels, rounded down (DevicePixels.Down), so a width with a fraction left in it (a clock face
     // that is not a whole number of DIPs) would leave the readings a fraction short of the room they asked for, and they would scroll.
-    // ring: the rings' diameter at scale 1 (QuotaRing.Diameter).
-    public static double NaturalWidth(double scale, bool media, int rings, bool text, double clockFace, double monitorFace, double dpi = 0, bool? equalizer = null, int bars = DefaultBars, bool cover = true, double ring = QuotaRing.Nested)
-        => dpi > 0 ? DevicePixels.Up(Natural(scale, media, rings, text, clockFace, monitorFace, equalizer ?? media, bars, cover, ring), dpi) : Natural(scale, media, rings, text, clockFace, monitorFace, equalizer ?? media, bars, cover, ring);
+    // ring: the rings' diameter at scale 1 (QuotaRing.Diameter). textSlot: the middle text's room in DIPs at this scale (FollowSlot); 0
+    // for the fixed slot (TextSlot).
+    public static double NaturalWidth(double scale, bool media, int rings, bool text, double clockFace, double monitorFace, double dpi = 0, bool? equalizer = null, int bars = DefaultBars, bool cover = true, double ring = QuotaRing.Nested, double textSlot = 0)
+        => dpi > 0 ? DevicePixels.Up(Natural(scale, media, rings, text, clockFace, monitorFace, equalizer ?? media, bars, cover, ring, textSlot), dpi) : Natural(scale, media, rings, text, clockFace, monitorFace, equalizer ?? media, bars, cover, ring, textSlot);
 
-    private static double Natural(double scale, bool media, int rings, bool text, double clockFace, double monitorFace, bool equalizer, int count, bool cover, double ring)
+    private static double Natural(double scale, bool media, int rings, bool text, double clockFace, double monitorFace, bool equalizer, int count, bool cover, double ring, double textSlot)
     {
         double s = SafeScale(scale), face = Safe(clockFace), monitor = Safe(monitorFace), bars = BarsWidth(count, s);
         rings = Math.Max(0, rings);
         // Media without the cover shows only its text and the equalizer, which are counted on their own.
         media &= cover;
         double width = media ? Whole(20 * s) + Whole(8 * s) : 0;
-        width += RingsAndText(s, rings, text, RingSizeFor(ring, s));
+        width += RingsAndText(s, rings, text, RingSizeFor(ring, s), textSlot);
         bool alone = monitor > 0 && !media && !equalizer && rings == 0 && !text && face == 0;
         width += monitor == 0 ? 0 : alone ? monitor : monitor + Whole(8 * s);
         // The bars hold the gap toward the middle, the clock the gap toward whatever is before it.
@@ -203,11 +228,11 @@ public sealed record CompactMusicLayout(double MiddleWidth, double RingSize, dou
     public static double RingSizeFor(double ring, double scale) => Math.Max(1, Whole((double.IsFinite(ring) && ring > 0 ? ring : QuotaRing.Nested) * SafeScale(scale)));
 
     // The width the rings and the lyric's fixed slot take without cutting or rotating the rings.
-    private static double RingsAndText(double s, int rings, bool text, double size)
+    private static double RingsAndText(double s, int rings, bool text, double size, double textSlot = 0)
     {
         double ringSpan = rings == 0 ? 0 : rings * size + (rings - 1) * Whole(8 * s);
         // Beside a lyric the rings may take at most 40 % of the middle (Calculate), so the middle is wide enough for that too.
-        double desired = Whole(TextSlot * s);
+        double desired = double.IsFinite(textSlot) && textSlot > 0 ? Whole(textSlot) : Whole(TextSlot * s);
         return !text ? ringSpan : rings == 0 ? desired : Math.Max(Math.Ceiling(ringSpan / .4), ringSpan + Whole(8 * s) + desired);
     }
 

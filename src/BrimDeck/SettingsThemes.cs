@@ -43,7 +43,7 @@ public sealed partial class SettingsWindow
         ThemeSection(Loc.T("基础", "Basics"));
         ThemeCards([(PanelThemes.SystemId, Loc.T("跟随系统", "System"), PanelTheme.Find(PanelThemes.SystemId)),
             .. PanelThemes.BuiltIns.Where(t => t.Kind == PanelThemeKind.Basic).Select(Card)], chosen);
-        ThemeSection(Loc.T("主题扩展", "Theme extensions"));
+        ThemeSection(Loc.T("更多主题", "More themes"));
         ThemeCards([.. PanelThemes.BuiltIns.Where(t => t.Kind == PanelThemeKind.Extension).Select(Card)], chosen);
         CustomSection(users, chosen);
         _themeDetails = Collect(() => ThemeDetails(chosen, users)); _content.Children.Add(_themeDetails);
@@ -66,7 +66,7 @@ public sealed partial class SettingsWindow
         note.TextWrapping = TextWrapping.Wrap; note.Margin = margin; _content.Children.Add(note);
     }
 
-    // Three cards to a row, each the collapsed capsule in that theme. A user's own theme can be renamed by clicking its name and
+    // Three cards to a row, each the collapsed capsule and a corner of the open panel in that theme. A user's own theme can be renamed by clicking its name and
     // carries a delete button on its preview (OwnThemeCard), and the custom section ends with the new-theme card (tile).
     private void ThemeCards(IReadOnlyList<(string Id, string Name, PanelThemeInfo Theme)> themes, string chosen, FrameworkElement? tile = null)
     {
@@ -84,7 +84,7 @@ public sealed partial class SettingsWindow
             {
                 if (PanelThemes.NormalizeId(S.PanelTheme) == id) return;
                 Change(s => ChooseTheme(s, id));
-                _preview = true; _app.Deck.Preview(true);
+                _preview = true; _app.PreviewDeck.Preview(true);
                 // The cards stay as they are, the radio group moving the check; only the details change. A choice that did not
                 // take (the settings could not be updated) rebuilds the page to show what is saved.
                 if (PanelThemes.NormalizeId(S.PanelTheme) != id || _themeDetails is null || !_content.Children.Contains(_themeDetails)) { _themesFresh = true; ShowPage(ThemePage); return; }
@@ -115,7 +115,7 @@ public sealed partial class SettingsWindow
             if (kept.Preview.Parent is ContentControl previous) previous.Content = null;
             return kept.Preview;
         }
-        // The collapsed capsule with its quota rings and clock, at its real size, in this theme's colors.
+        // The collapsed capsule with its quota rings and clock, at its real size, and a corner of the open panel, in this theme's colors.
         var preview = CompactStylePreview.Theme(palette);
         _themePreviews[key] = (palette, preview);
         return preview;

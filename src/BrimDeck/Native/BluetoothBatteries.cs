@@ -22,8 +22,6 @@ internal sealed class BluetoothBatteries(Dispatcher dispatcher, Action<DeviceSou
     private const string Connected = "System.Devices.Aep.IsConnected", Address = "System.Devices.Aep.DeviceAddress", Category = "System.Devices.Aep.Category",
         Appearance = "System.Devices.Aep.Bluetooth.Le.Appearance";
     private static readonly string[] EndpointProperties = [Connected, Address, Category, Appearance];
-    // Categories that are not peripherals with a battery of their own worth listing.
-    private static readonly string[] Ignored = ["Communication.Phone", "Computers", "Computer", "Display", "Network"];
 
     private sealed record Endpoint(string Id, string Name, string? Category, int? Appearance, bool Connected, bool LowEnergy);
     private readonly Dictionary<string, Endpoint> _endpoints = [];
@@ -151,7 +149,7 @@ internal sealed class BluetoothBatteries(Dispatcher dispatcher, Action<DeviceSou
         var wanted = new HashSet<string>();
         foreach (var endpoint in _endpoints.Values)
         {
-            if (!endpoint.Connected || endpoint.Category is { } category && Ignored.Any(ignored => category.Contains(ignored, StringComparison.OrdinalIgnoreCase))) continue;
+            if (!endpoint.Connected) continue;
             string? address = Devices.AddressIn(endpoint.Id);
             if (address is null) continue;
             int? level = _nodes.Values.Where(node => node.Address == address && node.Level is not null).Select(node => node.Level).FirstOrDefault();
@@ -179,8 +177,9 @@ internal sealed class BluetoothBatteries(Dispatcher dispatcher, Action<DeviceSou
                     if (!reader.Done) continue;
                 }
             }
-            // A device that reports nothing shows as not available, unless it is not a kind worth listing.
-            if (level is null && kind == DeviceKind.Other) continue;
+            // A peripheral that reports nothing shows as not available. Anything else (a phone, a computer, a display, a network
+            // device) is listed only with a level: without one it is a line that says nothing. The settings can switch each off.
+            if (level is null && kind is DeviceKind.Other or DeviceKind.Phone) continue;
             plain.Add(new DeviceBattery("bt:" + address, endpoint.Name, kind, DeviceSource.Bluetooth, level is { } l ? Devices.Clamp(l) : null)
                 { Address = address, Hardware = hardware, Charging = charging });
         }

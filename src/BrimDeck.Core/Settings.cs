@@ -16,8 +16,12 @@ public enum WindowBehavior { Normal, Line, Hide }
 public enum ScreenContext { Desktop, Maximized, Borderless, Exclusive, BackgroundFullscreen }
 // The monitors that show the panel. Chosen uses DisplayMonitors and falls back to the primary monitor while none of them is connected.
 public enum DisplayPlacement { Primary, Chosen }
-// A chosen monitor: its device path, and its name at the time, so that a disconnected monitor can still be named.
-public sealed record ChosenDisplay(string Id, string Name);
+// A chosen monitor: its device path, and its name at the time, so that a disconnected monitor can still be named. Profile is
+// the profile its panel shows, or null for the current one (DeckSettings.CurrentProfile).
+public sealed record ChosenDisplay(string Id, string Name)
+{
+    public Guid? Profile { get; init; }
+}
 // One app's own answers to the three window rules, as "app rules": for each of the three contexts the app can be in, the
 // panel can follow the global rules (null) or choose one of the behaviors they offer. An app with all three set to Normal
 // is the full-screen exception as it began: its covering windows leave the panel alone. Path is the executable when it is
@@ -35,12 +39,21 @@ public sealed record IgnoredMediaApp(string AppId = "", string Name = "", string
 // Dsh reads the DeepSeek account or API key that DeepSeek Harness (desktop app or local web app) signed in with; DeepSeek uses a key entered by hand.
 // GrokBot reads the weekly allowance of the Grok Bot desktop app; it is a quota source only.
 // Kimi reads the plan quota of the account Kimi Code (CLI, desktop app or VS Code extension) signed in with, and its local session records;
-// KimiApi reads the same plan quota with a Kimi Code API key entered by hand.
+// KimiApi reads the same plan quota with a Kimi Code API key entered by hand. KimiPlatform reads the pay-as-you-go balance of a Kimi
+// Open Platform (Moonshot) API key entered by hand, which is billed apart from the membership.
 // OpenCode reads the OpenCode Go allowance of the workspace OpenCode (CLI or desktop app) signed in to OpenCode Console with, and its
 // local records; OpenCodeGo reads the same allowance with an OpenCode Console API key entered by hand.
+// CommandCode reads the plan quota of the account Command Code (CLI or desktop app) signed in with, and its local session records;
+// CommandCodeApi reads the same quota with a Command Code API key entered by hand.
+// WorkBuddy reads the credits of a WorkBuddy China edition account signed in on its website from settings, and the local session
+// records of the WorkBuddy desktop app; WorkBuddyAi does the same for the international edition (WorkBuddy AI).
+// MiMo reads the Xiaomi MiMo Desktop membership quota with a Xiaomi account signed in to in BrimDeck, and the local records that
+// MiMo Code (CLI) and MiMo Desktop share. MiMoApi reads the Xiaomi MiMo Open Platform account of a pay-as-you-go key entered by
+// hand: its balances and the month's charges. MiMoTokenPlan reads the quota of a Token Plan key entered by hand. MiMoLinked reads
+// both with the keys Xiaomi MiMo Desktop and MiMo Code linked (MiMoUsage.ReadLinkedKeys); its statistics are MiMo's.
 // Statistics sources are saved as numbers. 8 and 9 were a short-lived split of Claude and are retired:
 // SettingsMigrations maps them back to Claude, and later members keep their saved numbers.
-public enum ProviderId { Claude, Codex, Antigravity, Cursor, GlmChina, NewApi, Sub2Api, Custom, ZCode = 10, GlmGlobal = 11, Dsh = 12, DeepSeek = 13, GrokBot = 14, Kimi = 15, KimiApi = 16, OpenCode = 17, OpenCodeGo = 18, OpenRouter = 19, Pi = 20 }
+public enum ProviderId { Claude, Codex, Antigravity, Cursor, GlmChina, NewApi, Sub2Api, Custom, ZCode = 10, GlmGlobal = 11, Dsh = 12, DeepSeek = 13, GrokBot = 14, Kimi = 15, KimiApi = 16, OpenCode = 17, OpenCodeGo = 18, OpenRouter = 19, Pi = 20, CodeAgent = 21, CommandCode = 22, CommandCodeApi = 23, WorkBuddy = 24, WorkBuddyAi = 25, MiMo = 26, MiMoApi = 27, MiMoTokenPlan = 28, MiMoLinked = 29, KimiPlatform = 30 }
 public enum SettingsTheme { System, Light, Dark }
 // Pages are saved as numbers, so new members go at the end; their order in the page switch is DeckSettings.PageOrder.
 public enum DeckPage { Usage, Music, Monitor, Clipboard, Devices }
@@ -70,11 +83,13 @@ public enum QuotaRingStyle { Nested = 0, Single = 1 }
 public enum CompactPart { Rings, Music, Monitor, Equalizer, Clock, Transfer, Devices }
 public static class CompactParts
 {
-    // A file saved before the equalizer and the clock were put in order adds them after its parts, the clock last, where they stood.
-    // The devices' batteries (1.3.0) join last.
-    public static IReadOnlyList<CompactPart> Default { get; } = [CompactPart.Rings, CompactPart.Music, CompactPart.Monitor, CompactPart.Equalizer, CompactPart.Clock, CompactPart.Transfer, CompactPart.Devices];
-    // Each known part once, in the saved order; a part missing from the file takes its default place after the others.
-    public static List<CompactPart> Normalize(IEnumerable<CompactPart>? order) => [.. (order ?? []).Where(part => Enum.IsDefined(part)).Concat(Default).Distinct()];
+    // The order of new settings and of restoring the defaults: the equalizer and the clock come last.
+    public static IReadOnlyList<CompactPart> Default { get; } = [CompactPart.Rings, CompactPart.Music, CompactPart.Monitor, CompactPart.Transfer, CompactPart.Devices, CompactPart.Equalizer, CompactPart.Clock];
+    // The order in which parts missing from a saved file are added after its own. A file saved before the equalizer and the clock
+    // were put in order adds them after its parts, the clock last, where they stood; the devices' batteries (1.3.0) join last.
+    private static readonly IReadOnlyList<CompactPart> Missing = [CompactPart.Rings, CompactPart.Music, CompactPart.Monitor, CompactPart.Equalizer, CompactPart.Clock, CompactPart.Transfer, CompactPart.Devices];
+    // Each known part once, in the saved order; a part missing from the file takes its place after the others.
+    public static List<CompactPart> Normalize(IEnumerable<CompactPart>? order) => [.. (order ?? []).Where(part => Enum.IsDefined(part)).Concat(Missing).Distinct()];
 }
 // Saved settings keep the number, so a new style goes at the end.
 public enum ClockStyle { Minimal, Stacked, Digits, Dots, Segment, Neon, Serif, Wide, Condensed, Pixel, Rounded }
@@ -115,7 +130,7 @@ public sealed class AppEntry
     public Guid InstanceId { get; set; } = Guid.NewGuid();
     [JsonConverter(typeof(QuotaSourceConverter))]
     public ProviderId QuotaSource { get; set; }
-    public ProviderId UsageSource { get => _usageSource ?? (ProviderCatalog.IsUsageSource(QuotaSource) ? QuotaSource : ProviderId.Claude); set => _usageSource = value; }
+    public ProviderId UsageSource { get => _usageSource ?? (ProviderCatalog.IsUsageSource(QuotaSource) ? QuotaSource : QuotaSource == ProviderId.MiMoLinked ? ProviderId.MiMo : ProviderId.Claude); set => _usageSource = value; }
     public string Site { get; set; } = "";
     public string Script { get; set; } = "";
     public Guid SecretRevision { get; set; }
@@ -238,7 +253,8 @@ public sealed class OffPeakPeriod
 
 public static class AppPresets
 {
-    public const int MaximumApps = 7;
+    // Any number of applications can be configured; at most this many are shown at once, the first ones switched on.
+    public const int MaximumShownApps = 7;
     // A long list would be hard to review, and the exceptions are meant for a few shell-level apps.
     public const int MaximumFullscreenExceptions = 32;
     public const int MaximumIgnoredMediaApps = 32;
@@ -256,8 +272,8 @@ public static class AppPresets
     public static string Name(ProviderId id) => ProviderCatalog.Name(id);
     // The original preset colors: coral for Claude, mint for Codex, periwinkle for Antigravity, light gray for Cursor.
     public static string ThemeColor(ProviderId id) => id switch
-    { ProviderId.Claude => "#E5A385", ProviderId.Codex => "#98DBB0", ProviderId.Antigravity => "#9CB9FF", ProviderId.ZCode => "#3A538D", ProviderId.Dsh => "#6081DA", ProviderId.Kimi => "#68CDEB", ProviderId.OpenCode => "#8E8E93",
-      ProviderId.GlmChina or ProviderId.GlmGlobal or ProviderId.DeepSeek or ProviderId.KimiApi or ProviderId.OpenCodeGo or ProviderId.OpenRouter or ProviderId.NewApi or ProviderId.Sub2Api or ProviderId.Custom => ManualColor, _ => "#D4D5DF" };
+    { ProviderId.Claude => "#E5A385", ProviderId.Codex => "#98DBB0", ProviderId.Antigravity => "#9CB9FF", ProviderId.ZCode => "#3A538D", ProviderId.Dsh => "#6081DA", ProviderId.Kimi => "#68CDEB", ProviderId.OpenCode => "#8E8E93", ProviderId.CodeAgent => "#22D3C5", ProviderId.CommandCode => "#7A60E3", ProviderId.WorkBuddy or ProviderId.WorkBuddyAi => "#98DBB0", ProviderId.MiMo or ProviderId.MiMoLinked => "#FF6900",
+      ProviderId.GlmChina or ProviderId.GlmGlobal or ProviderId.MiMoApi or ProviderId.MiMoTokenPlan or ProviderId.DeepSeek or ProviderId.KimiApi or ProviderId.KimiPlatform or ProviderId.OpenCodeGo or ProviderId.CommandCodeApi or ProviderId.OpenRouter or ProviderId.NewApi or ProviderId.Sub2Api or ProviderId.Custom => ManualColor, _ => "#D4D5DF" };
     // Sources entered by hand share one purple by default.
     public const string ManualColor = "#CC9EED";
     public static int Level(double usedPercent) => usedPercent >= CriticalPercent ? 2 : usedPercent >= WarningPercent ? 1 : 0;
@@ -316,6 +332,7 @@ public sealed class DeckSettings
 {
     private List<AppEntry>? _apps;
     private List<CompactReading>? _readings;
+    private List<ExpandedReading>? _expanded;
     private List<CompactPart> _notchOrder = [.. CompactParts.Default], _capsuleOrder = [.. CompactParts.Default];
     private List<DeckPage> _pageOrder = [.. DeckPages.Order];
     private int _equalizerBars = CompactMusicLayout.DefaultBars, _musicEqualizerBars = 5;
@@ -346,6 +363,9 @@ public sealed class DeckSettings
     // The family the interface's text is drawn in (UiFonts), in front of the app's own fonts; empty is those fonts alone, as before
     // the setting existed. Icons, figures in code and the clock styles' own faces are not affected. A file without it reads as empty.
     public string UiFont { get; set; } = "";
+    // On, the settings window is drawn in the chosen font too; off (the default), it keeps the app's own fonts. Either way the
+    // font row itself keeps them, so a font that is hard to read can still be changed back.
+    public bool SettingsFollowsFont { get; set; }
     public CompactStyle Style { get; set; } = CompactStyle.Notch;
     // The notch or the capsule last chosen, which the line style hotkey (HotkeyKind.LineStyle) returns to from the line. Normalize
     // keeps it up to date.
@@ -407,6 +427,7 @@ public sealed class DeckSettings
     public string RefreshHotkey { get; set; } = "";
     public string CycleStyleHotkey { get; set; } = "";
     public string LineStyleHotkey { get; set; } = "";
+    public string NextProfileHotkey { get; set; } = "";
     public string Hotkey(HotkeyKind kind) => (kind switch
     {
         HotkeyKind.Hide => HideHotkey, HotkeyKind.Expand => ExpandHotkey, HotkeyKind.Resize => ResizeHotkey, HotkeyKind.Move => MoveHotkey,
@@ -414,7 +435,7 @@ public sealed class DeckSettings
         HotkeyKind.Page2 => Page2Hotkey, HotkeyKind.Page3 => Page3Hotkey, HotkeyKind.Page4 => Page4Hotkey,
         HotkeyKind.Page5 => Page5Hotkey, HotkeyKind.Page6 => Page6Hotkey, HotkeyKind.Page7 => Page7Hotkey, HotkeyKind.Page8 => Page8Hotkey,
         HotkeyKind.Page9 => Page9Hotkey, HotkeyKind.Page10 => Page10Hotkey, HotkeyKind.Refresh => RefreshHotkey,
-        HotkeyKind.CycleStyle => CycleStyleHotkey, HotkeyKind.LineStyle => LineStyleHotkey, _ => ""
+        HotkeyKind.CycleStyle => CycleStyleHotkey, HotkeyKind.LineStyle => LineStyleHotkey, HotkeyKind.NextProfile => NextProfileHotkey, _ => ""
     }) ?? "";
     public void SetHotkey(HotkeyKind kind, string value)
     {
@@ -439,12 +460,15 @@ public sealed class DeckSettings
             case HotkeyKind.Refresh: RefreshHotkey = value; break;
             case HotkeyKind.CycleStyle: CycleStyleHotkey = value; break;
             case HotkeyKind.LineStyle: LineStyleHotkey = value; break;
+            case HotkeyKind.NextProfile: NextProfileHotkey = value; break;
         }
     }
     // Mouse pass-through: hovering does not open the panel and every click goes to the window beneath; only the shortcuts open
-    // it. ClickThroughPanel lets the open panel take clicks as usual.
+    // it. ClickThroughPanel lets the open panel take clicks as usual; ClickThroughKeyboard lets a panel opened by a shortcut take
+    // the keyboard and Esc, which it otherwise leaves to the window in use (a game).
     public bool ClickThrough { get; set; }
     public bool ClickThroughPanel { get; set; }
+    public bool ClickThroughKeyboard { get; set; }
     public bool MusicPage { get; set; } = true;
     public double MusicWidth { get; set; } = 440;
     public double MusicHeight { get; set; } = 200;
@@ -489,6 +513,12 @@ public sealed class DeckSettings
     public bool MusicTrackNotice { get; set; } = true;
     // A song taken as instrumental (Lyrics.Instrumental) shows its title in the collapsed lyric's place instead of "♪".
     public bool MusicInstrumentalTitle { get; set; }
+    // With auto width (CompactAutoWidth), the collapsed middle text's room follows the length of what it shows, within
+    // CompactMusicLayout.FollowSlot's limits: MusicLyricAutoWidth while the middle text is the lyric (the notch or capsule then
+    // changes width from line to line), MusicTitleAutoWidth while it is the title (from song to song). The two are separate
+    // choices; only the one for the chosen middle text applies. Off, the text keeps a fixed slot (TextSlot).
+    public bool MusicLyricAutoWidth { get; set; }
+    public bool MusicTitleAutoWidth { get; set; }
     // The surface narrows without what is hidden; a number not listed shows everything.
     public PausedMusicHide MusicPausedHide { get => _musicPausedHide; set => _musicPausedHide = Enum.IsDefined(value) ? value : PausedMusicHide.None; }
     // The album cover at the left of the collapsed row and on the music page; some players give no cover, only a placeholder.
@@ -559,6 +589,9 @@ public sealed class DeckSettings
     // opens, and over the desktop while the desktop is shown; ForceTopmost then does not apply. The window rules still do:
     // Normal leaves it covered, Line puts the indicator above the window that fills the screen, Hide hides it.
     public bool AlwaysOnTop { get; set; } = true;
+    // The panel stays above other always-on-top windows too: the part one covers is shown above it in a window of a higher band
+    // (TaskbarMirror), so the panel stays on top without raising itself again and again. Where that window cannot be made, the
+    // panel is raised again whenever it is covered.
     public bool ForceTopmost { get; set; }
     // The panel window can be captured on its own by recording apps (OBS window capture). Off, the window keeps the no-activate
     // style that recording apps cannot capture, and that keeps it out of Alt+Tab.
@@ -590,7 +623,27 @@ public sealed class DeckSettings
     public bool ClipboardRecord { get; set; } = true;
     // Applications whose copies are not recorded: the executable's path, or a process name (ClipboardExclusions).
     public List<string> ClipboardExcluded { get; set; } = [];
+    // Off, the clipboard history goes when BrimDeck exits; on, it stays, and each copy goes once it is older than ClipboardKeepFor.
+    // What is kept (ShelfData.Kept: phrases, 常用, the categories set to keep) stays either way.
+    public bool ClipboardKeepHistory { get; set; }
+    public HistoryLength ClipboardKeepFor { get; set; } = HistoryLength.Month;
     public TransferDragOut TransferDragOut { get; set; } = TransferDragOut.Copy;
+    // Which columns the page shows: both, or only the clipboard or only the file transfer over the whole width. Only with both are
+    // they arranged (ShelfArrangement): side by side or stacked as cards (ShelfLayout), and side by side the file transfer's share
+    // of the width in percent, set by dragging the divider between them or in the settings.
+    public ShelfShown ShelfShown { get; set; } = ShelfShown.Both;
+    public ShelfArrangement ShelfArrangement { get; set; } = ShelfArrangement.Split;
+    public double ShelfFileShare { get; set; } = ShelfLayout.DefaultShare;
+    // Stacked, further ways to bring the card behind forward, besides a click on its side strip, on the title of the card in
+    // front or on the page's own button: resting the pointer on the side strip, a middle click anywhere on the page, and a
+    // two-finger sideways swipe or Shift with the wheel.
+    public bool ShelfHoverSwitch { get; set; }
+    public bool ShelfMiddleSwitch { get; set; } = true;
+    public bool ShelfSwipeSwitch { get; set; }
+    // How each column shows its entries (ClipView, FileView), chosen for each by itself. At first the clipboard shows one line an
+    // entry, and the file transfer two, under a larger icon.
+    public ClipView ShelfClipView { get; set; } = ClipView.Single;
+    public FileView ShelfFileView { get; set; } = FileView.Two;
     public double MonitorHeight { get; set; } = MonitorSizes.Default.Height;
     public MonitorPalette MonitorPalette { get; set; } = MonitorPalette.Theme;
     // The Custom scheme's colors; kept while another scheme is chosen.
@@ -601,8 +654,12 @@ public sealed class DeckSettings
     public string? CompactCriticalColor { get; set; }
     // The collapsed readings' dials and core columns ease to each reading at this many frames a second, or not at all.
     public CompactSmoothing CompactSmoothing { get; set; } = CompactSmoothing.Ten;
+    // How the processor's cores are drawn, collapsed and expanded: columns, a dot matrix, or by the count and the room (Auto).
+    public CoreDisplay CoreDisplay { get; set; } = CoreDisplay.Auto;
     // Seconds between readings: 1 or 2.
     public int MonitorInterval { get; set; } = 1;
+    // The span the traffic shown beside the network's rates is summed over, from Windows' own record (TrafficPeriods).
+    public TrafficPeriod MonitorTrafficPeriod { get; set; } = TrafficPeriod.Today;
     public bool MonitorProcesses { get; set; } = true;
     public ProcessSort MonitorSort { get; set; }
     public MonitorMain MonitorMain { get; set; }
@@ -640,6 +697,19 @@ public sealed class DeckSettings
     // refresh rate (FrameRates). Off by default; read only while the page is open, and only where the user may read Windows' frame
     // events (the Performance Log Users group, or BrimDeck elevated).
     public bool MonitorFrames { get; set; }
+    // The table of what the expanded page shows and in which order (ExpandedMonitor). A file saved before it has none: the table is then
+    // the four switches above in the default order, so the page looks as it did, and follows those switches until a table is set.
+    // Once set, the table is what the page follows and Normalize writes the four switches to match it, for older versions.
+    [JsonPropertyName("ExpandedReadings"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<ExpandedReading>? ExpandedTable { get => _expanded; set => _expanded = value; }
+    // Whether the expanded page shows an item (the table, or the old switches before one is set).
+    public bool ShowsExpanded(ExpandedItem item) => ExpandedReadings.Any(reading => reading.Item == item && reading.Visible);
+    [JsonIgnore]
+    public List<ExpandedReading> ExpandedReadings
+    {
+        get => _expanded ?? ExpandedMonitor.Defaults(MonitorProcesses, MonitorStorage, MonitorPower, MonitorFrames);
+        set => _expanded = value;
+    }
     // The frame-rate line also shows the worst 1% (and 0.1%) of the recent frames' average rate beside the figure (1% low, 0.1%
     // low). Only with the frame rate on.
     public bool MonitorFps1Low { get; set; }
@@ -711,6 +781,12 @@ public sealed class DeckSettings
     public NotificationContentMode NotificationContentMode { get; set; } = NotificationContentMode.Compact;
     // Also reads the Claude Code and Codex CLI session records inside WSL distributions. Off by default: it starts stopped distributions.
     public bool IncludeWsl { get; set; }
+    // The named profiles (DeckProfile, Profiles). The current one's settings are the ordinary members of this class; ReturnProfile is
+    // the profile a rule replaced while it holds (ProfileRule), to come back to when it stops holding or BrimDeck starts again.
+    public List<DeckProfile> Profiles { get; set; } = [];
+    public Guid CurrentProfile { get; set; }
+    public Guid? ReturnProfile { get; set; }
+    public List<ProfileRule> ProfileRules { get; set; } = [];
     // The ordered application list; the order is the column order of the expanded panel. Claude and Codex are shown
     // at first; the other built-in applications are listed but hidden.
     public List<AppEntry> Apps
@@ -728,8 +804,10 @@ public sealed class DeckSettings
     // The indicator is too thin for readings, as for the clock.
     public bool ShowsMonitor(CompactStyle style) => style switch { CompactStyle.Notch => NotchMonitor, CompactStyle.Capsule => CapsuleMonitor, _ => false };
     public bool ShowsDevices(CompactStyle style) => style switch { CompactStyle.Notch => NotchDevices, CompactStyle.Capsule => CapsuleDevices, _ => false };
-    // The file transfer's count needs the page: with the page off, nothing can be dropped there.
-    public bool ShowsTransfer(CompactStyle style) => ClipboardPage && style switch { CompactStyle.Notch => NotchTransfer, CompactStyle.Capsule => CapsuleTransfer, _ => false };
+    // The file transfer's count needs the page and its column: with either hidden, nothing can be dropped there.
+    public bool ShowsTransfer(CompactStyle style) => ClipboardPage && ShelfShown != ShelfShown.Clipboard && style switch { CompactStyle.Notch => NotchTransfer, CompactStyle.Capsule => CapsuleTransfer, _ => false };
+    // The page's columns are stacked as cards only while it shows both.
+    public bool ShelfStacked() => ShelfShown == ShelfShown.Both && ShelfArrangement == ShelfArrangement.Stacked;
     public IReadOnlyList<CompactPart> CompactOrder(CompactStyle style) => style == CompactStyle.Capsule ? CapsuleOrder : NotchOrder;
     public void SetCompactOrder(CompactStyle style, IEnumerable<CompactPart> order) { if (style == CompactStyle.Notch) NotchOrder = [.. order]; else if (style == CompactStyle.Capsule) CapsuleOrder = [.. order]; }
     public bool CompactAutoWidth(CompactStyle style) => style switch { CompactStyle.Notch => NotchAutoWidth, CompactStyle.Capsule => CapsuleAutoWidth, _ => false };
@@ -745,7 +823,8 @@ public sealed class DeckSettings
         && (Style == CompactStyle.Line || Maximized == WindowBehavior.Line || Borderless == WindowBehavior.Line || Exclusive == WindowBehavior.Line);
     // The switched-on applications. Their quotas are read for the AI usage page or for the rings of the chosen compact
     // style; the two are shown independently, so either one keeps the data current.
-    [JsonIgnore] public IReadOnlyList<AppEntry> ConfiguredApps => Apps.Where(app => app.Enabled).ToList();
+    [JsonIgnore] public IReadOnlyList<AppEntry> ConfiguredApps => Apps.Where(app => app.Enabled).Take(AppPresets.MaximumShownApps).ToList();
+    [JsonIgnore] public bool ShownAppsFull => ConfiguredApps.Count >= AppPresets.MaximumShownApps;
     [JsonIgnore] public bool QuotaWanted => UsagePage || ShowsSummary(Style);
     [JsonIgnore] public IReadOnlyList<AppEntry> EnabledApps => QuotaWanted ? ConfiguredApps : [];
     [JsonIgnore] public IReadOnlySet<ProviderId> RequiredProviders => EnabledApps.SelectMany(app => new[] { app.QuotaSource, app.UsageSource }).ToHashSet();
@@ -764,7 +843,7 @@ public sealed class DeckSettings
     public void SetEnabled(ProviderId id, bool enabled)
     {
         var entries = Apps.Where(app => app.QuotaSource == id || app.UsageSource == id).ToList();
-        if (entries.Count == 0) { if (enabled && Apps.Count < AppPresets.MaximumApps) Apps.Add(new AppEntry { QuotaSource = id, UsageSource = id }); }
+        if (entries.Count == 0) { if (enabled) Apps.Add(new AppEntry { QuotaSource = id, UsageSource = id, Enabled = !ShownAppsFull }); }
         else foreach (var entry in entries) entry.Enabled = enabled;
     }
     // The behavior a context calls for: the app's own rule first, where it chooses one for that context, and the global
@@ -799,6 +878,7 @@ public sealed class DeckSettings
         var copy = (DeckSettings)MemberwiseClone();
         copy._apps = _apps?.Select(app => app.Copy()).ToList();
         copy._readings = _readings?.Select(reading => reading?.Copy()!).ToList();
+        copy._expanded = _expanded?.Select(reading => reading?.Copy()!).ToList();
         copy.MonitorCustomColors = (MonitorCustomColors ?? new()).Copy();
         copy._notchOrder = [.. _notchOrder]; copy._capsuleOrder = [.. _capsuleOrder]; copy._pageOrder = [.. _pageOrder];
         copy.ClockGradient = [.. ClockGradient ?? [.. ClockColors.Sunset]];
@@ -807,6 +887,8 @@ public sealed class DeckSettings
         copy.FullscreenRules = FullscreenRules.Select(rule => rule with { }).ToList();
         copy.IgnoredMediaApps = [.. IgnoredMediaApps ?? []];
         copy.DeviceChoices = [.. (DeviceChoices ?? []).Select(device => device.Copy())];
+        copy.Profiles = [.. (Profiles ?? []).Select(profile => profile.Copy())];
+        copy.ProfileRules = [.. (ProfileRules ?? []).Select(rule => rule.Copy())];
         return copy;
     }
     public void Normalize()
@@ -820,9 +902,12 @@ public sealed class DeckSettings
                 return choices;
             });
         var seen = new HashSet<Guid>();
-        Apps = Apps.Where(app => app is not null && ProviderCatalog.Sources.Contains(app.QuotaSource)).Take(AppPresets.MaximumApps).ToList();
+        Apps = Apps.Where(app => app is not null && ProviderCatalog.Sources.Contains(app.QuotaSource)).ToList();
+        int shown = 0;
         foreach (var app in Apps)
         {
+            // Rows switched on past the limit are kept with their settings but switched off.
+            if (app.Enabled && ++shown > AppPresets.MaximumShownApps) app.Enabled = false;
             if (app.InstanceId == Guid.Empty || !seen.Add(app.InstanceId))
             {
                 do { app.InstanceId = Guid.NewGuid(); } while (!seen.Add(app.InstanceId));
@@ -855,6 +940,12 @@ public sealed class DeckSettings
         ClipboardWidth = double.IsFinite(ClipboardWidth) ? Math.Clamp(ClipboardWidth, DeckPages.MinWidth, DeckPages.MaxWidth) : ShelfSizes.Default.Width;
         ClipboardHeight = double.IsFinite(ClipboardHeight) ? Math.Clamp(ClipboardHeight, DeckPages.MinHeight, DeckPages.MaxHeight) : ShelfSizes.Default.Height;
         if (!Enum.IsDefined(TransferDragOut)) TransferDragOut = TransferDragOut.Copy;
+        if (!Enum.IsDefined(ShelfShown)) ShelfShown = ShelfShown.Both;
+        if (!Enum.IsDefined(ShelfArrangement)) ShelfArrangement = ShelfArrangement.Split;
+        if (!Enum.IsDefined(ShelfClipView)) ShelfClipView = ClipView.Single;
+        if (!Enum.IsDefined(ShelfFileView)) ShelfFileView = FileView.Two;
+        ShelfFileShare = ShelfLayout.ClampShare(Math.Round(ShelfFileShare, 1), ShelfFileView);
+        if (!Enum.IsDefined(ClipboardKeepFor)) ClipboardKeepFor = HistoryLength.Month;
         ClipboardExcluded = ClipboardExclusions.Normalize(ClipboardExcluded);
         PanelScale = PanelScales.Fit(PanelScale);
         SurfaceTransparency = Math.Clamp(SurfaceTransparency, 0, MaxSurfaceTransparency);
@@ -864,6 +955,7 @@ public sealed class DeckSettings
         CompactWarningColor = AppPresets.NormalizeColor(CompactWarningColor) is { Length: > 0 } warning ? warning : null;
         CompactCriticalColor = AppPresets.NormalizeColor(CompactCriticalColor) is { Length: > 0 } critical ? critical : null;
         MonitorInterval = Math.Clamp(MonitorInterval, 1, 2);
+        if (!Enum.IsDefined(MonitorTrafficPeriod)) MonitorTrafficPeriod = TrafficPeriod.Today;
         if (!Enum.IsDefined(MonitorSort)) MonitorSort = ProcessSort.Cpu;
         if (!Enum.IsDefined(MonitorMain)) MonitorMain = MonitorMain.Cpu;
         if (!Enum.IsDefined(MonitorGpuUsage)) MonitorGpuUsage = GpuUsageSource.Driver;
@@ -871,9 +963,15 @@ public sealed class DeckSettings
         MonitorGpuName = MonitorGpu is null || string.IsNullOrWhiteSpace(MonitorGpuName) ? null : MonitorGpuName.Trim();
         if (!Enum.IsDefined(MonitorProcessView)) MonitorProcessView = MonitorProcessView.Auto;
         if (!Enum.IsDefined(CompactSmoothing)) CompactSmoothing = CompactSmoothing.Ten;
+        if (!Enum.IsDefined(CoreDisplay)) CoreDisplay = CoreDisplay.Auto;
         if (!Enum.IsDefined(CompactMonitor)) CompactMonitor = CompactMonitorMode.Full;
         CompactMonitorItems &= CompactMonitorItems.All;
         if (CompactMonitorItems == CompactMonitorItems.None) CompactMonitorItems = CompactMonitorItems.Cpu;
+        if (_expanded is not null)
+        {
+            _expanded = ExpandedMonitor.Normalize(_expanded);
+            (MonitorProcesses, MonitorStorage, MonitorPower, MonitorFrames) = ExpandedMonitor.Switches(_expanded);
+        }
         CompactReadings = Core.CompactMonitor.Normalize(CompactReadings);
         Core.CompactMonitor.MoveColors(this);
         CompactMonitor = Core.CompactMonitor.Preset(CompactReadings) ?? CompactMonitorMode.Custom;
@@ -952,8 +1050,9 @@ public sealed class DeckSettings
             .Select(app => new IgnoredMediaApp(app.AppId.Trim(), (app.Name ?? "").Trim(), (app.Path ?? "").Trim()))
             .DistinctBy(app => app.AppId, StringComparer.OrdinalIgnoreCase).Take(AppPresets.MaximumIgnoredMediaApps).ToList();
         DisplayMonitors = (DisplayMonitors ?? []).OfType<ChosenDisplay>().Where(d => !string.IsNullOrWhiteSpace(d.Id))
-            .Select(d => new ChosenDisplay(d.Id.Trim(), (d.Name ?? "").Trim())).DistinctBy(d => d.Id).ToList();
+            .Select(d => d with { Id = d.Id.Trim(), Name = (d.Name ?? "").Trim() }).DistinctBy(d => d.Id).ToList();
         if (Display == DisplayPlacement.Chosen && DisplayMonitors.Count == 0) Display = DisplayPlacement.Primary;
+        Core.Profiles.Normalize(this);
     }
 }
 
@@ -981,7 +1080,14 @@ public sealed class SettingsStore(string directory, string? appVersion = null)
     // True when the last Load found no settings file, or none it could read, and returned defaults.
     public bool IsFirstStart { get; private set; }
     // Without saved settings the interface follows the Windows display language; saved settings keep their language.
-    private DeckSettings FirstStart() { IsFirstStart = true; return new() { Language = Loc.SystemLanguage() }; }
+    // Normalized as read settings are: the start relies on what Normalize ensures, such as one current profile (Profiles.Keep).
+    private DeckSettings FirstStart()
+    {
+        IsFirstStart = true;
+        var settings = new DeckSettings { Language = Loc.SystemLanguage() };
+        settings.Normalize();
+        return settings;
+    }
     public DeckSettings Load()
     {
         _snapshots = []; _newerFile = null; _unknown = []; IsFirstStart = false; _loadWarning = null;

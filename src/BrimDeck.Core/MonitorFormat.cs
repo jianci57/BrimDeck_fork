@@ -34,6 +34,22 @@ public static class MonitorFormat
         return new(((int)Math.Round(value / 1000)).ToString(CultureInfo.InvariantCulture), "KB/s");
     }
 
+    // Bytes moved, in three significant digits and decimal units: "512 B", "21.0 MB", "202 MB", "1.24 GB".
+    public static Quantity Total(double bytes)
+    {
+        double value = double.IsFinite(bytes) ? Math.Max(0, bytes) : 0;
+        static string Short(double v) => v < 9.995 ? v.ToString("0.00", CultureInfo.InvariantCulture)
+            : v < 99.95 ? Decimal(v) : ((int)Math.Round(v)).ToString(CultureInfo.InvariantCulture);
+        if (value >= 999_500_000_000) return new(Short(value / 1_000_000_000_000), "TB");
+        if (value >= 999_500_000) return new(Short(value / 1_000_000_000), "GB");
+        if (value >= 999_500) return new(Short(value / 1_000_000), "MB");
+        if (value >= 999.5) return new(Short(value / 1000), "KB");
+        return new(((int)Math.Round(value)).ToString(CultureInfo.InvariantCulture), "B");
+    }
+
+    // The same with a one-letter unit, for the collapsed row: "21.0M", "202M", "512B".
+    public static Quantity CompactTotal(double bytes) => Total(bytes) is var total ? new(total.Number, total.Unit[..1]) : default;
+
     // A rate in three significant digits and one letter, for the collapsed row: "5.12" K, "84.2" K, "512" K, "1.24" M, "120" M.
     // Every figure is about as wide as the widest ("99.9M"), so a small rate leaves no wide gap after it.
     public static Quantity CompactRate(double bytesPerSecond)

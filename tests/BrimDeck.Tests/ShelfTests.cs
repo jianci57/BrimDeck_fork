@@ -61,6 +61,37 @@ internal static class ShelfTests
             && reread.ClipCategories.Single(c => c.Id == made.Id).Keep == false && reread.ClipCategories.Single(c => c.Id == kept.Id).Keep
             && reread.ClipCategories.Single(c => c.Id == passing.Id).Keep == false);
 
+        // History kept past an exit: what is older than the length goes, counted from the last copy; what is kept stays however old.
+        var aging = new ShelfData();
+        aging.ClipCategories.AddRange([kept, passing]);
+        var noon = new DateTimeOffset(2026, 11, 13, 12, 0, 0, TimeZoneInfo.Local.GetUtcOffset(new DateTime(2026, 11, 13, 12, 0, 0)));
+        aging.Clips.Add(new ClipEntry { Text = "23 hours", Copied = noon.AddHours(-23) });
+        aging.Clips.Add(new ClipEntry { Text = "25 hours", Copied = noon.AddHours(-25) });
+        aging.Clips.Add(new ClipEntry { Text = "6 days", Copied = noon.AddDays(-6) });
+        aging.Clips.Add(new ClipEntry { Text = "8 days", Copied = noon.AddDays(-8) });
+        aging.Clips.Add(new ClipEntry { Text = "31 days", Copied = noon.AddDays(-31) });
+        aging.Clips.Add(new ClipEntry { Text = "old passing", Copied = noon.AddDays(-40), Categories = [passing.Id] });
+        aging.Clips.Add(new ClipEntry { Text = "old kept", Copied = noon.AddDays(-40), Categories = [kept.Id] });
+        aging.Clips.Add(new ClipEntry { Text = "old favorite", Copied = noon.AddDays(-40), Categories = [ShelfData.Favorites] });
+        aging.Clips.Add(new ClipEntry { Text = "old phrase", Copied = noon.AddDays(-40), Manual = true });
+        string Gone(HistoryLength length) => string.Join(",", Shelf.Expired(aging, length, noon).Select(c => c.Text));
+        check("Shelf history: kept past an exit, 1, 7 and 30 days keep what is newer; kept entries stay",
+            Gone(HistoryLength.Day) == "25 hours,6 days,8 days,31 days,old passing" && Gone(HistoryLength.Week) == "8 days,31 days,old passing"
+            && Gone(HistoryLength.Month) == "31 days,old passing");
+        var unknown = new DeckSettings { ClipboardKeepFor = (HistoryLength)9 };
+        unknown.Normalize();
+        check("Shelf history: kept past an exit is off and 30 days by default, an unknown length read as 30 days",
+            !new DeckSettings().ClipboardKeepHistory && new DeckSettings().ClipboardKeepFor == HistoryLength.Month && unknown.ClipboardKeepFor == HistoryLength.Month);
+
+        // Rich forms live in their own files: a history saved with them in its entries gives them up once, and is saved without them.
+        var withRich = ShelfData.Deserialize(System.Text.Encoding.UTF8.GetBytes(
+            "{\"Clips\":[{\"Text\":\"web\",\"Html\":\"<b>web</b>\",\"Rtf\":\"\"},{\"Text\":\"word\",\"Html\":\"\",\"Rtf\":\"{\\\\rtf1 word}\"},{\"Text\":\"empty\",\"Html\":\"\",\"Rtf\":\"\"},{\"Text\":\"plain\"}]}"));
+        var taken = Shelf.TakeRich(withRich);
+        string resaved = System.Text.Encoding.UTF8.GetString(withRich.Serialize());
+        check("Shelf rich forms: an older history gives up its HTML and RTF, and is saved without them",
+            taken.Select(t => (t.Clip.Text, t.Html, t.Rtf)).SequenceEqual([("web", "<b>web</b>", ""), ("word", "", "{\\rtf1 word}")])
+            && !resaved.Contains("\"Html\"") && !resaved.Contains("\"Rtf\"") && Shelf.TakeRich(withRich).Count == 0 && withRich.Clips.Count == 4);
+
         // Files: newest first, a file dropped again moves up, the category is kept or given.
         var shelf = new ShelfData();
         Shelf.AddFiles(shelf, [@"C:\a.txt", @"C:\b.txt"], null, now);
@@ -180,9 +211,98 @@ internal static class ShelfTests
         var spacious = ShelfLayout.For(1200, 400);
         check("Shelf layout: steps by height", compact.Tier == ShelfTier.Compact && compact.Row == 22 && standard.Tier == ShelfTier.Standard && standard.Row == 26
             && spacious.Tier == ShelfTier.Spacious && spacious.Row == 30 && spacious.TwoLines && ShelfLayout.For(620, 179).Tier == ShelfTier.Compact && ShelfLayout.For(620, 280).Tier == ShelfTier.Spacious);
-        check("Shelf layout: the file column is 40 % within 170 and 340, and shows sizes from 210 and dates from 300 when spacious",
-            compact.FileColumn == 170 && !compact.FileSize && standard.FileColumn == Math.Round((620 - 40 - 32) * .4) && standard.FileSize
-            && spacious.FileColumn == 340 && spacious.FileDate && !ShelfLayout.For(860, 260).FileDate);
+        check("Shelf layout: the file column is 40 % by default, never under 170, shows sizes at every width and dates from 300 when spacious",
+            compact.FileColumn == 170 && compact.FileSize && !ShelfLayout.For(620, 220, 40, shown: ShelfShown.Clipboard).FileSize && standard.FileColumn == Math.Round((620 - 40 - 32) * .4) && standard.FileSize
+            && spacious.FileColumn == Math.Round((1200 - 48 - 40) * .4) && spacious.FileDate && !ShelfLayout.For(860, 260).FileDate);
+        // The share set by the divider or the settings: kept within 20 % and 80 %, and the clipboard keeps 180 where the page has room.
+        var wide = ShelfLayout.For(1000, 260, 70);
+        check("Shelf layout: the file transfer's share is kept within its range and leaves the clipboard 180",
+            wide.FileColumn == Math.Round((1000 - 40 - 32) * .7) && wide.FileColumn + wide.ClipColumn == 1000 - 40 - 32
+            && ShelfLayout.For(1000, 260, 5).FileColumn == Math.Round((1000 - 40 - 32) * .2) && ShelfLayout.For(1000, 260, 95).FileColumn == Math.Round((1000 - 40 - 32) * .8)
+            && ShelfLayout.For(560, 220, 80).ClipColumn == 180 && ShelfLayout.For(440, 140, 10).FileColumn == 170 && ShelfLayout.For(440, 140, 80).FileColumn == 440 - 28 - 24 - 180
+            && ShelfLayout.ShareOf(300, 1000) == 30 && ShelfLayout.ShareOf(950, 1000) == 80 && ShelfLayout.ClampShare(double.NaN) == ShelfLayout.DefaultShare);
+        var stacked = ShelfLayout.For(620, 220, 40, stacked: true);
+        check("Shelf layout: stacked, the cards reach out past the page's margins so that a column starts where it does side by side",
+            stacked.Stacked && stacked.FileColumn == stacked.ClipColumn && stacked.FileColumn == 620 - 2 * 20 - 50
+            && stacked is { Peek: 50, CardTop: 2, CardBottom: 8, CardPad: 9, CardSide: 10 } && stacked.CardSide + 1 + stacked.CardPad == stacked.Side
+            && ShelfLayout.For(440, 140, 40, stacked: true) is { FileColumn: 440 - 2 * 14 - 44, Peek: 44, CardTop: 2, CardBottom: 6, CardPad: 7, CardSide: 6 }
+            && ShelfLayout.For(860, 320, 40, stacked: true) is { FileColumn: 860 - 2 * 24 - 56, Peek: 56, CardTop: 2, CardBottom: 8, CardPad: 11, CardSide: 12 }
+            && ShelfLayout.For(620, 220) is { Stacked: false, Peek: 0, CardTop: 0, CardBottom: 0, CardPad: 0, CardSide: 0 });
+        // One column only: it takes the whole room between the margins, and the page is never stacked.
+        check("Shelf layout: one column alone fills the page and is never stacked",
+            ShelfLayout.For(620, 220, 40, shown: ShelfShown.Clipboard) is { ClipColumn: 620 - 2 * 20, FileColumn: 0, Stacked: false }
+            && ShelfLayout.For(620, 220, 40, stacked: true, shown: ShelfShown.Files) is { FileColumn: 620 - 2 * 20, ClipColumn: 0, Stacked: false, Peek: 0 }
+            && ShelfLayout.For(1200, 400, 40, shown: ShelfShown.Files) is { FileSize: true, FileDate: true });
+        // The other ways of showing a column (ClipView, FileView). The file grid has as many columns as cells of the step's least
+        // width fit the file column, the blocks as many as fit the clipboard's with their gap; every other way has one.
+        var viewLayout = ShelfLayout.For(620, 220, 40, clipView: ClipView.Blocks, fileView: FileView.Grid);
+        check("Shelf views: the grid and the blocks take as many columns as the width holds",
+            viewLayout is { FileColumns: 3, ClipColumns: 3, TileIcon: 32, TileHeight: 69, BlockHeight: 74, BlockLines: 3, ClipView: ClipView.Blocks, FileView: FileView.Grid }
+            && ShelfLayout.For(440, 140, 40, clipView: ClipView.Blocks, fileView: FileView.Grid) is { FileColumns: 3, ClipColumns: 2, TileIcon: 24, TileAcross: 60 }
+            && ShelfLayout.For(860, 320, 40, clipView: ClipView.Blocks, fileView: FileView.Grid) is { FileColumns: 4, ClipColumns: 4, TileIcon: 40, TileAcross: 80 }
+            && ShelfLayout.For(620, 220, 40, shown: ShelfShown.Files, fileView: FileView.Grid).FileColumns == 8
+            && ShelfLayout.For(620, 220, 40, shown: ShelfShown.Clipboard, clipView: ClipView.Blocks).ClipColumns == 5
+            && standard is { FileColumns: 1, ClipColumns: 1, ClipView: ClipView.Single, FileView: FileView.Single }
+            && ShelfLayout.For(620, 220, 40, clipView: ClipView.Three, fileView: FileView.Row) is { FileColumns: 1, ClipColumns: 1 }
+            && ShelfLayout.TileColumns(10, 68) == 1 && ShelfLayout.BlockColumns(10, 104, 6) == 1);
+        // In one column the file transfer may be dragged to a narrow strip; every other way keeps 170 and a fifth of the width.
+        var strip = new DeckSettings { ShelfFileView = FileView.Column, ShelfFileShare = 3 };
+        strip.Normalize();
+        var wideStrip = new DeckSettings { ShelfFileShare = 3 };
+        wideStrip.Normalize();
+        check("Shelf views: the one column may be a strip 104 wide and 8 % of the width; the other ways keep 170 and 20 %",
+            ShelfLayout.For(620, 220, 8, fileView: FileView.Column) is { FileColumn: 104, ClipColumn: 620 - 40 - 32 - 104, FileSize: true }
+            && ShelfLayout.For(1600, 400, 8, fileView: FileView.Column).FileColumn == Math.Round((1600 - 48 - 40) * .08)
+            && ShelfLayout.For(620, 220, 8, fileView: FileView.Grid).FileColumn == 170 && ShelfLayout.For(620, 220, 8).FileColumn == 170
+            && ShelfLayout.ClampShare(3, FileView.Column) == 8 && ShelfLayout.ClampShare(3) == 20 && ShelfLayout.ShareOf(104, 1000, FileView.Column) == 10
+            && strip.ShelfFileShare == 8 && wideStrip.ShelfFileShare == 20);
+        check("Shelf views: an entry three lines high holds three lines of its text and the space around them; the larger pages only grow a step",
+            standard.ThreeLine == 18 && standard.ThreeRow == 3 * 18 + 10 && compact.ThreeRow == 3 * 17 + 8 && spacious.ThreeRow == 3 * 19 + 12
+            && standard.ThreeSide == 96 && standard.TwoRow == 44 && spacious.TileIcon == 40 && spacious.TileHeight == 88);
+        // A file's name under a large icon, measured here as one unit a character.
+        static double NameUnits(string text) => text.Length;
+        var wholeName = Shelf.TileName("report.pdf", 20, 2, NameUnits);
+        var twoLines = Shelf.TileName("quarterly-report-final.pdf", 12, 2, NameUnits);
+        var oneLine = Shelf.TileName("quarterly-report-final.pdf", 12, 1, NameUnits);
+        var pushedName = Shelf.TileName("abcdefghijkl.docx", 12, 2, NameUnits);
+        var bareName = Shelf.TileName("README-for-everyone", 10, 2, NameUnits);
+        check("Shelf views: a file's name is cut at the end of its stem and its extension is kept whole, on one line or two",
+            wholeName == new Shelf.TileLines("report", "", ".pdf", false) && !wholeName.Cut
+            && twoLines == new Shelf.TileLines("quarterly-re", "port-fi…", ".pdf", true) && twoLines.Cut
+            && oneLine == new Shelf.TileLines("quarter…", "", ".pdf", false) && oneLine.Cut
+            && pushedName == new Shelf.TileLines("abcdefghijkl", "", ".docx", true) && !pushedName.Cut
+            && bareName == new Shelf.TileLines("README-for", "-everyone", "", true)
+            && Shelf.TileName("Release notes 1.3.0.docx", 16, 2, NameUnits) == new Shelf.TileLines("Release notes", "1.3.0", ".docx", true)
+            && Shelf.TileName("第三季度华东区销售数据汇总.xlsx", 8, 2, NameUnits) == new Shelf.TileLines("第三季度华东区销", "售数…", ".xlsx", true)
+            && Shelf.SplitName(".gitignore") == (".gitignore", "") && Shelf.SplitName("a.tar.gz") == ("a.tar", ".gz") && Shelf.SplitName("notes") == ("notes", ""));
+        // The time on the row with room for it: the time of day follows wherever the short form does not give it.
+        var viewNow = new DateTimeOffset(new DateTime(2026, 11, 15, 13, 30, 0, DateTimeKind.Local));
+        DateTimeOffset ViewAt(int year, int month, int day, int hour, int minute) => new(new DateTime(year, month, day, hour, minute, 0, DateTimeKind.Local));
+        check("Shelf views: the longer time adds the time of day within the hour, yesterday and on a date of this year",
+            Shelf.WhenExact(viewNow.AddMinutes(-5), viewNow) == Shelf.When(viewNow.AddMinutes(-5), viewNow) + " · 13:25"
+            && Shelf.WhenExact(ViewAt(2026, 11, 15, 10, 30), viewNow) == "10:30"
+            && Shelf.WhenExact(ViewAt(2026, 11, 14, 21, 30), viewNow) == Shelf.When(ViewAt(2026, 11, 14, 21, 30), viewNow) + " · 21:30"
+            && Shelf.WhenExact(ViewAt(2026, 3, 2, 9, 12), viewNow) == Shelf.When(ViewAt(2026, 3, 2, 9, 12), viewNow) + " · 09:12"
+            && Shelf.WhenExact(ViewAt(2025, 12, 30, 9, 12), viewNow) == "2025-12-30");
+        check("Shelf views: a text's count is its characters without the line breaks, and its lines when it has several",
+            Shelf.Count(" hello ") == Loc.T("5 字", "5 chars") && Shelf.Count("a") == Loc.T("1 字", "1 char")
+            && Shelf.Count("ab\r\ncd\nef") == Loc.T("6 字", "6 chars") + Loc.T(" · 3 行", " · 3 lines"));
+        var oddViews = new DeckSettings { ShelfClipView = (ClipView)9, ShelfFileView = (FileView)9 };
+        oddViews.Normalize();
+        var chosenViews = System.Text.Json.JsonSerializer.Deserialize<DeckSettings>(System.Text.Json.JsonSerializer.Serialize(new DeckSettings { ShelfClipView = ClipView.Blocks, ShelfFileView = FileView.Row }))!;
+        check("Shelf views: the clipboard shows one line an entry and the file transfer two unless another way is chosen; the choice is kept, and an unknown one is the default",
+            new DeckSettings() is { ShelfClipView: ClipView.Single, ShelfFileView: FileView.Two } && oddViews is { ShelfClipView: ClipView.Single, ShelfFileView: FileView.Two }
+            && chosenViews is { ShelfClipView: ClipView.Blocks, ShelfFileView: FileView.Row }
+            && System.Text.Json.JsonSerializer.Deserialize<DeckSettings>("{}")! is { ShelfClipView: ClipView.Single, ShelfFileView: FileView.Two });
+        // Stacked, the card in front leaves the other's strip showing, and the other is that strip and what lies under the card in front.
+        check("Shelf deck: the card in front is the page less the strip, the other the strip and 12 more; the two trade widths",
+            ShelfDeck.Widths(ShelfSide.Clipboard, 580, 50) == (530, 62) && ShelfDeck.Widths(ShelfSide.Files, 580, 50) == (62, 530)
+            && ShelfDeck.Widths(ShelfSide.Files, 40, 50) == (0, 0));
+        // A side strip shows what its height has room for under its name: the count goes first, then the icon.
+        check("Shelf deck: a side strip too short for all its parts drops its count first, then its icon",
+            ShelfDeck.StripParts(148, 19, 7, 16, 56, 15) == (true, true) && ShelfDeck.StripParts(84, 13, 5, 15, 50, 15) == (true, false)
+            && ShelfDeck.StripParts(84, 13, 5, 15, 70, 15) == (false, false) && ShelfDeck.StripParts(120, 19, 7, 16, 56, 15) == (true, true)
+            && ShelfDeck.StripParts(119, 19, 7, 16, 56, 15) == (true, false));
         check("Shelf layout: the search box is 36 % of the width within 180 and 280, and the details have a side column from 560",
             ShelfLayout.SearchWidth(440) == 180 && ShelfLayout.SearchWidth(620) == 223 && ShelfLayout.SearchWidth(1200) == 280 && ShelfLayout.DetailSide(560) && !ShelfLayout.DetailSide(559));
 
@@ -197,6 +317,30 @@ internal static class ShelfTests
         check("Shelf settings: files dragged out are copied unless moving is chosen; an older file copies; an unknown choice copies",
             settings.TransferDragOut == TransferDragOut.Copy && System.Text.Json.JsonSerializer.Deserialize<DeckSettings>("{}")!.TransferDragOut == TransferDragOut.Copy
             && System.Text.Json.JsonSerializer.Deserialize<DeckSettings>("{\"TransferDragOut\":1}")!.TransferDragOut == TransferDragOut.Move && dragOut.TransferDragOut == TransferDragOut.Copy);
+        var arranged = new DeckSettings { ShelfArrangement = (ShelfArrangement)9, ShelfFileShare = 97.34 };
+        arranged.Normalize();
+        var unsure = new DeckSettings { ShelfFileShare = double.NaN };
+        unsure.Normalize();
+        check("Shelf settings: side by side with 40 % for the file transfer by default; an unknown arrangement is side by side, a share is kept in range",
+            settings.ShelfArrangement == ShelfArrangement.Split && settings.ShelfFileShare == 40 && arranged.ShelfArrangement == ShelfArrangement.Split
+            && arranged.ShelfFileShare == 80 && unsure.ShelfFileShare == 40
+            && System.Text.Json.JsonSerializer.Deserialize<DeckSettings>("{\"ShelfArrangement\":1,\"ShelfFileShare\":35.5}") is { ShelfArrangement: ShelfArrangement.Stacked, ShelfFileShare: 35.5 });
+        check("Shelf settings: stacked quick-switch defaults (middle-click on, hover and swipe off), JSON round-trip and copy",
+            !settings.ShelfHoverSwitch && settings.ShelfMiddleSwitch && !settings.ShelfSwipeSwitch
+            && System.Text.Json.JsonSerializer.Deserialize<DeckSettings>("{}") is { ShelfHoverSwitch: false, ShelfMiddleSwitch: true, ShelfSwipeSwitch: false }
+            && System.Text.Json.JsonSerializer.Deserialize<DeckSettings>("{\"ShelfHoverSwitch\":true,\"ShelfMiddleSwitch\":false,\"ShelfSwipeSwitch\":true}") is { ShelfHoverSwitch: true, ShelfMiddleSwitch: false, ShelfSwipeSwitch: true }
+            && new DeckSettings { ShelfHoverSwitch = true, ShelfMiddleSwitch = false, ShelfSwipeSwitch = true }.Copy() is { ShelfHoverSwitch: true, ShelfMiddleSwitch: false, ShelfSwipeSwitch: true });
+        var unknownShown = new DeckSettings { ShelfShown = (ShelfShown)9 };
+        unknownShown.Normalize();
+        check("Shelf settings: both columns by default; an unknown choice shows both; stacking and the transfer count follow the columns shown",
+            settings.ShelfShown == ShelfShown.Both && unknownShown.ShelfShown == ShelfShown.Both
+            && System.Text.Json.JsonSerializer.Deserialize<DeckSettings>("{}") is { ShelfShown: ShelfShown.Both }
+            && System.Text.Json.JsonSerializer.Deserialize<DeckSettings>("{\"ShelfShown\":2}") is { ShelfShown: ShelfShown.Files }
+            && new DeckSettings { ShelfShown = ShelfShown.Files }.Copy() is { ShelfShown: ShelfShown.Files }
+            && new DeckSettings { ShelfArrangement = ShelfArrangement.Stacked }.ShelfStacked()
+            && !new DeckSettings { ShelfArrangement = ShelfArrangement.Stacked, ShelfShown = ShelfShown.Clipboard }.ShelfStacked()
+            && !new DeckSettings { ShelfShown = ShelfShown.Clipboard }.ShowsTransfer(CompactStyle.Notch)
+            && new DeckSettings { ShelfShown = ShelfShown.Files }.ShowsTransfer(CompactStyle.Notch));
         DeckPages.SetSize(settings, DeckPage.Clipboard, 2000, 100);
         check("Shelf settings: the page's size is its own and kept within the limits", DeckPages.Size(settings, DeckPage.Clipboard) == (1200, 140) && settings.MonitorWidth == MonitorSizes.Default.Width);
         settings.ClipboardPage = false;

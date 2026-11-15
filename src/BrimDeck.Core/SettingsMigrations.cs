@@ -25,8 +25,12 @@ public static class SettingsMigrations
     public static DeckSettings Read(JsonObject root, Version running, out Version saved)
     {
         saved = VersionOf(root);
+        // Every profile other than the current one keeps its settings in the same form (DeckProfile.Values), so each step changes
+        // them as it changes the ordinary settings. A step must therefore accept an object that holds only some of the members.
+        var profiles = (root[nameof(DeckSettings.Profiles)] as JsonArray ?? []).OfType<JsonObject>()
+            .Select(profile => profile[nameof(DeckProfile.Values)]).OfType<JsonObject>().ToList();
         foreach (var (version, apply) in Steps)
-            if (version > saved && version <= running) apply(root);
+            if (version > saved && version <= running) { apply(root); foreach (var values in profiles) apply(values); }
         MemoryModeFromSwitch(root);
         var settings = root.Deserialize<DeckSettings>() ?? new();
         settings.Normalize();

@@ -17,13 +17,15 @@ internal sealed class PowerStyle
     public string Warning { get; }
     public string Critical { get; }
 
-    private PowerStyle(PowerLook look, MonitorColors colors)
+    // The panel look whose tokens it takes and whose text and corners the battery uses.
+    public PanelLook Panel { get; }
+    private PowerStyle(PowerLook look, MonitorColors colors, PanelLook panel)
     {
-        Look = look;
+        Look = look; Panel = panel;
         string Resolve(string name) => name switch
         {
             "cpu" => colors.Performance, "efficiency" => colors.Efficiency, "memory" => colors.Memory, "gpu" => colors.Gpu,
-            "warning" => colors.Warning, "critical" => colors.Critical, _ => PanelTheme.Hex(name)
+            "warning" => colors.Warning, "critical" => colors.Critical, _ => panel.Hex(name)
         };
         // The custom scheme's own colors replace the look's: the battery's while discharging and while charging (the plug tells the
         // two apart), and power's for the curve and the bolt.
@@ -32,11 +34,13 @@ internal sealed class PowerStyle
     }
 
     private static (int Generation, bool HighContrast, MonitorColors Colors, PowerStyle Style)? _last;
-    public static PowerStyle For(MonitorColors colors)
+    // Every look's generation is its own (PanelTheme.NextGeneration), so the last style is kept for one look at a time.
+    public static PowerStyle For(MonitorColors colors, PanelLook? look = null)
     {
-        if (_last is { } known && known.Generation == PanelTheme.Generation && known.HighContrast == PanelTheme.HighContrast && known.Colors == colors) return known.Style;
-        var style = new PowerStyle(PowerLooks.For(PanelTheme.Current, PanelTheme.HighContrast), colors);
-        _last = (PanelTheme.Generation, PanelTheme.HighContrast, colors, style);
+        var panel = look ?? PanelTheme.Main;
+        if (_last is { } known && known.Generation == panel.Generation && known.HighContrast == panel.HighContrast && known.Colors == colors) return known.Style;
+        var style = new PowerStyle(PowerLooks.For(panel.Current, panel.HighContrast), colors, panel);
+        _last = (panel.Generation, panel.HighContrast, colors, style);
         return style;
     }
 
@@ -100,7 +104,7 @@ internal static class PowerGlyphs
         bool tipMark = compact && saver;
         double tipWidth = tipMark ? Snap(h * .9) : gauge == PowerGauge.Blocks ? Snap(Math.Max(2, h * .2)) : Snap(Math.Max(1, h * .16));
         string fillColor = style.Fill(battery.Level, battery.State);
-        string ink = unknown ? UI.Tertiary : saver ? style.Saver : fillColor;
+        string ink = unknown ? style.Panel.Tertiary : saver ? style.Saver : fillColor;
         var body = new Rect(Snap(area.X) + stroke / 2, Snap(area.Y) + stroke / 2, Math.Max(2, Snap(area.Width - tipWidth - 1) - stroke), Math.Max(2, h - stroke));
         double inset = stroke + 1 / ppd;
         var inner = new Rect(body.X - stroke / 2 + inset, body.Y - stroke / 2 + inset, Math.Max(0, body.Width + stroke - 2 * inset), Math.Max(0, body.Height + stroke - 2 * inset));
@@ -151,7 +155,7 @@ internal static class PowerGlyphs
                 }
             default:
                 {
-                    double radius = gauge == PowerGauge.Round ? body.Height / 2 : PanelTheme.Corner(Math.Max(1.5, h * .22));
+                    double radius = gauge == PowerGauge.Round ? body.Height / 2 : style.Panel.Corner(Math.Max(1.5, h * .22));
                     drawing.DrawRoundedRectangle(null, pen, body, radius, radius);
                     if (lit > 0)
                     {

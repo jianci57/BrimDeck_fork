@@ -91,7 +91,14 @@ public sealed record MemorySample(ulong Total, ulong Used, ulong CommitUsed, ulo
         : UsedFraction >= ElevatedUsed || CommitFraction >= ElevatedCommit ? MemoryLevel.Elevated : MemoryLevel.Normal;
 }
 
-public sealed record NetworkSample(double DownBytesPerSecond, double UpBytesPerSecond);
+// DownTotalBytes and UpTotalBytes: the traffic over TotalPeriod as Windows records it (TrafficPeriods); null for a sample that carries
+// none (the record not read yet for the period chosen, or not readable).
+public sealed record NetworkSample(double DownBytesPerSecond, double UpBytesPerSecond)
+{
+    public double? DownTotalBytes { get; init; }
+    public double? UpTotalBytes { get; init; }
+    public TrafficPeriod TotalPeriod { get; init; }
+}
 
 // The level of each reading of the collapsed strip, by one rule per kind of reading: a share (CPU, GPU, each core column,
 // memory in use) against ElevatedShare and CriticalShare, memory also by its commit charge (MemorySample.Level), and a rate

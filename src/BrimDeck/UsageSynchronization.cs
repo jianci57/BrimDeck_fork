@@ -14,7 +14,7 @@ public partial class MainWindow
     private DateTime _syncCycleStart = DateTime.UtcNow;
     private PromptTimer? _syncRingTimer;
     private bool _syncCountdown;
-    internal bool AutomaticSyncEnabled => Settings.QuotaWanted && Settings.UsageAutoSync;
+    internal bool AutomaticSyncEnabled => _app.QuotaWantedAnywhere && Settings.UsageAutoSync;
     // The panel that reads the data; the panels of other monitors show its sync state.
     private MainWindow Lead => _lead ?? this;
     private bool Refreshing => Lead._refreshing;
@@ -58,7 +58,7 @@ public partial class MainWindow
         }
         var settings = Settings.Copy();
         settings.UsageAutoSync = !settings.UsageAutoSync;
-        _app.UpdateSettings(settings);
+        _app.UpdateSettingsFor(Profile, settings);
     }
 
     private void RenderSyncButton()
@@ -66,7 +66,7 @@ public partial class MainWindow
         bool paused = !_details && !Settings.UsageAutoSync;
         AIUsageButton.Visibility = Settings.UsagePage && !_details ? Visibility.Visible : Visibility.Collapsed;
         SyncButton.Visibility = Settings.UsagePage && IsUsagePage ? Visibility.Visible : Visibility.Collapsed;
-        SyncButton.Foreground = UI.Brush(paused ? PanelTheme.Hex("danger") : UI.Secondary);
+        SyncButton.Foreground = UI.Brush(paused ? Look.Hex("danger") : Look.Secondary);
         SyncSlash.Visibility = paused ? Visibility.Visible : Visibility.Collapsed;
         var tip = _details ? Refreshing ? Loc.T("正在同步用量与模型消耗…", "Syncing usage and model consumption…") : Loc.T("立即同步用量与模型消耗", "Sync usage and model consumption now")
             : Settings.UsageAutoSync ? Loc.T("每 60 秒自动同步一次，点击关闭同步", "Syncs automatically every 60 seconds. Click to turn syncing off.")
@@ -91,7 +91,7 @@ public partial class MainWindow
         else ringTimer.Stop();
 
         // A read asked for by hand, or on the details page, spins until it ends; an automatic sync turns the arrows once.
-        bool animations = Settings.Animations && SystemParameters.ClientAreaAnimation;
+        bool animations = Animates;
         string spin = !onScreen || !animations || !Refreshing ? "" : _details || Lead._syncAsked ? "details" : _syncCountdown ? "once" : "";
         if (_syncSpin == spin) return;
         _syncSpin = spin;

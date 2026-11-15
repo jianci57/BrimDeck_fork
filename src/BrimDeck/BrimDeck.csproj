@@ -7,6 +7,7 @@
   <ItemGroup>
     <PackageReference Include="AvalonEdit" Version="6.3.1.120" />
     <PackageReference Include="NAudio.Wasapi" Version="2.2.1" />
+    <PackageReference Include="System.IO.Ports" Version="10.0.0" />
     <PackageReference Include="System.Management" Version="10.0.0" />
     <PackageReference Include="System.ServiceProcess.ServiceController" Version="10.0.0" />
     <Resource Include="Assets\Fonts\*.ttf" />
@@ -28,6 +29,8 @@
     <!-- A panel that mostly sits idle: no background collection thread, and a collector that compacts and returns memory rather
          than keeping room to grow into (see App.Memory.cs). -->
     <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
+    <!-- The app translates itself (Loc.T); the other satellite folders only hold the framework's own message strings. -->
+    <SatelliteResourceLanguages>en;zh-Hans;zh-Hant</SatelliteResourceLanguages>
   </PropertyGroup>
   <!-- Gen0MaxBudget: the youngest generation is collected after 4 MB of allocation instead of a budget taken from the processor's
        cache (12 MB on a 24 MB cache). What the panel allocates while it sits (readings, players) otherwise refills that room within

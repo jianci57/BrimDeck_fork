@@ -129,15 +129,17 @@ public partial class App
     // shows it; otherwise the panel under the pointer opens on it.
     public void OpenPageFromHotkey(int place)
     {
-        var pages = DeckPages.Visible(Settings);
+        // Counted in the page switch of the panel it acts on, whose profile may show other pages.
+        var target = Decks.FirstOrDefault(deck => deck.IsOpenForHotkey) ?? DeckUnderPointer();
+        var pages = DeckPages.Visible(target.PanelSettings);
         if (place < 0 || place >= pages.Count) return;
         var page = pages[place];
-        if (Decks.FirstOrDefault(deck => deck.IsOpenForHotkey) is { } open)
+        if (target.IsOpenForHotkey)
         {
-            if (open.PageForHotkey == page) open.CollapseFromHotkey(); else if (!open.IsExpanded) open.OpenFromHotkey(page); else open.SelectPage(page);
+            if (target.PageForHotkey == page) target.CollapseFromHotkey(); else if (!target.IsExpanded) target.OpenFromHotkey(page); else target.SelectPage(page);
             return;
         }
-        DeckUnderPointer().OpenFromHotkey(page);
+        target.OpenFromHotkey(page);
     }
 
     // Resizes the open panel, or the collapsed surface on the monitor under the pointer (KeyboardResize).
@@ -194,6 +196,7 @@ public partial class App
             case HotkeyKind.Refresh: Deck.SyncNow(); break;
             case HotkeyKind.CycleStyle: CycleCompactStyle(); break;
             case HotkeyKind.LineStyle: ToggleLineStyle(); break;
+            case HotkeyKind.NextProfile: NextProfile(); break;
         }
     }
 }

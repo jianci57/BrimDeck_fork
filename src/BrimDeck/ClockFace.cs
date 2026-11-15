@@ -33,17 +33,19 @@ internal sealed class ClockFace : FrameworkElement
     private readonly bool _plain;
 
     // One color fills the face; more are spread evenly across it from left to right.
-    public ClockFace(ClockStyle style, bool h24, bool seconds, Color[] colors, DateTime time, double scale = 1)
+    // look: the look of the panel it is drawn on (MainWindow.Look); the main look by default.
+    public ClockFace(ClockStyle style, bool h24, bool seconds, Color[] colors, DateTime time, double scale = 1, PanelLook? look = null)
     {
-        _style = style; _h24 = h24; _seconds = seconds; _colors = colors.Length > 0 ? colors : [ThemeWhite]; _time = time;
+        var Look = look ?? PanelTheme.Main;
+        _style = style; _h24 = h24; _seconds = seconds; _colors = colors.Length > 0 ? colors : [ThemeWhite(Look)]; _time = time;
         _scale = CompactMusicLayout.SafeScale(scale);
         Height = FaceHeight * _scale; IsHitTestVisible = false;
         // Under high contrast nothing is dimmed or glows (ClockColors.Glows).
-        _plain = PanelTheme.HighContrast;
+        _plain = Look.HighContrast;
         if (!ClockColors.Glows(style, _plain)) return;
         var glow = _colors[_colors.Length / 2];
         // A glow lights up a dark surface; on a light one it only smears the digits, so it stays a faint halo there.
-        bool dark = PanelTheme.Current.IsDark;
+        bool dark = Look.Current.IsDark;
         if (style == ClockStyle.Neon) Effect = new DropShadowEffect { Color = glow, ShadowDepth = 0, BlurRadius = (dark ? 9 : 4) * _scale, Opacity = dark ? .85 : .3 };
         else if (style == ClockStyle.Segment) Effect = new DropShadowEffect { Color = glow, ShadowDepth = 0, BlurRadius = (dark ? 5 : 3) * _scale, Opacity = dark ? .6 : .2 };
     }
@@ -56,18 +58,22 @@ internal sealed class ClockFace : FrameworkElement
         ClockStyle.Rounded => Loc.T("圆润", "Rounded"), _ => Loc.T("简约", "Simple")
     };
     // The cover color is used when a song with a cover is playing; otherwise the clock takes the theme's clock color, which
-    // "white" stands for. Every color is drawn as the theme can read it on its surface (see PanelTheme.Readable). Under high
+    // "white" stands for. Every color is drawn as the theme can read it on its surface (see Look.Readable). Under high
     // contrast it is always the theme's clock color, the system's window text (ClockColors.Shown).
-    public static Color[] Palette(DeckSettings settings, Color? cover) => (ClockColors.Shown(settings.ClockColor, PanelTheme.HighContrast) switch
+    public static Color[] Palette(DeckSettings settings, Color? cover, PanelLook? look = null)
     {
-        ClockColor.Gradient => settings.ClockGradient.Select(Parse).ToArray(),
-        ClockColor.Custom => [Parse(settings.ClockCustomColor)],
-        ClockColor.Cover => [cover ?? ThemeWhite],
-        var preset => [Preset(preset)]
-    }).Select(color => PanelTheme.Readable(color, PanelThemes.TextContrast)).ToArray();
-    private static Color ThemeWhite => PanelTheme.ColorOf("clock");
+        var Look = look ?? PanelTheme.Main;
+        return (ClockColors.Shown(settings.ClockColor, Look.HighContrast) switch
+        {
+            ClockColor.Gradient => settings.ClockGradient.Select(Parse).ToArray(),
+            ClockColor.Custom => [Parse(settings.ClockCustomColor)],
+            ClockColor.Cover => [cover ?? ThemeWhite(Look)],
+            var preset => [Preset(preset, Look)]
+        }).Select(color => Look.Readable(color, PanelThemes.TextContrast)).ToArray();
+    }
+    private static Color ThemeWhite(PanelLook look) => look.ColorOf("clock");
     // Amber, cyan, pink and lime are the panel theme's own versions of those colors; "white" is the theme's clock color.
-    public static Color Preset(ClockColor color) => PanelTheme.ToColor(PanelTheme.Current.ClockPreset(color));
+    public static Color Preset(ClockColor color, PanelLook? look = null) => PanelTheme.ToColor((look ?? PanelTheme.Main).Current.ClockPreset(color));
     public static Color Parse(string color) => (Color)ColorConverter.ConvertFromString(color);
     // A swatch for colors at evenly spaced stops; the diagonal shows every stop on a round swatch.
     public static Brush Fill(IReadOnlyList<Color> colors, bool diagonal = true)

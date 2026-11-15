@@ -3,7 +3,7 @@ namespace BrimDeck.Core;
 // Resize and Move are each one setting for four registrations: their modifiers with each arrow key (see Arrows). Page1 to Page10
 // open the shown pages in the order of the page switch. CycleStyle turns the collapsed style to the next one: notch, capsule, line,
 // then the notch again. LineStyle switches between the line and the notch or capsule last used (DeckSettings.ShapeStyle).
-public enum HotkeyKind { Hide, Expand, Resize, Move, ClickThrough, OpenSettings, Page1, Page2, Page3, Page4, Page5, Page6, Page7, Page8, Page9, Page10, Refresh, CycleStyle, LineStyle }
+public enum HotkeyKind { Hide, Expand, Resize, Move, ClickThrough, OpenSettings, Page1, Page2, Page3, Page4, Page5, Page6, Page7, Page8, Page9, Page10, Refresh, CycleStyle, LineStyle, NextProfile }
 
 // Unset: no combination saved. Active: registered. InUse: another program holds the combination. Invalid: the text is not
 // an allowed combination. Duplicate: a combination another hotkey has, which keeps it (see Plan and PlanArrows).

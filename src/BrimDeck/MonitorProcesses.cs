@@ -21,6 +21,8 @@ namespace BrimDeck;
 // Compact rows show the sorted figure; detailed rows show CPU and memory. The rest is on the app's card.
 internal sealed class ProcessListView : FrameworkElement
 {
+    // The look of the panel this element is drawn in (PanelLook.Of); the main look outside a panel.
+    private PanelLook Look => PanelLook.Of(this);
     private const double ColumnGap = 18;
     private readonly MonitorLayout _layout;
     private ProcessSort _sort;
@@ -169,7 +171,7 @@ internal sealed class ProcessListView : FrameworkElement
         var (rows, columns) = Grid;
         if (_message.Length > 0 || rows == 0)
         {
-            var text = MonitorDraw.Text(_message, _layout.Caption, UI.Tertiary, ppd);
+            var text = MonitorDraw.Text(_message, _layout.Caption, Look.Tertiary, ppd);
             if (_message.Length > 0) drawing.DrawText(text, new Point((w - text.Width) / 2, MonitorLayout.ListHead + 6));
             return;
         }
@@ -180,7 +182,7 @@ internal sealed class ProcessListView : FrameworkElement
         {
             var r = RowRect(_highlightSlot.At(now), rows, columns);
             drawing.PushOpacity(highlight);
-            drawing.DrawRoundedRectangle(UI.Brush(PanelTheme.Hex("rowHover")), null, new Rect(r.X - 4, r.Y + 1, r.Width + 8, r.Height - 2), 6, 6);
+            drawing.DrawRoundedRectangle(UI.Brush(Look.Hex("rowHover")), null, new Rect(r.X - 4, r.Y + 1, r.Width + 8, r.Height - 2), 6, 6);
             drawing.Pop();
         }
         double give = Math.Clamp(_press.At(now), 0, 1) * .03;
@@ -211,7 +213,7 @@ internal sealed class ProcessListView : FrameworkElement
         double line = MonitorLayout.ListHead - 6, baseline = Math.Round(line / 2 + _layout.Caption * .38);
         // Two pills at the right: CPU and memory, the chosen one filled.
         string[] names = ["CPU", Loc.T("内存", "Memory")];
-        var texts = names.Select(name => MonitorDraw.Text(name, _layout.Caption, UI.Secondary, ppd)).ToArray();
+        var texts = names.Select(name => MonitorDraw.Text(name, _layout.Caption, Look.Secondary, ppd)).ToArray();
         double pad = 8, x = w;
         _sortRects = new Rect[2];
         for (int i = 1; i >= 0; i--)
@@ -222,24 +224,24 @@ internal sealed class ProcessListView : FrameworkElement
             x -= 2;
         }
         var strip = new Rect(_sortRects[0].X - 1, 0, _sortRects[1].Right - _sortRects[0].X + 2, line);
-        drawing.DrawRoundedRectangle(UI.Brush(UI.Fill), null, strip, line / 2, line / 2);
+        drawing.DrawRoundedRectangle(UI.Brush(Look.Fill), null, strip, line / 2, line / 2);
         double now = Eased.Now, radius = (line - 2) / 2;
         for (int i = 0; i < 2; i++)
         {
             double hover = Math.Clamp(_pillHover[i].At(now), 0, 1);
             if (hover <= .01) continue;
             drawing.PushOpacity(hover);
-            drawing.DrawRoundedRectangle(UI.Brush(PanelTheme.Hex("hover")), null, _sortRects[i], radius, radius);
+            drawing.DrawRoundedRectangle(UI.Brush(Look.Hex("hover")), null, _sortRects[i], radius, radius);
             drawing.Pop();
         }
         // The chosen pill slides between the two, its width following.
         double at = Math.Clamp(_chosen.At(now), 0, 1);
         var pill = new Rect(_sortRects[0].X + (_sortRects[1].X - _sortRects[0].X) * at, 1, _sortRects[0].Width + (_sortRects[1].Width - _sortRects[0].Width) * at, line - 2);
-        drawing.DrawRoundedRectangle(UI.Brush(UI.FillSelected), null, pill, radius, radius);
+        drawing.DrawRoundedRectangle(UI.Brush(Look.FillSelected), null, pill, radius, radius);
         for (int i = 0; i < 2; i++)
         {
             bool chosen = (int)_sort == i;
-            var text = MonitorDraw.Text(names[i], _layout.Caption, chosen ? UI.Primary : UI.Secondary, ppd, strong: chosen);
+            var text = MonitorDraw.Text(names[i], _layout.Caption, chosen ? Look.Primary : Look.Secondary, ppd, strong: chosen);
             MonitorDraw.Baseline(drawing, text, _sortRects[i].X + pad, baseline);
         }
     }
@@ -252,15 +254,15 @@ internal sealed class ProcessListView : FrameworkElement
         else
         {
             // Without an icon (a process this user cannot open) its first letter stands in, in a faint disc.
-            drawing.DrawEllipse(UI.Brush(UI.Fill), null, new Point(iconRect.X + icon / 2, iconRect.Y + icon / 2), icon / 2, icon / 2);
-            var letter = MonitorDraw.Text(sample.Name.Length > 0 ? char.ToUpperInvariant(sample.Name[0]).ToString() : "?", Math.Max(8, icon * .55), UI.Secondary, ppd, strong: true);
+            drawing.DrawEllipse(UI.Brush(Look.Fill), null, new Point(iconRect.X + icon / 2, iconRect.Y + icon / 2), icon / 2, icon / 2);
+            var letter = MonitorDraw.Text(sample.Name.Length > 0 ? char.ToUpperInvariant(sample.Name[0]).ToString() : "?", Math.Max(8, icon * .55), Look.Secondary, ppd, strong: true);
             drawing.DrawText(letter, new Point(iconRect.X + (icon - letter.Width) / 2, iconRect.Y + (icon - letter.Height) / 2));
         }
         string cpu = MonitorFormat.ProcessShare(sample.CpuPercent, _cores) + "%", memory = MonitorFormat.ProcessMemory(sample.MemoryBytes);
         double right = r.Right;
         void Figure(string text, bool primary, double slot)
         {
-            var f = MonitorDraw.Text(text, _layout.Body, primary ? UI.Primary : UI.Tertiary, ppd);
+            var f = MonitorDraw.Text(text, _layout.Body, primary ? Look.Primary : Look.Tertiary, ppd);
             MonitorDraw.Baseline(drawing, f, right - f.WidthIncludingTrailingWhitespace, baseline);
             right -= slot;
         }
@@ -273,7 +275,7 @@ internal sealed class ProcessListView : FrameworkElement
         else Figure(_sort == ProcessSort.Memory ? memory : cpu, true, Math.Ceiling(_layout.Body * 4));
         // The name takes what the figures leave; each figure's slot is wider than its text.
         double nameLeft = iconRect.Right + 7;
-        MonitorDraw.Baseline(drawing, MonitorDraw.Trimmed(sample.Name, _layout.Body, UI.Primary, Math.Max(10, right - nameLeft - 6), ppd), nameLeft, baseline);
+        MonitorDraw.Baseline(drawing, MonitorDraw.Trimmed(sample.Name, _layout.Body, Look.Primary, Math.Max(10, right - nameLeft - 6), ppd), nameLeft, baseline);
     }
 
     // Whether the pointer is on an app's row: a click there opens or closes its card (Open), so the page leaves the card to it.
@@ -342,6 +344,8 @@ internal sealed class ProcessListView : FrameworkElement
 // itself, follows the readings while open, and closes on a click.
 internal sealed class ProcessCard : Border
 {
+    // The look of the panel this element is drawn in (PanelLook.Of); the main look outside a panel.
+    private PanelLook Look => PanelLook.Of(this);
     private readonly TextBlock _name, _where, _cpu, _memory, _count;
     private readonly StackPanel _members;
     private readonly Image _icon;
@@ -359,10 +363,12 @@ internal sealed class ProcessCard : Border
     protected override AutomationPeer OnCreateAutomationPeer() => new DrawnPeer(this, AutomationControlType.Group,
         () => Loc.T("进程详情：", "Process details: ") + _spoken);
 
-    public ProcessCard(double body, double caption)
+    // look: the look of the panel the card opens on.
+    public ProcessCard(double body, double caption, PanelLook? look = null)
     {
-        Width = 248; Padding = new Thickness(14, 12, 14, 12); CornerRadius = new CornerRadius(PanelTheme.Corner(12));
-        Background = UI.Brush(PanelTheme.Hex("popup")); BorderBrush = UI.Brush(PanelTheme.Hex("popupBorder")); BorderThickness = new Thickness(1);
+        var Look = look ?? PanelTheme.Main;
+        Width = 248; Padding = new Thickness(14, 12, 14, 12); CornerRadius = new CornerRadius(Look.Corner(12));
+        Background = UI.Brush(Look.Hex("popup")); BorderBrush = UI.Brush(Look.Hex("popupBorder")); BorderThickness = new Thickness(1);
         Cursor = Cursors.Hand; AutomationProperties.SetName(this, Loc.T("进程详情", "Process details"));
         var stack = new StackPanel();
         var head = new DockPanel { Margin = new Thickness(0, 0, 0, 10) };
@@ -379,12 +385,12 @@ internal sealed class ProcessCard : Border
         RenderOptions.SetBitmapScalingMode(_icon, BitmapScalingMode.HighQuality);
         head.Children.Add(_icon);
         var titles = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-        _name = UI.Line("", body + 1, UI.Primary, FontWeights.SemiBold); _name.FontFamily = UI.PanelFont;
-        _where = UI.Line("", caption, UI.Tertiary); _where.FontFamily = UI.PanelFont;
+        _name = UI.Line("", body + 1, Look.Primary, FontWeights.SemiBold); _name.FontFamily = UI.PanelFont;
+        _where = UI.Line("", caption, Look.Tertiary); _where.FontFamily = UI.PanelFont;
         titles.Children.Add(_name); titles.Children.Add(_where); head.Children.Add(titles);
         stack.Children.Add(head);
         var figures = new System.Windows.Controls.Primitives.UniformGrid { Columns = 3, Margin = new Thickness(0, 0, 0, 8) };
-        (_cpu, _memory, _count) = (Cell(figures, "CPU", body, caption), Cell(figures, Loc.T("内存", "Memory"), body, caption), Cell(figures, Loc.T("进程", "Processes"), body, caption));
+        (_cpu, _memory, _count) = (Cell(figures, "CPU", body, caption, Look), Cell(figures, Loc.T("内存", "Memory"), body, caption, Look), Cell(figures, Loc.T("进程", "Processes"), body, caption, Look));
         stack.Children.Add(figures);
         _members = new StackPanel();
         stack.Children.Add(_members);
@@ -393,11 +399,11 @@ internal sealed class ProcessCard : Border
         RenderTransform = new ScaleTransform(1, 1);
     }
 
-    private static TextBlock Cell(Panel parent, string caption, double body, double small)
+    private static TextBlock Cell(Panel parent, string caption, double body, double small, PanelLook Look)
     {
         var cell = new StackPanel();
-        var label = UI.Line(caption, small, UI.Tertiary); label.FontFamily = UI.PanelFont;
-        var value = UI.Centered("", body + 2, UI.Primary, FontWeights.SemiBold, UI.DisplayFont);
+        var label = UI.Line(caption, small, Look.Tertiary); label.FontFamily = UI.PanelFont;
+        var value = UI.Centered("", body + 2, Look.Primary, FontWeights.SemiBold, UI.DisplayFont);
         cell.Children.Add(label); cell.Children.Add(value); parent.Children.Add(cell);
         return value;
     }
@@ -426,11 +432,11 @@ internal sealed class ProcessCard : Border
         foreach (var member in sample.Members.Take(5))
         {
             var row = new DockPanel { Margin = new Thickness(0, 2, 0, 0) };
-            var mem = UI.Line(MonitorFormat.ProcessMemory(member.MemoryBytes), caption, UI.Tertiary); mem.FontFamily = UI.PanelFont; mem.Width = 44; mem.TextAlignment = TextAlignment.Right;
-            var cpu = UI.Line(MonitorFormat.ProcessShare(member.CpuPercent, cores) + "%", caption, UI.Secondary); cpu.FontFamily = UI.PanelFont; cpu.Width = 44; cpu.TextAlignment = TextAlignment.Right;
+            var mem = UI.Line(MonitorFormat.ProcessMemory(member.MemoryBytes), caption, Look.Tertiary); mem.FontFamily = UI.PanelFont; mem.Width = 44; mem.TextAlignment = TextAlignment.Right;
+            var cpu = UI.Line(MonitorFormat.ProcessShare(member.CpuPercent, cores) + "%", caption, Look.Secondary); cpu.FontFamily = UI.PanelFont; cpu.Width = 44; cpu.TextAlignment = TextAlignment.Right;
             DockPanel.SetDock(mem, Dock.Right); DockPanel.SetDock(cpu, Dock.Right);
             row.Children.Add(mem); row.Children.Add(cpu);
-            var name = UI.Line(member.Name, caption, UI.Secondary); name.FontFamily = UI.PanelFont; row.Children.Add(name);
+            var name = UI.Line(member.Name, caption, Look.Secondary); name.FontFamily = UI.PanelFont; row.Children.Add(name);
             _members.Children.Add(row);
         }
     }
@@ -464,6 +470,9 @@ internal static class ProcessIcons
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, ImageSource?> Cache = new(StringComparer.OrdinalIgnoreCase);
 
     public static void Clear() => Cache.Clear();
+    // How many icons were read (Prepare, past the cache), for telling whether a list gained any.
+    public static int Prepared => Volatile.Read(ref _prepared);
+    private static int _prepared;
     public static ImageSource? For(string? path) => !string.IsNullOrEmpty(path) && Cache.TryGetValue(path, out var icon) ? icon : null;
 
     public static void Prepare(string? path)
@@ -472,6 +481,7 @@ internal static class ProcessIcons
         // thread and the UI's background fetch) must not both enter the shell lookup — a shell icon call can block on the
         // shell's apartment, and on 2026-11-04 it froze both threads at once (hang dump). The loser returns at once.
         if (string.IsNullOrEmpty(path) || !Cache.TryAdd(path, null)) return;
+        Interlocked.Increment(ref _prepared);
         ImageSource? icon = null;
         var info = new ShellFileInfo();
         // The 32 px icon is drawn at 16 DIP, so it stays sharp on scaled displays.

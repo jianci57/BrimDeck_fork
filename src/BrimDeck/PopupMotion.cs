@@ -65,7 +65,7 @@ internal static class PopupMotion
         Close(placed);
         Dispatcher.CurrentDispatcher.BeginInvoke(DispatcherPriority.Loaded, () =>
         {
-            if (!Soft.Enabled || placed.Ghost is not null || content() is not FrameworkElement element || anchor() is not { } source || Window.GetWindow(source) is not { } window) return;
+            if (placed.Ghost is not null || content() is not FrameworkElement element || anchor() is not { } source || Window.GetWindow(source) is not { } window || !Soft.At(window)) return;
             var root = VisualTreeHelper.GetParent(element) as Visual ?? element;
             if (PresentationSource.FromVisual(root) is not HwndSource real || PresentationSource.FromVisual(window) is null) return;
             var offset = root == element ? new Vector() : VisualTreeHelper.GetOffset(element);
@@ -150,7 +150,7 @@ internal static class PopupMotion
         placed.Ghost = null; placed.Picture = null; placed.Window = null; placed.Refresh = null; placed.Unhook = null;
         if (ghost is null || image is null) return;
         // A pop-up closed with its window (the settings window closed or hidden) goes with it, without a picture left behind.
-        if (!Soft.Enabled || content is null || window is not { IsVisible: true } || PresentationSource.FromVisual(image) is null) { ghost.IsOpen = false; return; }
+        if (!Soft.At(window) || content is null || window is not { IsVisible: true } || PresentationSource.FromVisual(image) is null) { ghost.IsOpen = false; return; }
         // The picture taken while it was open is the one beneath it already: taken now, the hovered option has lost its mark.
         // Closed before it had entered, it has none yet and is taken now.
         if (image.Source is null) Take(content, image);

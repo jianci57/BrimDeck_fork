@@ -87,15 +87,15 @@ public partial class MainWindow
         double width = CompactContentWidth(shape);
         double dpi = VisualTreeHelper.GetDpi(this).DpiScaleX;
         double font = Math.Max(1, CompactMusicLayout.Half(11.5 * scale)), line = Math.Max(1, CompactMusicLayout.Whole(16 * scale));
-        var name = UI.Fixed(alert.Name, font, line, UI.Primary, FontWeights.SemiBold); name.ToolTip = alert.Name;
+        var name = UI.Fixed(alert.Name, font, line, Look.Primary, FontWeights.SemiBold); name.ToolTip = alert.Name;
         // The name keeps its 76 DIP cap with an ellipsis; below that, its region cuts it.
         name.MaxWidth = CompactMusicLayout.Whole(76 * scale);
         // With what is left chosen (DeckSettings.QuotaRingRemaining), the notice and its ring say what is left, as the rings and bars do.
         bool left = Settings.QuotaRingRemaining;
         double share = left ? 100 - Math.Clamp(alert.Used, 0, 100) : alert.Used;
-        var used = UI.Fixed(left ? Loc.T($"{alert.Label}剩余 {share:0}%", $"{alert.Label}{share:0}% left") : Loc.T($"{alert.Label}已用 {alert.Used:0}%", $"{alert.Label}{alert.Used:0}% used"), font, line, UI.Secondary);
+        var used = UI.Fixed(left ? Loc.T($"{alert.Label}剩余 {share:0}%", $"{alert.Label}{share:0}% left") : Loc.T($"{alert.Label}已用 {alert.Used:0}%", $"{alert.Label}{alert.Used:0}% used"), font, line, Look.Secondary);
         string shortReset = UI.ShortReset(alert.ResetAt);
-        var reset = shortReset.Length > 0 ? UI.Fixed(Loc.T(shortReset + "重置", shortReset.StartsWith("in ", StringComparison.Ordinal) ? "resets " + shortReset : shortReset), font, line, UI.Tertiary) : null;
+        var reset = shortReset.Length > 0 ? UI.Fixed(Loc.T(shortReset + "重置", shortReset.StartsWith("in ", StringComparison.Ordinal) ? "resets " + shortReset : shortReset), font, line, Look.Tertiary) : null;
         double Natural(FrameworkElement element)
         {
             element.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
@@ -108,7 +108,7 @@ public partial class MainWindow
             // A notch on a side edge: the ring, then each text on its own line, cut with an ellipsis to the column.
             double column = SnapDown(ColumnWidth(shape), dpi);
             var stack = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Width = column, Tag = AlertRegionTag };
-            var mark = UI.Ring(share, PanelTheme.QuotaTheme(alert.Entry), layout.RingSize, layout.RingThickness);
+            var mark = UI.Ring(share, Look.QuotaTheme(alert.Entry), layout.RingSize, layout.RingThickness, look: Look);
             mark.HorizontalAlignment = HorizontalAlignment.Center; mark.Margin = new Thickness(0, 0, 0, layout.Gap / 2);
             stack.Children.Add(mark);
             name.MaxWidth = column;
@@ -123,7 +123,7 @@ public partial class MainWindow
             return;
         }
         double row = Math.Max(layout.RingSize, layout.LineHeight);
-        var ring = UI.Ring(share, PanelTheme.QuotaTheme(alert.Entry), layout.RingSize, layout.RingThickness);
+        var ring = UI.Ring(share, Look.QuotaTheme(alert.Entry), layout.RingSize, layout.RingThickness, look: Look);
         var parts = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
         if (layout.RingWidth > 0) parts.Children.Add(CompactRegion(ring, layout.RingWidth, layout.RingSize, layout.RingSize, row, RegionAnchor.Left, dpi));
         if (layout.NameWidth > 0) parts.Children.Add(CompactRegion(name, layout.NameWidth, Math.Min(nameWidth, name.MaxWidth), line, row, RegionAnchor.Left, dpi));
@@ -150,7 +150,7 @@ public partial class MainWindow
         glide.KeyFrames.Add(new DiscreteDoubleKeyFrame(0, At(0)));
         glide.KeyFrames.Add(new DiscreteDoubleKeyFrame(0, At(start)));
         // Without animations the notice steps to its end once, when the glide would have finished.
-        if (Settings.Animations && SystemParameters.ClientAreaAnimation) glide.KeyFrames.Add(new SplineDoubleKeyFrame(-overflow, At(end), new KeySpline(.4, 0, .6, 1)));
+        if (Animates) glide.KeyFrames.Add(new SplineDoubleKeyFrame(-overflow, At(end), new KeySpline(.4, 0, .6, 1)));
         else glide.KeyFrames.Add(new DiscreteDoubleKeyFrame(-overflow, At(end)));
         var clock = glide.CreateClock();
         shift.ApplyAnimationClock(TranslateTransform.XProperty, clock);

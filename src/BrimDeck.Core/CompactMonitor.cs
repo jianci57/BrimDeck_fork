@@ -32,7 +32,10 @@ public enum CompactMonitorItems
     // Storage.
     Power = 512, Charge = 1024,
     // The frame rate of the program in front (FrameRates): one figure for every panel. Outside the presets too.
-    Frames = 2048
+    Frames = 2048,
+    // The traffic downloaded and uploaded over the period chosen (TrafficPeriods), from Windows' record: a reading each, beside the
+    // rates, with a double arrow. The presets neither show nor hide them (CompactMonitor.Traffic).
+    DownloadTotal = 4096, UploadTotal = 8192
 }
 
 // One reading of the collapsed strip as set in the settings' table; its place there is its place in the strip, left to right.
@@ -44,7 +47,8 @@ public enum CompactMonitorItems
 // scheme's in the normal state, for the further channels in the normal state (the core columns' slowest kind of core), and at
 // the warning and critical levels. They are kept to read older files, which DeckSettings.Normalize moves into the custom
 // scheme and the level colors (CompactMonitor.MoveColors), and are not written.
-// Figures: what CPU, GPU and the drives show after their glyph, the share in use and the temperature (CompactFigures), and what the
+// Figures: what CPU, GPU and the drives show after their glyph, the share in use and the temperature, and for the GPU also its
+// memory's share (CompactFigures), and what the
 // frame rate shows of its program, its icon or not (CompactFrames); Sources:
 // the drive letters the drives show (CompactSources). Both chosen in the table's menus, null for the default. FiguresInLine:
 // both figures side by side in the row's type rather than one above the other in two smaller lines.
@@ -78,12 +82,16 @@ public static class CompactMonitor
 {
     // Left to right by default; the settings' table can reorder them.
     public static readonly IReadOnlyList<CompactMonitorItems> Order =
-        [CompactMonitorItems.Columns, CompactMonitorItems.Cpu, CompactMonitorItems.Memory, CompactMonitorItems.Gpu, CompactMonitorItems.Download, CompactMonitorItems.Upload,
-            CompactMonitorItems.Storage, CompactMonitorItems.Power, CompactMonitorItems.Charge, CompactMonitorItems.Frames];
-    public const CompactMonitorItems Every = CompactMonitorItems.All | CompactMonitorItems.Storage | CompactMonitorItems.Power | CompactMonitorItems.Charge | CompactMonitorItems.Frames;
+        [CompactMonitorItems.Columns, CompactMonitorItems.Cpu, CompactMonitorItems.Memory, CompactMonitorItems.Gpu, CompactMonitorItems.Download, CompactMonitorItems.DownloadTotal,
+            CompactMonitorItems.Upload, CompactMonitorItems.UploadTotal, CompactMonitorItems.Storage, CompactMonitorItems.Power, CompactMonitorItems.Charge, CompactMonitorItems.Frames];
+    public const CompactMonitorItems Every = CompactMonitorItems.All | CompactMonitorItems.Storage | CompactMonitorItems.Power | CompactMonitorItems.Charge | CompactMonitorItems.Frames
+        | Traffic;
+    // The traffic over a period, which the presets leave as it is: Full and Brief neither show nor hide it, and it does not keep a table
+    // from matching them.
+    public const CompactMonitorItems Traffic = CompactMonitorItems.DownloadTotal | CompactMonitorItems.UploadTotal;
     // When the row is too short, readings leave in this order.
     public static readonly IReadOnlyList<CompactMonitorItems> LeaveOrder =
-        [CompactMonitorItems.Frames, CompactMonitorItems.Power, CompactMonitorItems.Storage, CompactMonitorItems.Charge, CompactMonitorItems.Upload, CompactMonitorItems.Gpu, CompactMonitorItems.Download, CompactMonitorItems.Columns, CompactMonitorItems.Memory, CompactMonitorItems.Cpu];
+        [CompactMonitorItems.Frames, CompactMonitorItems.Power, CompactMonitorItems.Storage, CompactMonitorItems.Charge, CompactMonitorItems.UploadTotal, CompactMonitorItems.DownloadTotal, CompactMonitorItems.Upload, CompactMonitorItems.Gpu, CompactMonitorItems.Download, CompactMonitorItems.Columns, CompactMonitorItems.Memory, CompactMonitorItems.Cpu];
 
     // The readings with a figure that can be hidden.
     public const CompactMonitorItems Rings = CompactMonitorItems.Cpu | CompactMonitorItems.Memory | CompactMonitorItems.Gpu;
@@ -97,6 +105,8 @@ public static class CompactMonitor
         [CompactMonitorItems.Columns] = [MonitorRole.Cpu, MonitorRole.Efficiency], [CompactMonitorItems.Cpu] = [MonitorRole.Cpu],
         [CompactMonitorItems.Memory] = [MonitorRole.Memory], [CompactMonitorItems.Gpu] = [MonitorRole.Gpu],
         [CompactMonitorItems.Download] = [MonitorRole.Download], [CompactMonitorItems.Upload] = [MonitorRole.Upload],
+        // The traffic takes its rate's color.
+        [CompactMonitorItems.DownloadTotal] = [MonitorRole.Download], [CompactMonitorItems.UploadTotal] = [MonitorRole.Upload],
         // The drives take the memory color unless the custom scheme gives them their own, as the page draws its bars. Power and the
         // machine's battery are drawn in the theme's power style (PowerLook, whose curve takes the CPU color) unless the custom scheme
         // gives them their own.
@@ -147,8 +157,9 @@ public static class CompactMonitor
         return [.. Order.Select(item => new CompactReading { Item = item, Visible = (shown & item) != 0, ShowValue = mode != CompactMonitorMode.Brief })];
     }
 
-    // Every reading once, in the saved order: unknown and repeated readings are dropped, missing ones join hidden at the end,
-    // a color that is not "#RRGGBB" follows the palette, and colors for channels a reading does not have are dropped.
+    // Every reading once, in the saved order: unknown and repeated readings are dropped, missing ones join hidden at the end (the
+    // traffic over a period under its rate, where the table has it), a color that is not "#RRGGBB" follows the palette, and colors for
+    // channels a reading does not have are dropped.
     public static List<CompactReading> Normalize(IEnumerable<CompactReading?>? readings)
     {
         static string? Valid(string? color) => AppPresets.NormalizeColor(color) is { Length: > 0 } valid ? valid : null;
@@ -161,6 +172,9 @@ public static class CompactMonitor
             .Select(reading => new CompactReading { Item = reading.Item, Visible = reading.Visible, ShowValue = reading.ShowValue, Color = Valid(reading.Color),
                 ExtraColors = Extra(reading), WarningColor = Valid(reading.WarningColor), CriticalColor = Valid(reading.CriticalColor),
                 Figures = reading.Item == CompactMonitorItems.Frames ? CompactFrames.Normalize(reading.Figures) : CompactFigures.Normalize(reading.Item, reading.Figures), FiguresInLine = CompactFigures.Has(reading.Item) && reading.FiguresInLine, Sources = CompactSources.Normalize(reading.Item, reading.Sources) }).ToList();
+        foreach (var (rate, traffic) in new[] { (CompactMonitorItems.Download, CompactMonitorItems.DownloadTotal), (CompactMonitorItems.Upload, CompactMonitorItems.UploadTotal) })
+            if (list.All(reading => reading.Item != traffic) && list.FindIndex(reading => reading.Item == rate) is var at and >= 0)
+                list.Insert(at + 1, new CompactReading { Item = traffic, Visible = false });
         list.AddRange(Order.Where(item => list.All(reading => reading.Item != item)).Select(item => new CompactReading { Item = item, Visible = false }));
         return list;
     }
@@ -174,15 +188,15 @@ public static class CompactMonitor
     public static CompactMonitorItems Shown(IEnumerable<CompactReading> readings) => Visible(readings) is var shown && shown != CompactMonitorItems.None ? shown : CompactMonitorItems.Cpu;
 
     // The preset the table matches exactly: Full is every reading with every figure (the rings' figures, the share and the
-    // temperature of CPU, GPU and the drives, the frame rate's program icon), Brief the three rings alone; else none, and the
+    // temperature of CPU, GPU and the drives, the frame rate's program icon; not the graphics memory, which is chosen on its own), Brief the three rings alone; else none, and the
     // table itself is the custom choice (saved as Custom in the old key).
     public static CompactMonitorMode? Preset(IEnumerable<CompactReading> readings)
     {
         var all = readings.ToList();
-        var (shown, values) = (Visible(all), Values(all));
-        bool figures = all.All(reading => (!CompactFigures.Has(reading.Item) || CompactFigures.Of(reading).Count == FullFigures.Length)
+        var (shown, values) = (Visible(all) & ~Traffic, Values(all));
+        bool figures = all.All(reading => (!CompactFigures.Has(reading.Item) || CompactFigures.Of(reading).SequenceEqual(FullFigures))
             && (reading.Item != CompactMonitorItems.Frames || CompactFrames.Shows(reading, CompactFrames.Icon)));
-        return shown == Every && values == Rings && figures ? CompactMonitorMode.Full
+        return shown == (Every & ~Traffic) && values == Rings && figures ? CompactMonitorMode.Full
             : shown == Rings && values == CompactMonitorItems.None ? CompactMonitorMode.Brief : null;
     }
     private static readonly string[] FullFigures = [CompactFigures.Usage, CompactFigures.Temperature];
@@ -195,6 +209,7 @@ public static class CompactMonitor
         bool full = preset == CompactMonitorMode.Full;
         foreach (var reading in readings)
         {
+            if ((reading.Item & Traffic) != 0) continue;
             bool ring = HasValueChoice(reading.Item);
             reading.Visible = full || ring;
             if (ring) reading.ShowValue = full;
@@ -205,9 +220,9 @@ public static class CompactMonitor
     }
 
     // The width of each reading: a ring with its figure (the ring and the room after it) or alone, the core columns, a rate, the
-    // drives, power, the machine's battery, the frame rate. figure: the room after a ring, by ring (a ring
+    // drives, power, the machine's battery, the frame rate, the traffic over a period. figure: the room after a ring, by ring (a ring
     // showing its temperature too takes more).
-    public static Func<CompactMonitorItems, double> Widths(CompactMonitorItems values, double ring, Func<CompactMonitorItems, double> figure, double bareRing, double columns, double rate, double storage = 0, double power = 0, double charge = 0, double frames = 0) => item => item switch
+    public static Func<CompactMonitorItems, double> Widths(CompactMonitorItems values, double ring, Func<CompactMonitorItems, double> figure, double bareRing, double columns, double rate, double storage = 0, double power = 0, double charge = 0, double frames = 0, double traffic = 0) => item => item switch
     {
         CompactMonitorItems.Columns => columns,
         CompactMonitorItems.Cpu or CompactMonitorItems.Memory or CompactMonitorItems.Gpu => (values & item) != 0 ? ring + figure(item) : bareRing,
@@ -216,6 +231,7 @@ public static class CompactMonitor
         CompactMonitorItems.Power => power,
         CompactMonitorItems.Charge => charge,
         CompactMonitorItems.Frames => frames,
+        CompactMonitorItems.DownloadTotal or CompactMonitorItems.UploadTotal => traffic,
         _ => 0
     };
     // Rings alone, as Brief showed them, sit closer together.
@@ -257,13 +273,26 @@ public static class CompactMonitor
     public static (double Column, double Gap, double Width) CoreColumns(int cores, double scale)
     {
         cores = Math.Max(1, cores);
-        double gap = Math.Max(.5, scale), column = Math.Max(1.5, 2 * scale), room = Math.Round(56 * scale);
+        double gap = Math.Max(.5, scale), column = Math.Max(1.5, 2 * scale), room = Math.Round(ColumnsRoom * scale);
         if (cores * column + (cores - 1) * gap <= room) return (column, gap, cores * column + (cores - 1) * gap);
         if ((room - (cores - 1) * gap) / cores is var shared and >= 1) return (shared, gap, room);
         gap = .5;
         if ((room - (cores - 1) * gap) / cores is var narrow and >= 1) return (narrow, gap, room);
         return (1, gap, cores + (cores - 1) * gap);
     }
+
+    // The room the core columns share at scale 1 (width) and their height.
+    public const double ColumnsRoom = 56, ColumnsHeight = 14;
+
+    // Whether the columns still fit the room at their narrowest (CoreColumns): beyond that they would widen the reading.
+    public static bool CoreColumnsFit(int cores, double scale) => CoreColumns(cores, scale) is var (_, _, width) && width <= Math.Round(ColumnsRoom * scale) + 1e-9;
+
+    // Whether the strip draws the cores as a dot matrix: always or never as chosen; with Auto, once the columns no longer fit.
+    public static bool UsesMatrix(CoreDisplay display, int cores, double scale) => display == CoreDisplay.Matrix || display == CoreDisplay.Auto && !CoreColumnsFit(cores, scale);
+
+    // The width the core readout takes: the columns', or the matrix's.
+    public static double CoreWidth(CoreDisplay display, int cores, double scale, double dpi)
+        => UsesMatrix(display, cores, scale) ? CoreMatrix.Strip(cores, scale, dpi).Width : CoreColumns(cores, scale).Width;
 
     // The width of the items side by side with this gap between them.
     public static double Width(CompactMonitorItems items, Func<CompactMonitorItems, double> width, double gap)

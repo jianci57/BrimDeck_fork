@@ -27,6 +27,10 @@ public sealed record UsageMetric(MetricKind Kind, string Label)
     public string Suffix { get; init; } = "";
     public string Note { get; init; } = "";
     public string ResetText { get; init; } = "";
+    // A quota that is spent only in some hours (CodeAgent's busy-hour and idle-hour daily credits): the hours that decide when, and
+    // which of them this quota is for. The panel shows when that time next starts or ends in place of the reset.
+    [System.Text.Json.Serialization.JsonIgnore] public CreditHours? Hours { get; init; }
+    public CreditPeriod? Period { get; init; }
     public double? UsedPercent => Kind switch
     {
         MetricKind.Percent or MetricKind.Text => Percent,

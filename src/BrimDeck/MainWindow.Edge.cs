@@ -128,7 +128,7 @@ public partial class MainWindow
     {
         // While the surface is dragged the island stays hidden; it is laid out on the edge being dragged to (MainWindow.Move.cs).
         if (_moveOverlay is not null) return;
-        if (_bootWaiting || _bootDot || _poweringOff || !Soft.Enabled || Settings.AnimationDuration <= 0) { if (cleared) SetImmediate(HoverZone, OpacityProperty, 1d); return; }
+        if (_bootWaiting || _bootDot || _poweringOff || !Animates || Settings.AnimationDuration <= 0) { if (cleared) SetImmediate(HoverZone, OpacityProperty, 1d); return; }
         SetImmediate(HoverZone, OpacityProperty, 0d);
         _edgeArriving = true;
         Dispatcher.BeginInvoke(DispatcherPriority.Background, () =>

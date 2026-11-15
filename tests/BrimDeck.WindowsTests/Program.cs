@@ -12,6 +12,8 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        // No check writes to the user's real log: the monitor's failure notes go nowhere here (SensorGuardChecks looks at them by itself).
+        MonitorLog.Sink = _ => { };
         try
         {
             // "--only power": just the power and battery checks, for a quick look at what this machine reports.
@@ -25,6 +27,7 @@ internal static class Program
             if (args is ["--only", "ringletter", ..]) { RingLetterChecks.Run(Check, args.Length > 2 ? args[2] : null); return Finish(); }
             if (args is ["--only", "drawn"]) { DrawnAutomationTests.Run(Check); return Finish(); }
             if (args is ["--only", "settings"]) { SettingsFocusTests.Run(Check); BrimDeck.MainWindow.CheckPageCapsuleFit(Check); return Finish(); }
+            if (args is ["--only", "themecards"]) { ThemeCardChecks.Run(Check); return Finish(); }
             if (args is ["--only", "fonts"]) { FontFollowTests.Run(Check); return Finish(); }
             if (args is ["--only", "surface"]) { CheckSurfaceOpacity(); CheckSettledClip(); return Finish(); }
             if (args is ["--only", "resources", var appAssembly]) { ResourceLifetimeTests.Run(Check, appAssembly); return Finish(); }
@@ -43,8 +46,11 @@ internal static class Program
             DrawnAutomationTests.Run(Check);
             RingLetterChecks.Run(Check);
             SettingsFocusTests.Run(Check);
+            ThemeCardChecks.Run(Check);
+            PanelKeyboardTests.Run(Check);
             BrimDeck.MainWindow.CheckPageCapsule(Check);
             BrimDeck.MainWindow.CheckPageCapsuleFit(Check);
+            BrimDeck.MainWindow.CheckPageCapsuleStretch(Check);
             BrimDeck.MainWindow.CheckShadowLifetime();
             if (hosted) Console.WriteLine("EXCLUDED on a hosted runner: GPU, display, frame rate, temperature, device battery and power readings, and the application identity the shell resolves (they read this machine or its shell).");
             else
@@ -59,6 +65,7 @@ internal static class Program
                 DeviceChecks.Run(Check);
                 PowerChecks.Run(Check);
             }
+            CpuProviderChecks.Run(Check);
             SensorGuardChecks.Run(Check);
             FontFollowTests.Run(Check);
 

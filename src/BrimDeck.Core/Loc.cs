@@ -29,11 +29,12 @@ public static class Loc
     {
         ["5 小时额度"] = "5-hour limit", ["每周额度"] = "Weekly limit", ["每月额度"] = "Monthly limit", ["主要额度"] = "Primary limit", ["次要额度"] = "Secondary limit",
         ["账期额度"] = "Billing period limit", ["套餐额度"] = "Plan limit",
+        ["忙时每日额度"] = "Daily busy-hour limit", ["闲时每日额度"] = "Daily idle-hour limit", ["外部模型"] = "Outside models", ["内部模型"] = "Internal models",
         ["5 小时"] = "5-hour", ["每日"] = "Daily", ["每周"] = "Weekly", ["每月"] = "Monthly", ["主要"] = "Primary", ["次要"] = "Secondary",
         ["账期"] = "Billing period", ["套餐"] = "Plan", ["其他"] = "Other",
         ["Cursor 模型"] = "Cursor models", ["其他模型"] = "Other models", ["工具调用"] = "Tool calls",
         ["账户余额"] = "Account balance", ["密钥余额"] = "Key balance", ["今日扣费"] = "Charged today", ["本月扣费"] = "Charged this month", ["预算余额"] = "Budget left", ["密钥累计"] = "Key total",
-        ["赠送余额"] = "Granted balance", ["累计消费"] = "Total cost", ["加油包"] = "Extra usage", ["本月加油包"] = "Extra usage this month",
+        ["赠送余额"] = "Granted balance", ["充值余额"] = "Topped-up balance", ["冻结金额"] = "Frozen", ["现金余额"] = "Cash balance", ["代金券余额"] = "Voucher balance",["累计消费"] = "Total cost", ["加油包"] = "Extra usage", ["额外积分"] = "Extra credits", ["本月加油包"] = "Extra usage this month",
         ["次"] = "calls", ["积分"] = "credits", ["令牌"] = "tokens",
         ["网易云音乐"] = "NetEase Cloud Music", ["QQ 音乐"] = "QQ Music", ["酷狗音乐"] = "KuGou Music", ["爱奇艺"] = "iQIYI",
     };

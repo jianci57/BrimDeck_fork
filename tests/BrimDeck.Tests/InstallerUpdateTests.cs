@@ -75,8 +75,16 @@ internal static class InstallerUpdateTests
 
         var restarted = Backend(); _ = restarted.PendingRelease; restarted.PrepareRestart();
         var start = launches.SingleOrDefault();
-        check("install runs the verified installer silently and relaunches the app", start is not null && start.FileName == saved &&
-            start.Arguments == "/SILENT /SUPPRESSMSGBOXES /NORESTART /RELAUNCH" && start.UseShellExecute);
+        check("install runs the verified installer silently, with its error prompts, and relaunches the app", start is not null && start.FileName == saved &&
+            start.Arguments == "/SILENT /NORESTART /RELAUNCH" && start.UseShellExecute);
+        // The installer could not install 0.2.0, put 0.1.0 back, started it and left the note beside the download.
+        File.WriteAllText(restarted.RestartFailureFile, PortableUpdate.Failed);
+        var kept = new AppUpdates(Backend(), Path.Combine(root, "installer-updates-kept"));
+        check("a failed installation is reported once after the old version starts again, with the download still ready", kept.RestartFailed
+            && kept.Error is not null && kept.Stage == AppUpdateStage.Ready && !File.Exists(restarted.RestartFailureFile)
+            && Backend().LastRestartFailure is null);
+        File.WriteAllText(restarted.RestartFailureFile, PortableUpdate.Failed);
+        check("an installed copy names the installer as the reason", Backend().LastRestartFailure == RestartFailure.Installer);
 
         File.WriteAllBytes(saved, corrupt); launches.Clear(); bool refused = false;
         try { Backend().PrepareRestart(); } catch (InvalidDataException) { refused = true; }

@@ -25,9 +25,41 @@ internal static class AntigravityUsageTests
         check("Antigravity cache reads are counted in addition to input and use the generation's model name",
             desktop is { Input: 5000, CacheRead: 12000, Output: 60, Model: "gemini-3.8-flash" });
 
+        // An orchestrated conversation: the response model names only the role, the display name the model that ran. The
+        // checkpoint step has no generation record and is named by its usage's model number.
+        var orchestratedDb = Path.Combine(desktopFolder, "orchestrated.db");
+        File.WriteAllText(orchestratedDb, "");
+        fake.Steps[orchestratedDb] = [Step(now.AddMinutes(-9), "o1", 100, 10, 0, 1667), Step(now.AddMinutes(-8), "w1", 50, 5, 0, 1669),
+            Step(now.AddMinutes(-7), "k1", 70, 7, 0, 1667), Step(now.AddMinutes(-6), "x1", 30, 3, 0, 1999), Step(now.AddMinutes(-5), "p1", 20, 2, 0, 1402)];
+        fake.Models[orchestratedDb] = [Generation("o1", "gemini-pro-orchestrator", "Orchestrator (Carbon)", 1667),
+            Generation("w1", "gemini-flash-worker-agy", "Gemini 4 Hydrogen (Orchestrator)", 1669), Generation("p1", "claude-opus-5-5-high", "", 1402)];
+        var orchestrated = new ProviderSnapshot(ProviderId.Antigravity);
+        new AntigravityUsage().Read(orchestrated, fake, [desktopFolder], now.AddDays(-29), now);
+        TokenEntry Orchestrated(string id) => orchestrated.Entries.Single(e => e.Key == "ag:" + id);
+        check("Antigravity orchestrated records show the model menu's name and are priced by the model that ran",
+            Orchestrated("o1") is { Model: "Orchestrator (Carbon)", PriceModel: "carbon" }
+            && Orchestrated("w1") is { Model: "Gemini 4 Hydrogen (Orchestrator)", PriceModel: "gemini-4-hydrogen" });
+        check("Antigravity records without a display name keep their response model",
+            Orchestrated("p1") is { Model: "claude-opus-5-5-high", PriceModel: null } && desktop.PriceModel is null);
+        check("An Antigravity checkpoint step is named by the model number of the conversation's generations",
+            Orchestrated("k1") is { Model: "Orchestrator (Carbon)", PriceModel: "carbon" } && Orchestrated("x1") is { Model: "", PriceModel: null });
+
         var missing = new ProviderSnapshot(ProviderId.Antigravity);
         new AntigravityUsage().Read(missing, fake, [Path.Combine(root, "none")], now.AddDays(-29), now);
         check("Missing Antigravity conversation folders are unavailable, not zero", !missing.UsageAvailable);
+
+        var daemon = Path.Combine(root, "antigravity", "daemon");
+        Directory.CreateDirectory(daemon);
+        File.WriteAllText(Path.Combine(daemon, "hub_64335.json"), """{"pid":29156,"httpsPort":64334,"httpPort":64335,"lsVersion":"2.32.1","csrfToken":"token-a"}""");
+        File.WriteAllText(Path.Combine(daemon, "hub_1.json"), """{"pid":1,"httpsPort":0,"httpPort":0,"csrfToken":"no-port"}""");
+        File.WriteAllText(Path.Combine(daemon, "hub_2.json"), """{"pid":2,"httpsPort":10,"httpPort":11}""");
+        File.WriteAllText(Path.Combine(daemon, "hub_3.json"), "{not json");
+        File.WriteAllText(Path.Combine(daemon, "other.json"), """{"pid":4,"httpsPort":10,"httpPort":11,"csrfToken":"other"}""");
+        var servers = AntigravityUsage.ReadLanguageServers(daemon);
+        check("Antigravity service files give each language server's ports and token, skipping incomplete and malformed files",
+            servers.SequenceEqual([new AntigravityUsage.LanguageServer(29156, 64334, 64335, "token-a")]));
+        check("A missing Antigravity service folder gives no language servers", AntigravityUsage.ReadLanguageServers(Path.Combine(root, "none")).Count == 0);
+        check("The Antigravity service folder is under .gemini", AntigravityUsage.DaemonFolder(@"C:\Users\A") == @"C:\Users\A\.gemini\antigravity\daemon");
 
         PrefixPricing(root, now, check);
     }
@@ -47,7 +79,9 @@ internal static class AntigravityUsageTests
             ("anthropic/claude-opus-5", 21), ("anthropic/claude-sonnet-4", 22),
             ("google/gemini-3.8-flash", 2), ("google/gemini-3.5-flash", 7), ("google/gemini-3.5-flash-lite", 8),
             ("google/gemini-3.1-pro-preview", 9), ("google/gemini-3.1-pro-preview-customtools", 10),
-            ("openai/gpt-oss-120b", 11), ("openai/gpt-oss-20b", 12), ("openai/gpt-5", 15), ("openai/gpt-5-mini", 16), ("openai/gpt-5.1-codex-max", 17)
+            ("openai/gpt-oss-120b", 11), ("openai/gpt-oss-20b", 12), ("openai/gpt-5", 15), ("openai/gpt-5-mini", 16), ("openai/gpt-5.1-codex-max", 17),
+            ("google/gemini-3-carbon", 23), ("google/gemini-4-carbon", 24), ("google/gemini-4-carbon:batch", 25), ("google/gemini-4.5-carbon-preview", 26),
+            ("google/gemini-4-hydrogen", 27)
         };
         File.WriteAllText(Path.Combine(folder, "model-prices.json"), System.Text.Json.JsonSerializer.Serialize(new
         {
@@ -101,18 +135,25 @@ internal static class AntigravityUsageTests
                 .All(name => pricing.Estimate(entry with { Key = "claude:prefix", Model = name }) is null));
         check("Prefix matching does not change catalog lookup",
             new[] { "claude-opus-5-5-high", "gemini-3.8-flash-control", "gemini-3.1-pro", "gpt-oss-120b-medium" }.All(name => pricing.Find(name) is null));
+        bool Priced(int n, string model, string price) => pricing.Estimate(entry with { Model = model, PriceModel = price }) == Cost(n);
+        check("An Antigravity orchestrator is priced as the newest catalog Gemini of its family, variants aside",
+            Priced(24, "Orchestrator (Carbon)", "carbon") && Priced(27, "Gemini 4 Hydrogen (Orchestrator)", "gemini-4-hydrogen")
+            && pricing.Estimate(entry with { Model = "Orchestrator (Neon)", PriceModel = "neon" }) is null
+            && pricing.Estimate(entry with { Key = "claude:prefix", Model = "Orchestrator (Carbon)", PriceModel = "carbon" }) is null);
         check("An exact manual price wins over the prefix match",
             pricing.TrySetManual("gemini-3.8-flash-control", Price(20), false, out _) && All(20, "gemini-3.8-flash-control") && All(2, "gemini-3.8-flash-high"));
     }
 
-    // CortexStepMetadata { 1: Timestamp { 1: seconds }, 9: ModelUsageStats { 2 input, 3 output, 5 cache read, 7 message id } }
-    private static string?[] Step(DateTimeOffset time, string id, long input, long output, long cacheRead) =>
+    // CortexStepMetadata { 1: Timestamp { 1: seconds }, 9: ModelUsageStats { 1 model, 2 input, 3 output, 5 cache read, 7 message id } }
+    private static string?[] Step(DateTimeOffset time, string id, long input, long output, long cacheRead, ulong model = 0) =>
         [Convert.ToHexString([.. Message(1, Varint(1, (ulong)time.ToUnixTimeSeconds())),
-            .. Message(9, [.. Varint(2, (ulong)input), .. Varint(3, (ulong)output), .. Varint(5, (ulong)cacheRead), .. Message(7, System.Text.Encoding.UTF8.GetBytes(id))])])];
+            .. Message(9, [.. model > 0 ? Varint(1, model) : [], .. Varint(2, (ulong)input), .. Varint(3, (ulong)output), .. Varint(5, (ulong)cacheRead), .. Message(7, Utf8(id))])])];
 
-    // gen_metadata { 1: ChatModelMetadata { 4: ModelUsageStats { 7 message id }, 19: response_model } }
-    private static string?[] Generation(string id, string model) =>
-        [Convert.ToHexString(Message(1, [.. Message(4, Message(7, System.Text.Encoding.UTF8.GetBytes(id))), .. Message(19, System.Text.Encoding.UTF8.GetBytes(model))]))];
+    // gen_metadata { 1: ChatModelMetadata { 4: ModelUsageStats { 1 model, 7 message id }, 19: response_model, 21: model_display_name } }
+    private static string?[] Generation(string id, string model, string display = "", ulong number = 0) =>
+        [Convert.ToHexString(Message(1, [.. Message(4, [.. number > 0 ? Varint(1, number) : [], .. Message(7, Utf8(id))]), .. Message(19, Utf8(model)),
+            .. display.Length > 0 ? Message(21, Utf8(display)) : []]))];
+    private static byte[] Utf8(string text) => System.Text.Encoding.UTF8.GetBytes(text);
 
     private static byte[] Varint(int field, ulong value) => [.. Raw((ulong)(field << 3)), .. Raw(value)];
     private static byte[] Message(int field, byte[] data) => [.. Raw((ulong)(field << 3 | 2)), .. Raw((ulong)data.Length), .. data];

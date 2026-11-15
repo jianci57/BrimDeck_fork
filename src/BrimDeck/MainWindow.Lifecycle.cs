@@ -77,7 +77,7 @@ public partial class MainWindow
         return double.IsFinite(grow) && double.IsFinite(rise) && left - grow / 2 >= 0 && left + width + grow / 2 <= FrameWidth && gap + height + rise <= FrameHeight;
     }
 
-    private bool CanAnimateLifecycle => IsVisible && Soft.Enabled && Settings.AnimationDuration > 0 && !_preview;
+    private bool CanAnimateLifecycle => IsVisible && Animates && Settings.AnimationDuration > 0 && !_preview;
 
     // Starts the boot. The panel stays out of sight until the dispatcher is idle: on BrimDeck's start the first frames come
     // late while the panel is built and the data read, which ate the dot and the first half of the swell. A panel that is busy
@@ -173,7 +173,7 @@ public partial class MainWindow
         SetImmediate(Island, IslandBorder.ShoulderRadiusProperty, 0d);
         SetImmediate(Island, IslandBorder.MaterialOpacityProperty, 1d);
         SetImmediate(Island, OpacityProperty, 1d);
-        SetImmediate(_surface, SolidColorBrush.ColorProperty, PanelTheme.ColorOf("surface"));
+        SetImmediate(_surface, SolidColorBrush.ColorProperty, Look.ColorOf("surface"));
         // The line's playback progress lies inside the surface: it is not part of the dot (SetExpanded brings it back).
         SetImmediate(MusicIndicator, OpacityProperty, 0d);
         ResetDotPose();
@@ -210,7 +210,7 @@ public partial class MainWindow
         Animate(CompactScale, ScaleTransform.ScaleYProperty, Soft.Shrunk, shrink, compact, Soft.Out);
         Animate(ShadowHost, OpacityProperty, 0, shrink, shadow, Soft.Out);
         Animate(Island, IslandBorder.MaterialOpacityProperty, 1, shrink, tone, Soft.Out);
-        _surface.BeginAnimation(SolidColorBrush.ColorProperty, Timed(new ColorAnimation { To = PanelTheme.ColorOf("surface"), EasingFunction = Soft.InOut }, shrink, tone), HandoffBehavior.SnapshotAndReplace);
+        _surface.BeginAnimation(SolidColorBrush.ColorProperty, Timed(new ColorAnimation { To = Look.ColorOf("surface"), EasingFunction = Soft.InOut }, shrink, tone), HandoffBehavior.SnapshotAndReplace);
         Animate(Island, IslandBorder.ShoulderRadiusProperty, 0, shrink, corners, Soft.InOut);
         Island.BeginAnimation(Border.CornerRadiusProperty, Timed(new CornerRadiusAnimation { To = new CornerRadius(dot / 2), EasingFunction = Soft.Out }, shrink, corners), HandoffBehavior.SnapshotAndReplace);
         Island.BeginAnimation(MarginProperty, Timed(new ThicknessAnimation { To = new Thickness(0, DotTop(shape), 0, 0), EasingFunction = Soft.Settle }, shrink, surface), HandoffBehavior.SnapshotAndReplace);
@@ -274,7 +274,7 @@ public partial class MainWindow
     internal void MorphShape()
     {
         // A preview from the settings window morphs too: the style chips sit on the page that previews the collapsed size.
-        _morphingShape = !_expanded && !_poweringOff && IsVisible && Soft.Enabled && Settings.AnimationDuration > 0 && !_bootWaiting;
+        _morphingShape = !_expanded && !_poweringOff && IsVisible && Animates && Settings.AnimationDuration > 0 && !_bootWaiting;
         ApplySettings(true);
         _morphingShape = false;
     }

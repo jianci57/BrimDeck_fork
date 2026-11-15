@@ -54,15 +54,18 @@ public sealed record UpdateManifest(
 // not at all (a build output or a copied folder).
 public enum UpdateMode { None, Installer, Portable }
 
-// Why the last attempt to replace a portable copy kept the old version.
-public enum RestartFailure { Declined, Failed }
+// Why the last update kept the old version: replacing a portable copy was declined or failed, or the installer could not
+// install the new version and put the old one back.
+public enum RestartFailure { Declined, Failed, Installer }
 
 // Downloads the package of a newer release, verifies its size and SHA-256, and applies it after the app exits.
 // Installer: runs it silently; it waits for the running instance, installs into the existing folder and starts BrimDeck again.
 // Portable: extracts the zip and starts its own executable as the helper in PortableUpdate, which replaces the files.
 public sealed class InstallerUpdateBackend : IAppUpdateBackend
 {
-    public const string InstallerArguments = "/SILENT /SUPPRESSMSGBOXES /NORESTART /RELAUNCH";
+    // Message boxes are not suppressed: when a file cannot be replaced, the installer asks whether to try again instead of
+    // giving up. If it does give up, it puts the old version back, starts it and leaves RestartFailureFile.
+    public const string InstallerArguments = "/SILENT /NORESTART /RELAUNCH";
     private const string PendingFile = "pending.json";
     private const string PortableFolder = "portable";
     private readonly HttpClient _http;
@@ -100,7 +103,8 @@ public sealed class InstallerUpdateBackend : IAppUpdateBackend
         }
     }
 
-    // Left by the portable helper when it kept the old version and started it again. Read once, before PendingRelease.
+    // Left by the portable helper or the installer when it kept the old version and started it again. Read once, before
+    // PendingRelease.
     public RestartFailure? LastRestartFailure
     {
         get
@@ -110,7 +114,8 @@ public sealed class InstallerUpdateBackend : IAppUpdateBackend
                 if (!File.Exists(RestartFailureFile)) return null;
                 var code = File.ReadLines(RestartFailureFile).FirstOrDefault();
                 File.Delete(RestartFailureFile);
-                return code == PortableUpdate.Declined ? RestartFailure.Declined : RestartFailure.Failed;
+                return Mode == UpdateMode.Installer ? RestartFailure.Installer
+                    : code == PortableUpdate.Declined ? RestartFailure.Declined : RestartFailure.Failed;
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return null; }
         }

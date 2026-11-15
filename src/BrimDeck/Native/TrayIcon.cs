@@ -18,11 +18,13 @@ public sealed class TrayIcon : IDisposable
     private readonly Func<bool>? _hidden;
     private readonly Action? _toggleClickThrough;
     private readonly Func<bool>? _clickThrough;
+    private readonly Func<IReadOnlyList<(string Name, bool Current, Action Choose)>>? _profiles;
     private NOTIFYICONDATA _data;
     private readonly uint _taskbarCreated = RegisterWindowMessage("TaskbarCreated");
-    public TrayIcon(Window owner, Action settings, Action exit, Action? toggleHidden = null, Func<bool>? hidden = null, Action? toggleClickThrough = null, Func<bool>? clickThrough = null)
+    public TrayIcon(Window owner, Action settings, Action exit, Action? toggleHidden = null, Func<bool>? hidden = null, Action? toggleClickThrough = null, Func<bool>? clickThrough = null,
+        Func<IReadOnlyList<(string Name, bool Current, Action Choose)>>? profiles = null)
     {
-        _settings = settings; _exit = exit; _toggleHidden = toggleHidden; _hidden = hidden; _toggleClickThrough = toggleClickThrough; _clickThrough = clickThrough;
+        _settings = settings; _exit = exit; _toggleHidden = toggleHidden; _hidden = hidden; _toggleClickThrough = toggleClickThrough; _clickThrough = clickThrough; _profiles = profiles;
         var hwnd = new WindowInteropHelper(owner).Handle;
         _source = HwndSource.FromHwnd(hwnd); _source.AddHook(Hook);
         _data = new NOTIFYICONDATA { Size = Marshal.SizeOf<NOTIFYICONDATA>(), Window = hwnd, Id = 1, Flags = 1 | 2 | 4, CallbackMessage = Callback,
@@ -64,14 +66,16 @@ public sealed class TrayIcon : IDisposable
         if (mouseMessage == 0x205)
         {
             SetForegroundWindow(hwnd);
-            var menu = CreateMenu(_settings, _exit, _toggleHidden, _hidden?.Invoke() ?? false, _toggleClickThrough, _clickThrough?.Invoke() ?? false);
+            var menu = CreateMenu(_settings, _exit, _toggleHidden, _hidden?.Invoke() ?? false, _toggleClickThrough, _clickThrough?.Invoke() ?? false, _profiles?.Invoke());
             menu.Placement = PlacementMode.MousePoint;
             menu.IsOpen = true;
         }
         return IntPtr.Zero;
     }
     // Shared with the UI smoke run, which renders the menu without a tray.
-    internal static ContextMenu CreateMenu(Action settings, Action exit, Action? toggleHidden = null, bool hidden = false, Action? toggleClickThrough = null, bool clickThrough = false)
+    // profiles: with two or more, each is listed between the switches and the settings, the current one checked; choosing one makes it current.
+    internal static ContextMenu CreateMenu(Action settings, Action exit, Action? toggleHidden = null, bool hidden = false, Action? toggleClickThrough = null, bool clickThrough = false,
+        IReadOnlyList<(string Name, bool Current, Action Choose)>? profiles = null)
     {
         var menu = new ContextMenu();
         // Tray menus belong to the shell, so they follow the system's app theme rather than the settings window's palette.
@@ -95,6 +99,25 @@ public sealed class TrayIcon : IDisposable
         }
         if (toggleHidden is not null) { var show = new MenuItem { Header = hidden ? Loc.T("显示面板", "Show panel") : Loc.T("隐藏面板", "Hide panel") }; show.Click += (_, _) => toggleHidden(); menu.Items.Add(show); }
         if (toggleClickThrough is not null) { var through = new MenuItem { Header = clickThrough ? Loc.T("关闭鼠标穿透", "Turn off mouse pass-through") : Loc.T("开启鼠标穿透", "Turn on mouse pass-through") }; through.Click += (_, _) => toggleClickThrough(); menu.Items.Add(through); }
+        if (profiles is { Count: > 1 })
+        {
+            if (menu.Items.Count > 0) menu.Items.Add(new Separator());
+            foreach (var (name, current, choose) in profiles)
+            {
+                // A check drawn in a fixed 12 x 12 box in front of the current profile; the others keep the same room, so the names line up.
+                var row = new StackPanel { Orientation = Orientation.Horizontal };
+                var check = new System.Windows.Shapes.Path { Data = Geometry.Parse("M 2,6.5 L 5,9.5 L 10,3"), Width = 12, Height = 12, Stretch = Stretch.None,
+                    StrokeThickness = 1.5, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round, StrokeLineJoin = PenLineJoin.Round,
+                    Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center, Visibility = current ? Visibility.Visible : Visibility.Hidden };
+                check.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, "MenuInk");
+                row.Children.Add(check);
+                row.Children.Add(new TextBlock { Text = name, VerticalAlignment = VerticalAlignment.Center });
+                var item = new MenuItem { Header = row };
+                System.Windows.Automation.AutomationProperties.SetName(item, current ? Loc.T($"{name}（使用中）", $"{name} (in use)") : name);
+                item.Click += (_, _) => choose(); menu.Items.Add(item);
+            }
+            menu.Items.Add(new Separator());
+        }
         var open = new MenuItem { Header = Loc.T("设置", "Settings") }; open.Click += (_, _) => settings(); menu.Items.Add(open);
         menu.Items.Add(new Separator());
         var quit = new MenuItem { Header = Loc.T("退出", "Exit") }; quit.Click += (_, _) => exit(); menu.Items.Add(quit);

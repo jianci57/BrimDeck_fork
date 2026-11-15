@@ -32,10 +32,17 @@ Directory.CreateDirectory(root);
 try
 {
     await PiUsageTests.Run(root, Check);
+    await CodeAgentUsageTests.Run(root, Check);
+    await CommandCodeUsageTests.Run(root, Check);
+    await WorkBuddyUsageTests.Run(root, Check);
+    await MiMoUsageTests.Run(root, Check);
+    await MiMoApiTests.Run(root, Check);
+    MaasPricingTests.Run(root, Check);
     ModelUsageTests.Run(Check);
     AntigravityUsageTests.Run(root, Check);
     await MusicTests.Run(Check);
     await AppleMusicLyricsTests.Run(root, Check);
+    await QueMusicLyricsTests.Run(root, Check);
     await KugouTests.Run(Check);
     EqualizerSignalTests.Run(Check);
     EqualizerSpectrumTests.Run(Check);
@@ -54,6 +61,7 @@ try
     PixelBlocksTests.Run(root, Check);
     ThemeCoverageTests.Run(Check, Environment.GetEnvironmentVariable("BRIMDECK_THEME_REPORT") == "1");
     DisplayLayoutTests.Run(Check);
+    ProfileTests.Run(Check);
     MediaAppTargetTests.Run(Check);
     CollapsedHoverTests.Run(Check);
     EdgeFrameTests.Run(Check);
@@ -63,17 +71,31 @@ try
     CollapsedGeometryTests.Run(root, Check);
     PanelHeaderTests.Run(Check);
     SystemMonitorTests.Run(Check);
+    ExpandedMonitorTests.Run(Check);
     MonitorSpeechTests.Run(Check);
+    TrafficTotalTests.Run(Check);
     CompactReadingTests.Run(Check);
+    CoreMatrixTests.Run(Check);
     TemperatureTests.Run(Check);
+    VramFigureTests.Run(Check);
     StorageTests.Run(Check);
     SensorStopTests.Run(Check);
+    MonitorStartupTests.Run(Check);
     StripAdmissionTests.Run(Check);
     DevicesTests.Run(Check);
     NotificationItemsTests.Run(Check);
     NotificationMonitorTests.Run(Check);
     DeviceProtocolTests.Run(Check);
     DeviceSafetyTests.Run(Check);
+    DeviceReadTests.Run(Check);
+    BrandFamilyTests.Run(Check);
+    BrandsControllerTests.Run(Check);
+    BrandsKeyboardTests.Run(Check);
+    BrandsHeadsetTests.Run(Check);
+    BrandsMouseTests.Run(Check);
+    BrandsGapTests.Run(Check);
+    BrandsMoreTests.Run(Check);
+    OfficialDriverTests.Run(Check);
     PowerTests.Run(Check);
     DevicesPageTests.Run(Check);
     FrameRateTests.Run(Check);
@@ -111,11 +133,15 @@ try
     await DshUsageTests.Run(root, Check);
     await KimiUsageTests.Run(root, Check);
     await ClaudeRateLimitTests.Run(root, Check);
+    await ClaudeUpgradeCacheTests.Run(root, Check);
+    await UsageStartupTests.Run(root, Check);
+    UsageLastSeenTests.Run(root, Check);
     await OpenCodeUsageTests.Run(root, Check);
     await OfficialPriceTests.Run(root, Check);
     await GrokBotUsageTests.Run(root, Check);
     await CursorUsageTests.Run(root, Check);
     await CursorPricesTests.Run(root, Check);
+    PointerMotionTests.Run(Check);
     var priceTime = DateTimeOffset.UtcNow;
     const string catalogJson = """
         {"data":[
@@ -139,7 +165,7 @@ try
     {
         Check("Downloaded catalog survives restart", cached.ModelCount == 4 && cached.UpdatedAt == pricing.UpdatedAt);
         await cached.RefreshAsync();
-        Check("Restart refreshes online even with fresh cache", handler.Calls == 2);
+        Check("Restart with a fresh cache sends no request", handler.Calls == 1);
     }
 
     // The editable layer is independent of downloaded prices and must survive refresh and restart.
@@ -288,13 +314,13 @@ try
         Task<List<ProviderSnapshot>> Refresh(DeckSettings settings, CancellationToken ct = default) { usageClock = usageClock.AddSeconds(60); return service.RefreshAsync(settings, ct); }
         var onlyClaude = Only(ProviderId.Claude);
         var result = (await Refresh(onlyClaude)).Single();
-        Check("Desktop-only login connects without Claude Code credentials", result.LiveQuota && result.Quotas.Count == 2 && result.Plan == "Max 20x");
+        Check("Desktop-only login connects without Claude Code credentials", result.LiveQuota && result.Quotas.Count == 2 && result.Plan == "Ultra");
         Check("Desktop quota resets come from server", result.Quotas.All(quota => quota.ResetAt is not null) && result.Quotas.Single(quota => quota.Minutes == 300).UsedPercent == 9);
         Directory.CreateDirectory(locations.ClaudeHome);
         var credentialPath = Path.Combine(locations.ClaudeHome, ".credentials.json");
         File.WriteAllText(credentialPath, """{"claudeAiOauth":{"accessToken":"test-rejected","subscriptionType":"pro"}}""");
         result = (await Refresh(onlyClaude)).Single();
-        Check("Rejected Code login falls back to Desktop and replaces its plan", quotaHandler.Rejected == 1 && result.LiveQuota && result.Plan == "Max 20x");
+        Check("Rejected Code login falls back to Desktop and replaces its plan", quotaHandler.Rejected == 1 && result.LiveQuota && result.Plan == "Ultra");
         File.WriteAllText(credentialPath, "broken");
         result = (await Refresh(onlyClaude)).Single();
         Check("Damaged Code login does not prevent Desktop connection", result.LiveQuota);
@@ -309,12 +335,22 @@ try
         var profilePath = Path.Combine(locations.ClaudeHome, ".claude.json");
         File.WriteAllText(profilePath, """{"oauthAccount":{"organizationRateLimitTier":"default_claude_max_20x"}}""");
         result = (await Refresh(onlyClaude)).Single();
-        Check("Local account record outranks a stale sign-in plan", result.LiveQuota && result.Plan == "Max 20x");
+        Check("Local account record outranks a stale sign-in plan", result.LiveQuota && result.Plan == "Ultra");
         quotaHandler.Profile = """{"organization":{"organization_type":"claude_max","rate_limit_tier":"default_claude_max_5x"}}""";
         result = (await Refresh(onlyClaude)).Single();
-        Check("Account endpoint decides the Claude plan", result.Plan == "Max 5x");
+        Check("Account endpoint decides the Claude plan", result.Plan == "Max");
         quotaHandler.Profile = null; File.Delete(profilePath);
         Check("Claude organization type names the plan without a tier", PlanParser.ClaudeOrganization(Json("""{"organization":{"organization_type":"claude_pro"}}""")) == "Pro");
+        Check("The account endpoint's display name outranks the tier, and a blank one falls back to it",
+            PlanParser.ClaudeOrganization(Json("""{"organization":{"organization_type":"claude_max","rate_limit_tier":"default_claude_max_20x","plan_display_name":" Ultra "}}""")) == "Ultra" &&
+            PlanParser.ClaudeOrganization(Json("""{"organization":{"organization_type":"claude_max","rate_limit_tier":"default_claude_max_5x","plan_display_name":"Max"}}""")) == "Max" &&
+            PlanParser.ClaudeOrganization(Json("""{"organization":{"organization_type":"claude_max","rate_limit_tier":"default_claude_max_20x","plan_display_name":" "}}""")) == "Ultra");
+        Check("A Team seat keeps its seat name over the display name",
+            PlanParser.ClaudeOrganization(Json("""{"organization":{"organization_type":"claude_team","rate_limit_tier":"default_claude_max_5x","seat_tier":"team_tier_1","plan_display_name":"Team"}}""")) == "Team Premium");
+        Check("Claude tiers read with the names from the October 2026 rename",
+            PlanParser.ClaudeTier("default_claude_max_20x", "max") == "Ultra" && PlanParser.ClaudeTier("default_claude_ultra", "max") == "Ultra" &&
+            PlanParser.ClaudeTier("default_claude_max_5x", "max") == "Max" && PlanParser.ClaudeTier("default_claude_max_10x", "max") == "Max 10x" &&
+            PlanParser.ClaudeTier("", "max") == "max");
         var readCalls = desktopFixture.ReadCalls;
         desktopFixture.ReadFailure = new IOException("Test desktop cache unavailable");
         result = (await Refresh(onlyClaude)).Single();
@@ -333,7 +369,7 @@ try
             };
             result = (await Refresh(onlyClaude)).Single();
             Check($"CLI {fault} failure falls back to one successful Desktop result", result.LiveQuota && result.Quotas.Count == 2 &&
-                result.Plan == "Max 20x" && quotaHandler.Requests.SequenceEqual(["test-code", "test-profile"]));
+                result.Plan == "Ultra" && quotaHandler.Requests.SequenceEqual(["test-code", "test-profile"]));
         }
 
         quotaHandler.Override = null; quotaHandler.Requests.Clear();
@@ -350,7 +386,7 @@ try
         Check("Transient failure keeps the last account quotas with their time", result.LiveQuota && result.Quotas.Count == 2 && result.QuotaTime == previousTime && quotaHandler.Requests.Count == 2);
         quotaHandler.Profile = """{"organization":{"organization_type":"claude_max","rate_limit_tier":"default_claude_max_20x"}}""";
         result = (await Refresh(onlyClaude)).Single();
-        Check("Plan follows the account endpoint while the quota request fails", result.Quotas.Count == 2 && result.Plan == "Max 20x");
+        Check("Plan follows the account endpoint while the quota request fails", result.Quotas.Count == 2 && result.Plan == "Ultra");
         quotaHandler.Profile = null; quotaHandler.Requests.Clear();
         var polled = true;
         for (int cycle = 1; cycle <= 4; cycle++)
@@ -412,7 +448,7 @@ try
         File.WriteAllText(historyPath, History(usageClock.AddMinutes(2), 37, 7));
         result = (await Refresh(onlyClaude)).Single();
         Check("Rate limiting without any earlier reading falls back to the desktop application's local history", result.LiveQuota &&
-            result.Quotas.Single(q => q.Minutes == 300).UsedPercent == 37 && result.Quotas.Single(q => q.Minutes == 10080).UsedPercent == 7 && result.Plan == "Max 20x");
+            result.Quotas.Single(q => q.Minutes == 300).UsedPercent == 37 && result.Quotas.Single(q => q.Minutes == 10080).UsedPercent == 7 && result.Plan == "Ultra");
         quotaHandler.Override = null;
         usageClock = usageClock.AddHours(2);
         result = (await Refresh(onlyClaude)).Single();
@@ -538,7 +574,7 @@ try
             PlanParser.ClaudeTier("default_raven", "team") == "Team");
         Check("The local record names Pro and Max by the organization's type and tier",
             PlanParser.ClaudeProfile(Json("""{"oauthAccount":{"organizationType":"claude_pro","organizationRateLimitTier":"default_claude_ai"}}""")) == "Pro" &&
-            PlanParser.ClaudeProfile(Json("""{"oauthAccount":{"organizationType":"claude_max","organizationRateLimitTier":"default_claude_max_20x"}}""")) == "Max 20x" &&
+            PlanParser.ClaudeProfile(Json("""{"oauthAccount":{"organizationType":"claude_max","organizationRateLimitTier":"default_claude_max_20x"}}""")) == "Ultra" &&
             PlanParser.ClaudeProfile(Json("""{"oauthAccount":{"organizationType":"claude_max"}}""")) == "Max");
         string Usage(int fiveHour, int weekly, int? fable = null) => JsonSerializer.Serialize(new
         {
@@ -619,7 +655,9 @@ try
 
     }
     var failingDesktop = new FailingDesktopSources();
-    using (var service = new UsageService(failingDesktop))
+    // The fixture's locations keep every source inside the test root: with the constructor's default (DataLocations.Detect)
+    // the Antigravity read would touch the real user's conversations before the failing discovery is reached.
+    using (var service = new UsageService(failingDesktop, locations))
     {
         var onlyAntigravity = Only(ProviderId.Antigravity);
         var failed = (await service.RefreshAsync(onlyAntigravity)).Single();
@@ -627,6 +665,9 @@ try
         failingDesktop.Fail = false;
         var recovered = (await service.RefreshAsync(onlyAntigravity)).Single();
         Check("Discovery errors do not prevent subsequent refresh", recovered.StatusLabel != failed.StatusLabel);
+        failingDesktop.Unreadable = true;
+        var elevated = (await service.RefreshAsync(onlyAntigravity)).Single();
+        Check("An Antigravity language server that cannot be read says it runs as administrator", elevated.StatusLabel == "无法读取" && elevated.Status.Contains("管理员", StringComparison.Ordinal));
     }
     var quotas = QuotaParser.Codex(Json("""
         {"rate_limit":{"primary_window":{"used_percent":16,"limit_window_seconds":604800,"reset_after_seconds":3600}}}
@@ -660,6 +701,26 @@ try
     Check("Grok Bot usage without a percent is skipped", QuotaParser.SandUsage(Json("""{"nextResetTimestampUtc":"2026-10-18T07:21:38.721Z"}""")) is null);
     Check("Antigravity missing fraction is unknown", QuotaParser.Antigravity(Json("""{"userStatus":{"cascadeModelConfigData":{"clientModelConfigs":[{"label":"A","quotaInfo":{}}]}}}""")).Count == 0);
     Check("Antigravity zero fraction means depleted", QuotaParser.Antigravity(Json("""{"groups":[{"buckets":[{"bucketId":"gemini-5h","remainingFraction":0}]}]}""")).Single().Remaining == 0);
+    var antigravityQuotas = QuotaParser.Antigravity(Json("""
+        {"response":{"groups":[
+          {"displayName":"Gemini Models","buckets":[
+            {"bucketId":"gemini-weekly","window":"weekly","remainingFraction":0.75},
+            {"bucketId":"gemini-5h","window":"5h","remainingFraction":1},
+            {"bucketId":"gemini-4-argon-weekly","window":"weekly","remainingFraction":0.5}]},
+          {"displayName":"Claude and GPT models","buckets":[{"bucketId":"3p-weekly","window":"weekly","remainingFraction":1}]},
+          {"displayName":"Preview Models","buckets":[
+            {"bucketId":"preview-weekly","window":"weekly","remainingFraction":1},
+            {"bucketId":"preview-burst","displayName":"Burst Limit","remainingFraction":1},
+            {"bucketId":"preview-off","window":"5h","remainingFraction":1,"disabled":true}]}]}}
+        """));
+    Check("Antigravity quota summary keeps the known groups and periods",
+        antigravityQuotas.Take(2).Select(q => (q.Label, q.Minutes)).SequenceEqual([("Gemini · 每周", (int?)10080), ("Gemini · 5 小时", 300)]) &&
+        antigravityQuotas[3] is { Label: "Claude · 每周", Minutes: 10080 });
+    Check("Antigravity weekly Argon quota gets its own group and a weekly window", antigravityQuotas[2] is { Label: "Argon · 每周", Minutes: 10080, UsedPercent: 50 });
+    Check("Antigravity unknown buckets use the service's group name, window and bucket name",
+        antigravityQuotas.Skip(4).Select(q => (q.Label, q.Minutes)).SequenceEqual([("Preview Models · 每周", (int?)10080), ("Preview Models · Burst Limit", null)]));
+    Check("Antigravity bucket ids without a window still give the period",
+        QuotaParser.Antigravity(Json("""{"groups":[{"buckets":[{"bucketId":"argon-weekly","remainingFraction":1}]}]}""")).Single() is { Label: "Argon · 每周", Minutes: 10080 });
     Check("Cursor free membership is displayed as a real plan", PlanParser.Cursor(Json("""{"membershipType":"free"}""")) == "free");
     Check("Cursor quota alone does not imply a paid plan", PlanParser.Cursor(Json("""{"planUsage":{"totalPercentUsed":0}}""")) == "");
     Check("Antigravity uses the named user tier before its service plan", PlanParser.Antigravity(Json("""{"userStatus":{"userTier":{"name":"Example Tier"},"planStatus":{"planInfo":{"planName":"Pro"}}}}""")) == "Example Tier");
@@ -727,22 +788,22 @@ try
     handler.Json = catalogJson.Replace("0.000003", "0.000004", StringComparison.Ordinal).Replace("vendor/dynamic-price", "vendor/new-catalog-model", StringComparison.Ordinal).Replace("\"-1\"", "\"0.000001\"", StringComparison.Ordinal);
     priceTime = priceTime.AddMinutes(59).AddSeconds(59);
     await pricing.RefreshAsync();
-    Check("Daily catalog request waits for the full 24 hours", handler.Calls == 2 && !pricing.IsStale);
+    Check("Daily catalog request waits for the full 24 hours", handler.Calls == 1 && !pricing.IsStale);
     priceTime = priceTime.AddSeconds(1);
     await pricing.RefreshAsync();
-    Check("Price changes update without a new build", handler.Calls == 3 && pricing.Find("claude-sonnet-4-5")?.Prices.Input == .000004m);
+    Check("Price changes update without a new build", handler.Calls == 2 && pricing.Find("claude-sonnet-4-5")?.Prices.Input == .000004m);
     Check("New remote models require no local list update", pricing.ModelCount == 5 && pricing.Find("new-catalog-model") is not null);
     handler.Fail = true;
     await pricing.RefreshAsync(true);
     Check("Network failure keeps last successful catalog", pricing.ModelCount == 5 && pricing.LastError is not null && pricing.Find("claude-sonnet-4-5")?.Prices.Input == .000004m);
     await pricing.RefreshAsync();
-    Check("Network failure does not trigger an immediate catalog retry", handler.Calls == 4);
+    Check("Network failure does not trigger an immediate catalog retry", handler.Calls == 3);
     priceTime = priceTime.AddMinutes(6); handler.Fail = false;
     await pricing.RefreshAsync();
-    Check("Network failure does not add a five-minute catalog retry", handler.Calls == 4 && pricing.LastError is not null);
+    Check("Network failure does not add a five-minute catalog retry", handler.Calls == 3 && pricing.LastError is not null);
     priceTime = priceTime.AddHours(23).AddMinutes(54);
     await pricing.RefreshAsync();
-    Check("Next daily catalog refresh recovers", handler.Calls == 5 && pricing.LastError is null);
+    Check("Next daily catalog refresh recovers", handler.Calls == 4 && pricing.LastError is null);
     var cacheBefore = File.ReadAllText(Path.Combine(priceDirectory, "model-prices.json"));
     handler.Json = "{\"data\":[]}";
     await pricing.RefreshAsync(true);
@@ -887,6 +948,8 @@ sealed class CatalogHandler(string json) : HttpMessageHandler
 sealed class FailingDesktopSources : IDesktopSources
 {
     public bool Fail { get; set; } = true;
+    public bool Unreadable { get; set; }
+    public bool AntigravityUnreadable => Unreadable;
     public string? ReadCursorToken(string database) => null;
     public Task<IReadOnlyList<LocalEndpoint>> FindAntigravityAsync(CancellationToken cancellation)
         => Fail ? Task.FromException<IReadOnlyList<LocalEndpoint>>(new System.Runtime.InteropServices.COMException()) : Task.FromResult<IReadOnlyList<LocalEndpoint>>([]);

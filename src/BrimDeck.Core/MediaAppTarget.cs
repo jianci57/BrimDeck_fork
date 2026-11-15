@@ -62,6 +62,8 @@ public static class MediaAppTarget
         if (lower.Contains("spotify")) return "Spotify";
         if (lower.Contains("itunes") || lower.Contains("applemusic")) return "Apple Music";
         if (lower.Contains("qiyi")) return "爱奇艺";
+        // QueMusic's lyrics are read from its local files, which needs its name whether or not Windows lists it.
+        if (lower == "bronekox.quemusic") return "QueMusic";
         string id = appId.Split('!')[0];
         if (lower.EndsWith(".exe", StringComparison.Ordinal)) return Path.GetFileNameWithoutExtension(id);
         return registered(appId) is { Length: > 0 } name ? name : id;

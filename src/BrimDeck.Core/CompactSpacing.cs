@@ -26,7 +26,9 @@ public static class CompactSpacing
     // parts: left to right. title: the index of the title, whose room this works out (-1 for none); titleText: the width it
     // wants (the collapsed row gives its share of the row, CompactMusicLayout.TextWidth, never its text's width, so the room does
     // not change with the line), and titleShortest the least room it keeps while there is any. scale: the height scale.
-    public static Placement Arrange(IReadOnlyList<Part> parts, int title, double titleText, double titleShortest, double width, double unit, double scale, double dpi)
+    // titleFirst: the room in DIPs the title takes before the gaps widen; NaN for TitleMax at the scale. A lyric that follows its
+    // line (DeckSettings.MusicLyricAutoWidth) gives its line's room, so a surface widened for the line gives the line that room.
+    public static Placement Arrange(IReadOnlyList<Part> parts, int title, double titleText, double titleShortest, double width, double unit, double scale, double dpi, double titleFirst = double.NaN)
     {
         dpi = double.IsFinite(dpi) && dpi > 0 ? dpi : 1;
         int n = parts?.Count ?? 0;
@@ -48,7 +50,7 @@ public static class CompactSpacing
         double titleRoom = 0;
         if (hasTitle)
         {
-            double cap = Math.Round(Px(TitleMax * CompactMusicLayout.SafeScale(scale)));
+            double cap = Math.Round(Px(double.IsFinite(titleFirst) && titleFirst > 0 ? titleFirst : TitleMax * CompactMusicLayout.SafeScale(scale)));
             titleRoom = Math.Floor(Math.Min(free, Math.Max(shortest, Math.Min(want, cap))));
             double rest = free - titleRoom;
             rest -= Extra(rest) * gaps;

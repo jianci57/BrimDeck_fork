@@ -37,7 +37,7 @@ public sealed partial class SettingsWindow
         SectionTitle(Loc.T("位置与大小", "Position and size"));
         Group([.. new[] { HotkeyKind.Move, HotkeyKind.Resize }.Select(HotkeyRow)]);
         SectionTitle(Loc.T("其他", "Other"));
-        Group([.. new[] { HotkeyKind.ClickThrough, HotkeyKind.OpenSettings, HotkeyKind.Refresh }.Select(HotkeyRow)]);
+        Group([.. new[] { HotkeyKind.ClickThrough, HotkeyKind.OpenSettings, HotkeyKind.Refresh, HotkeyKind.NextProfile }.Select(HotkeyRow)]);
     }
 
     private static string HotkeyTitle(HotkeyKind kind) => kind switch
@@ -51,6 +51,7 @@ public sealed partial class SettingsWindow
         HotkeyKind.Refresh => Loc.T("立即同步用量", "Sync usage now"),
         HotkeyKind.CycleStyle => Loc.T("切换刘海、胶囊或指示条", "Switch notch, capsule or bar"),
         HotkeyKind.LineStyle => Loc.T("切换指示条与刘海或胶囊", "Switch between bar and notch or capsule"),
+        HotkeyKind.NextProfile => Loc.T("切换到下一个配置", "Switch to the next profile"),
         _ => Loc.T($"展开/收起第 {PagePlace(kind) + 1} 个页面", $"Expand/collapse page {PagePlace(kind) + 1}")
     };
 
@@ -65,6 +66,7 @@ public sealed partial class SettingsWindow
         HotkeyKind.Refresh => Loc.T("立即读取一次 AI 用量与模型消耗。", "Reads AI usage and model consumption once, now."),
         HotkeyKind.CycleStyle => Loc.T("按刘海、胶囊、指示条的顺序循环切换收起样式。", "Cycles the collapsed style: notch, capsule, bar."),
         HotkeyKind.LineStyle => Loc.T("刘海或胶囊切换为指示条，再按一次切换回原来的样式。", "Turns the notch or capsule into the bar; press again to turn it back."),
+        HotkeyKind.NextProfile => Loc.T("按“显示器与配置”页的列表顺序，切换到下一个配置。", "Switches to the next profile, in the order of the Displays and profiles page."),
         _ => null
     };
 

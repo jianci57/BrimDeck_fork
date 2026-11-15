@@ -21,9 +21,9 @@ public sealed partial class SettingsWindow
     {
         bool syncing = false;
         var refresh = new List<Action>();
-        _refreshReadings = null;
+        _refreshReadings = null; _refreshExpanded = null;
         // Shows what the settings hold in place: the colors, the preset they match, and the readings' colors in the table.
-        void Refresh() { syncing = true; try { foreach (var update in refresh) update(); } finally { syncing = false; } _refreshReadings?.Invoke(); }
+        void Refresh() { syncing = true; try { foreach (var update in refresh) update(); } finally { syncing = false; } _refreshReadings?.Invoke(); _refreshExpanded?.Invoke(); }
         // A color per reading, four to a row.
         var roles = KeepPreview(new UniformGrid { Columns = 4, Width = Loc.IsEnglish ? 600 : 440, Margin = new Thickness(0, 6, 0, 6) });
         foreach (var role in Enum.GetValues<MonitorRole>()) roles.Children.Add(SwatchCell(RoleName(role), RoleHelp(role), () => RoleSwatch(role, Refresh), refresh));
@@ -59,33 +59,30 @@ public sealed partial class SettingsWindow
         SectionTitle(Loc.T("通用", "General"));
         Group(Row(Loc.T("各项颜色", "Reading colors"), roles),
             QuickRow(Loc.T("快捷预设", "Presets"), presets),
-            GpuChoiceRow());
+            GpuChoiceRow(),
+            MusicChoice(Loc.T("核心显示", "Core display"), S.CoreDisplay,
+                [(CoreDisplay.Auto, Loc.T("自动", "Auto")), (CoreDisplay.Columns, Loc.T("柱状", "Columns")), (CoreDisplay.Matrix, Loc.T("点阵", "Dot matrix"))],
+                v => Change(s => s.CoreDisplay = v), keepPreview: true,
+                help: Loc.T("自动：核心较少时用柱状，柱子多到看不清时用点阵。",
+                    "Auto: columns while there are few cores, the dot matrix when there are too many columns to read.")),
+            MusicChoice(Loc.T("流量统计时长", "Traffic period"), S.MonitorTrafficPeriod,
+                [(TrafficPeriod.Today, TrafficPeriods.Name(TrafficPeriod.Today)), (TrafficPeriod.Day, TrafficPeriods.Name(TrafficPeriod.Day)),
+                    (TrafficPeriod.Week, TrafficPeriods.Name(TrafficPeriod.Week)), (TrafficPeriod.Month, TrafficPeriods.Name(TrafficPeriod.Month))],
+                v => Change(s => s.MonitorTrafficPeriod = v),
+                help: Loc.T("与 Windows 流量统计一致，最近的流量稍后计入。当天从 0 点算起。",
+                    "Matches Windows' data usage; recent traffic is counted a little later. Today counts from midnight.")));
         CompactMonitorOptions();
         SectionTitle(Loc.T("展开时", "When expanded"));
-        // The choices that show themselves on the monitor page keep its preview open, so switching between them does not collapse it first.
-        Group(MusicChoice(Loc.T("主视图", "Large gauge"), S.MonitorMain, [(MonitorMain.Cpu, "CPU"), (MonitorMain.Gpu, "GPU")], v => Resize(s => s.MonitorMain = v, DeckPage.Monitor), keepPreview: true),
-            MusicChoice(Loc.T("刷新间隔", "Update interval"), S.MonitorInterval, [(1, Loc.T("1 秒", "1 s")), (2, Loc.T("2 秒", "2 s"))], v => Change(s => s.MonitorInterval = v)),
+        // What the page shows (chips, the temperatures among them, and a sketch of the page whose blocks are dragged to order it), then
+        // how the process list looks and how often the page updates. The frame rate's permission note and the stopped sensors' notes
+        // stay under the chips. Which of the CPU and the GPU is large is chosen on the page, by clicking the small one. The choices
+        // that show themselves on the monitor page keep its preview open, so switching between them does not collapse it first.
+        var (chips, sketch) = ExpandedOptions();
+        Group(WithSensorStops(WithFrameAccess(chips, () => ExpandedOf(S, ExpandedItem.Frames).Visible && !Reading(S, CompactMonitorItems.Frames).Visible)), sketch,
             MusicChoice(Loc.T("进程行", "Process rows"), S.MonitorProcessView,
                 [(MonitorProcessView.Auto, Loc.T("自动", "Auto")), (MonitorProcessView.Compact, Loc.T("简略", "Compact")), (MonitorProcessView.Detailed, Loc.T("详细", "Detailed"))],
                 v => Resize(s => s.MonitorProcessView = v, DeckPage.Monitor), keepPreview: true),
-            Toggle(Loc.T("显示进程列表", "Show the process list"), S.MonitorProcesses, v => Resize(s => s.MonitorProcesses = v, DeckPage.Monitor),
-                help:
-                Loc.T("按 CPU 或内存列出占用最高的应用。", "Lists the apps using the most CPU or memory."),
-                keepPreview: true),
-            Toggle(Loc.T("显示硬盘", "Show drives"), S.MonitorStorage, v => Resize(s => s.MonitorStorage = v, DeckPage.Monitor),
-                help:
-                Loc.T("不含 U 盘、移动硬盘、网络盘和光驱。", "USB, external, network and optical drives are not included."),
-                keepPreview: true),
-            Toggle(Loc.T("显示功耗与电池", "Show power and battery"), S.MonitorPower, v => Resize(s => s.MonitorPower = v, DeckPage.Monitor),
-                help:
-                Loc.T("在硬盘下方显示整机功耗和本机电池。只在面板展开到系统监控页时读取。",
-                    "Shows system power and this PC's battery under the drives. Read only while the panel is open on the system monitor page."),
-                keepPreview: true),
-            WithFrameAccess(Toggle(Loc.T("显示帧率", "Show the frame rate"), S.MonitorFrames, v => { Resize(s => s.MonitorFrames = v, DeckPage.Monitor); if (v) AskFrameAccess(); else FrameAccessChanged?.Invoke(); },
-                help:
-                Loc.T("在网速下方显示前台程序的帧率、程序名称和所在显示器的刷新率；前台程序不在绘制时，显示最近一个在绘制的程序。只在面板展开到系统监控页时读取。首次开启时需要授权。",
-                    "Shows the frame rate of the program in front under the network rates, with its name and its display's refresh rate; while it draws nothing, the last program that did. Read only while the panel is open on the system monitor page. Needs permission the first time."),
-                keepPreview: true), () => S.MonitorFrames && !Reading(S, CompactMonitorItems.Frames).Visible),
+            MusicChoice(Loc.T("刷新间隔", "Update interval"), S.MonitorInterval, [(1, Loc.T("1 秒", "1 s")), (2, Loc.T("2 秒", "2 s"))], v => Change(s => s.MonitorInterval = v)),
             WithFrameAccess(Toggle(Loc.T("显示 1% low", "Show the 1% low"), S.MonitorFps1Low, v => Change(s => s.MonitorFps1Low = v),
                 help:
                 Loc.T("在帧率数字旁显示最差的 1% 帧的平均帧率：取最近一个读数间隔内（默认 1 秒）的帧间隔，从慢到快排序，取最差 1% 求平均后换算成帧率（60 FPS 的 1 秒约 60 帧，最差 1% 即最卡的那 1 帧）。帧率开着才有读数。",
@@ -105,12 +102,7 @@ public sealed partial class SettingsWindow
                 help:
                 Loc.T("显示所选渲染进程在本读数间隔内的 GPU 忙时 ÷ 所选呈现链的帧数（毫秒），并行执行的重叠时间只算一次。这是窗口均值，包含该进程的其他 GPU 工作，不是逐帧测量；硬件加速 GPU 调度使用队列时长估计。数据不完整时显示破折号。帧率开着才有读数。",
                         "Shows the selected rendering process's GPU busy time divided by its selected presentation chain's frames over the reading, in milliseconds. Overlapping execution counts once. This window average includes other GPU work in that process; it is not a per-frame measurement. Hardware-accelerated scheduling uses queue duration as an estimate. Incomplete data shows a dash. It reads nothing unless the frame rate is on.")),
-                () => S.MonitorFrames && !Reading(S, CompactMonitorItems.Frames).Visible),
-            WithSensorStops(Toggle(Loc.T("显示温度", "Show temperatures"), S.MonitorTemperatures, v => Resize(s => s.MonitorTemperatures = v, DeckPage.Monitor),
-                help:
-                Loc.T("读不到的温度不显示。CPU 温度由主板固件提供，许多电脑没有这项数据；有的电脑读到的是主板的温度，不是 CPU 本身的温度。",
-                    "Temperatures that cannot be read are not shown. The CPU temperature comes from the motherboard firmware. Many PCs do not provide it, and on some it is the motherboard's temperature rather than the CPU's."),
-                keepPreview: true)));
+                () => S.MonitorFrames && !Reading(S, CompactMonitorItems.Frames).Visible));
         SectionTitle(Loc.T("来源", "Sources"));
         Group(MusicChoice(Loc.T("显卡占用率", "GPU usage"), S.MonitorGpuUsage,
             [(GpuUsageSource.Driver, Loc.T("显卡驱动", "GPU driver")), (GpuUsageSource.Windows, "Windows")], v => Change(s => s.MonitorGpuUsage = v),
@@ -385,8 +377,8 @@ public sealed partial class SettingsWindow
         var levels = KeepPreview(new UniformGrid { Columns = 2, Width = Loc.IsEnglish ? 300 : 220, Margin = new Thickness(0, 6, 0, 6) });
         foreach (var level in new[] { MemoryLevel.Elevated, MemoryLevel.Critical })
             levels.Children.Add(SwatchCell(LevelName(level), LevelHelp(level), () => LevelSwatch(level, Refresh), refresh, info: true));
-        var status = Row(Loc.T("状态颜色", "Level colors"), levels, help: () => Loc.T("用于收起时的读数；展开时只有温度会变色，占用不变色。",
-            "Used by the collapsed readings; on the expanded page only temperatures change color, usage does not."));
+        var status = Row(Loc.T("状态颜色", "Level colors"), levels, help: () => Loc.T("用于收起时的读数；展开时只有温度和点阵里的核心会变色，其余占用不变色。",
+            "Used by the collapsed readings; on the expanded page only temperatures and the cores of the dot matrix change color, other usage does not."));
         // How the dials and the core columns move to a new reading; the figures always take it at once.
         var smoothing = MusicChoice(Loc.T("平滑过渡", "Smoothing"), S.CompactSmoothing,
             [(CompactSmoothing.Off, Loc.T("不平滑", "Off")), (CompactSmoothing.Ten, Loc.T("10 帧", "10 fps")), (CompactSmoothing.Thirty, Loc.T("30 帧", "30 fps"))],
@@ -425,6 +417,7 @@ public sealed partial class SettingsWindow
     {
         CompactMonitorItems.Columns => Loc.T("核心柱", "Core columns"), CompactMonitorItems.Memory => Loc.T("内存", "Memory"), CompactMonitorItems.Gpu => "GPU",
         CompactMonitorItems.Download => Loc.T("下载", "Download"), CompactMonitorItems.Upload => Loc.T("上传", "Upload"),
+        CompactMonitorItems.DownloadTotal => Loc.T("累计下载", "Downloaded"), CompactMonitorItems.UploadTotal => Loc.T("累计上传", "Uploaded"),
         CompactMonitorItems.Storage => Loc.T("硬盘", "Drives"), CompactMonitorItems.Power => Loc.T("整机功耗", "System power"),
         CompactMonitorItems.Charge => Loc.T("本机电池", "This PC's battery"), CompactMonitorItems.Frames => Loc.T("帧率", "Frame rate"),
         CompactMonitorItems.Battery => Loc.T("设备电量", "Device batteries"), _ => "CPU"
@@ -469,7 +462,7 @@ public sealed partial class SettingsWindow
         // The figure switch is for the rings only; the core columns (no figure) and the rates (always text) show it off and dimmed.
         bool choice = CompactMonitor.HasValueChoice(item);
         var value = new CheckBox { Style = (Style)FindResource("SettingsToggle"), Padding = new Thickness(0), HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center, IsEnabled = choice, IsChecked = item is CompactMonitorItems.Download or CompactMonitorItems.Upload or CompactMonitorItems.Storage or CompactMonitorItems.Power or CompactMonitorItems.Charge or CompactMonitorItems.Battery or CompactMonitorItems.Frames };
+            VerticalAlignment = VerticalAlignment.Center, IsEnabled = choice, IsChecked = item is CompactMonitorItems.Download or CompactMonitorItems.Upload or CompactMonitorItems.DownloadTotal or CompactMonitorItems.UploadTotal or CompactMonitorItems.Storage or CompactMonitorItems.Power or CompactMonitorItems.Charge or CompactMonitorItems.Battery or CompactMonitorItems.Frames };
         AutomationProperties.SetName(value, Loc.T("显示数值 ", "Show figure ") + name);
         if (!choice)
         {
@@ -482,6 +475,7 @@ public sealed partial class SettingsWindow
                 CompactMonitorItems.Battery => Loc.T("在“设置 › 设备”中选择显示哪些设备、是否显示数字和顺序。", "Choose which devices show, with or without figures, and their order under Settings › Devices."),
                 CompactMonitorItems.Frames => Loc.T("前台程序每秒绘制的帧数；前台程序不在绘制时，显示最近一个在绘制的程序。首次开启时需要授权，未授权时不显示。",
                     "The frames the program in front draws each second; while it draws nothing, the last program that did. Needs permission the first time; hidden until then."),
+                CompactMonitorItems.DownloadTotal or CompactMonitorItems.UploadTotal => Loc.T("统计时长在“通用”中设置。", "Set the period under General."),
                 _ => Loc.T("下载和上传始终显示速率。", "Download and upload always show their rate.")
             };
             ToolTipService.SetShowOnDisabled(value, true);
@@ -536,7 +530,7 @@ public sealed partial class SettingsWindow
         ToolTipService.SetShowOnDisabled(select, true);
         AutomationProperties.SetName(select, role);
 
-        static string FigureName(string figure) => figure == CompactFigures.Usage ? Loc.T("占用", "Usage") : Loc.T("温度", "Temperature");
+        static string FigureName(string figure) => figure == CompactFigures.Usage ? Loc.T("占用", "Usage") : figure == CompactFigures.Vram ? Loc.T("显存", "VRAM") : Loc.T("温度", "Temperature");
         refresh.Add(() =>
         {
             var reading = Reading(S, item);
@@ -603,12 +597,14 @@ public sealed partial class SettingsWindow
             var reading = Reading(S, item);
             var figures = CompactFigures.Of(reading);
             Header(Loc.T("数值", "Figures"));
-            foreach (var figure in new[] { CompactFigures.Usage, CompactFigures.Temperature })
+            foreach (var figure in CompactFigures.Offered(item))
             {
                 bool on = figures.Contains(figure);
                 string? help = figure == CompactFigures.Temperature
                     ? drives ? Loc.T("固态硬盘的温度，显示在已用空间下方；机械硬盘不显示。", "A solid-state drive's temperature, under its space in use; not shown for hard disks.")
                         : Loc.T("显示在占用下方；读不到温度的电脑上不显示。", "Shown under the usage; not shown on a PC whose temperature cannot be read.")
+                    : figure == CompactFigures.Vram
+                        ? Loc.T("专用显存已用的比例，与其他数值排在同一行；读不到显存的显卡上不显示。", "The share of dedicated video memory in use, on the same line as the other figures; not shown for a GPU whose memory cannot be read.")
                     : null;
                 Entry(FigureName(figure), on, on && figures.Count == 1, help, () =>
                 {
@@ -618,10 +614,13 @@ public sealed partial class SettingsWindow
                 });
             }
             Header(Loc.T("排列", "Layout"));
-            string? single = figures.Count < 2 ? Loc.T("同时选择占用和温度时可用。", "Available when both usage and temperature are chosen.") : null;
+            string? single = figures.Contains(CompactFigures.Vram) ? Loc.T("选择显存时，数值始终排在同一行。", "With VRAM chosen, the figures always sit on one line.")
+                : figures.Count < 2 ? Loc.T("同时选择占用和温度时可用。", "Available when both usage and temperature are chosen.") : null;
             foreach (var inLine in new[] { false, true })
             {
-                bool on = reading.FiguresInLine == inLine;
+                // The arrangement that holds is ticked: with VRAM chosen the figures sit on one line whatever was saved (the saved choice
+                // comes back when VRAM is unchosen).
+                bool on = (reading.FiguresInLine || figures.Contains(CompactFigures.Vram)) == inLine;
                 Entry(inLine ? Loc.T("同一行", "One line") : Loc.T("分两行", "Two lines"), on, false, null,
                     () => edit(s => Reading(s, item).FiguresInLine = inLine), single);
             }

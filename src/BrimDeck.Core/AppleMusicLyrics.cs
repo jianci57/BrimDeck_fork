@@ -13,8 +13,6 @@ public sealed partial class LyricsService
     public const string AppleSource = "Apple Music";
     // How long before the song's start its lyric file may have been written.
     private static readonly TimeSpan AppleCacheWindow = TimeSpan.FromSeconds(20);
-    // A shorter pause between lines (most are under half a second, measured) keeps the line shown rather than a note.
-    private const double AppleGap = 5;
     private const int AppleLyricsIdLimit = 1000;
     private readonly Func<IEnumerable<string>> _appleCacheRoots;
     // The lyric ID each song was matched to, latest match last, kept in _appleLyricsFile for songs played again after a restart.
@@ -207,8 +205,9 @@ public sealed partial class LyricsService
         for (int i = 0; i < timed.Length; i++)
         {
             var row = timed[i]; lines.Add(new(row.Start, row.Text));
-            // A line that ends AppleGap or more before the next one starts leaves a gap, shown as a blank line.
-            if (row.End is { } end && end > row.Start && (i == timed.Length - 1 || timed[i + 1].Start - end >= AppleGap))
+            // A line that ends Lyrics.Gap or more before the next one starts leaves a gap, shown as a blank line. Most pauses
+            // between Apple's lines are under half a second (measured).
+            if (row.End is { } end && end > row.Start && (i == timed.Length - 1 || timed[i + 1].Start - end >= Lyrics.Gap))
                 lines.Add(new(end, ""));
         }
         return (new(lines, true, AppleSource), length);

@@ -56,6 +56,8 @@ internal static class MediaAppTargetTests
             MediaAppTarget.DisplayName("cloudmusic.exe", Listed) == "网易云音乐" && MediaAppTarget.DisplayName("Chrome", Listed) == "Google Chrome"
             && MediaAppTarget.DisplayName("BroNekoX.QueMusic", Listed) == "QueMusic" && MediaAppTarget.DisplayName("foobar2000.exe", Listed) == "foobar2000"
             && MediaAppTarget.DisplayName("Vendor.Product.Player", Listed) == "Vendor.Product.Player");
+        check("QueMusic keeps its name when Windows lists none, so its local lyrics are found",
+            MediaAppTarget.DisplayName("BroNekoX.QueMusic", _ => null) == "QueMusic");
         check("A packaged application id names its package family",
             new MediaAppOwner(null, "x", "SpotifyAB.SpotifyMusic_zpdnekdrzrea0!Spotify").PackageFamily == "SpotifyAB.SpotifyMusic_zpdnekdrzrea0"
             && new MediaAppOwner(null, "chrome", "Chrome").PackageFamily is null);

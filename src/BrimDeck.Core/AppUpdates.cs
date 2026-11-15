@@ -113,6 +113,8 @@ public sealed class AppUpdates
                 "Administrator rights were not granted, so this version was kept. You can download the new portable version from GitHub and replace this folder with it."),
             RestartFailure.Failed => Loc.T("无法替换程序文件，已保留当前版本。可以前往 GitHub 下载新的免安装版本，解压后替换当前文件夹。",
                 "The program files could not be replaced, so this version was kept. You can download the new portable version from GitHub and replace this folder with it."),
+            RestartFailure.Installer => Loc.T("新版本未能安装，已恢复当前版本。可以重试，或前往 GitHub 下载安装包。",
+                "The new version could not be installed, so this version was restored. Try again, or download the installer from GitHub."),
             _ => null
         };
     }

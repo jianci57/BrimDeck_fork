@@ -74,9 +74,7 @@ public partial class SettingsWindow
         Group(Row(Loc.T("预警阈值", "Warning threshold"), warning, help: () => Loc.T("电量不高于此值时显示为偏低，使用预警颜色。", "At or under this level a battery shows as getting low, in its warning color.")),
             Row(Loc.T("告警阈值", "Critical threshold"), low, help: () => Loc.T("电量不高于此值时显示为低电量，使用告警颜色。", "At or under this level a battery shows as low, in its critical color.")));
 
-        SectionTitle(Loc.T("设备", "Devices"), help: () => Loc.T(
-            "支持：Windows 读取的蓝牙电量（蓝牙耳机、低功耗蓝牙键鼠与笔，与 Windows 设置中显示的一致）；罗技 Unifying、Bolt、Lightspeed 接收器与有线设备；雷蛇无线鼠标；赛睿 Arctis 与 HyperX Cloud 无线耳机；ATK、VXE、VGN、迈从、Endgame Gear、VAXEE、英菲克的 2.4G 鼠标与键盘；Xbox 与 PlayStation 手柄；AirPods 与 Beats（左右耳与充电盒）；以及带标准 HID 电量的设备。其他品牌的 2.4G 接收器协议未公开，切到蓝牙模式即可显示。",
-            "Supported: the Bluetooth battery Windows reads (Bluetooth headphones and Bluetooth LE keyboards, mice and pens, as Windows Settings shows it); Logitech Unifying, Bolt and Lightspeed receivers and cabled devices; Razer wireless mice; SteelSeries Arctis and HyperX Cloud wireless headsets; 2.4 GHz mice and keyboards by ATK, VXE, VGN, MCHOSE, Endgame Gear, VAXEE and Inphic; Xbox and PlayStation controllers; AirPods and Beats (each bud and the case); and devices with the standard HID battery usages. Other brands' 2.4 GHz receivers do not publish their protocol; in Bluetooth mode they show."));
+        SectionTitle(Loc.T("设备", "Devices"));
         var headings = DeviceColumns(); headings.Height = 34;
         AddHeadings(headings, new[]
         {
@@ -84,7 +82,8 @@ public partial class SettingsWindow
             (Loc.T("充电", "Charging"), 5, Loc.T("充电时圆环的颜色。", "The ring's color while charging.")),
             (Loc.T("预警", "Warning"), 6, Loc.T("电量不高于预警阈值时的颜色。", "The color at or under the warning threshold.")),
             (Loc.T("告警", "Critical"), 7, Loc.T("电量不高于告警阈值时的颜色。", "The color at or under the critical threshold.")),
-            (Loc.T("收起时", "Collapsed"), 8, ""), (Loc.T("展开页", "Page"), 9, "")
+            (Loc.T("收起时", "Collapsed"), 8, ""), (Loc.T("展开页", "Page"), 9, ""),
+            (Loc.T("读取", "Read"), 10, Loc.T("关闭后不再向该设备发送任何请求。读取时设备出现异常会自动关闭。", "Turned off, nothing is sent to the device. It turns off by itself if the device misbehaves while read."))
         });
         var nameHeading = headings.Children.OfType<FrameworkElement>().First(heading => Grid.GetColumn(heading) == 2);
         nameHeading.HorizontalAlignment = HorizontalAlignment.Left; nameHeading.Margin = new Thickness(4, 0, 6, 0);
@@ -113,9 +112,9 @@ public partial class SettingsWindow
     private static Grid DeviceColumns()
     {
         var grid = new Grid { Background = Brushes.Transparent };
-        // The handle, the ring, the name and the line under it, the forget button, the four colors, the two switches.
+        // The handle, the ring, the name and the line under it, the forget button, the four colors, the three switches.
         var swatch = SwatchColumn;
-        foreach (var width in new[] { new GridLength(28), new GridLength(44), new GridLength(1, GridUnitType.Star), GridLength.Auto, swatch, swatch, swatch, swatch, new GridLength(68), new GridLength(64) })
+        foreach (var width in new[] { new GridLength(28), new GridLength(44), new GridLength(1, GridUnitType.Star), GridLength.Auto, swatch, swatch, swatch, swatch, new GridLength(68), new GridLength(64), new GridLength(52) })
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = width });
         return grid;
     }
@@ -147,7 +146,7 @@ public partial class SettingsWindow
     {
         var all = _app.Devices?.All ?? [];
         var listed = DeviceLists.Remember(all, S.DeviceChoices);
-        string key = string.Join("|", listed.Select(choice => $"{choice.Key}={choice.Name}={choice.Label}={choice.Collapsed}={choice.Expanded}={choice.Color}={choice.ChargeColor}={choice.WarningColor}={choice.CriticalColor}={all.Any(device => device.Key == choice.Key)}"))
+        string key = string.Join("|", listed.Select(choice => $"{choice.Key}={choice.Name}={choice.Label}={choice.Collapsed}={choice.Expanded}={choice.Color}={choice.ChargeColor}={choice.WarningColor}={choice.CriticalColor}={ReadState(all.FirstOrDefault(device => device.Key == choice.Key), choice)}={all.Any(device => device.Key == choice.Key)}"))
             + "#" + (_app.Devices?.Settled == true);
         if (key == _deviceRowsKey && rows.Children.Count > 0)
         {
@@ -256,6 +255,23 @@ public partial class SettingsWindow
         var collapsed = Switch(choice.Collapsed, Loc.T("收起时显示", "Show when collapsed"), (c, on) => c.Collapsed = on, 8);
         collapsed.Opacity = S.NotchDevices || S.CapsuleDevices ? 1 : .4;
         Switch(choice.Expanded, Loc.T("在展开页显示", "Show on the page"), (c, on) => c.Expanded = on, 9);
+        // Only the readers that send requests or listen (DeviceReadSwitches). The switch is the hardware's: every remembered key
+        // of it takes it. A device stopped for misbehaving shows off, and turned on is tried afresh (DeviceReadBook.Resume).
+        if (ReadSwitchable(device, choice) is { } hardware)
+        {
+            var reading = new CheckBox { Style = (Style)FindResource("SettingsToggle"), Padding = new Thickness(0), HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center, IsChecked = ReadState(device, choice) == true };
+            AutomationProperties.SetName(reading, Loc.T("读取电量", "Read battery") + " " + name);
+            void SetReading(bool on) => EditDevices(choices =>
+            {
+                DeviceLists.Find(choices, choice.Key)!.Hardware ??= hardware;
+                DeviceLists.SetRead(choices, hardware, on);
+                if (on) DeviceReadStore.Book.Resume(hardware);
+            });
+            reading.Checked += (_, _) => SetReading(true);
+            reading.Unchecked += (_, _) => SetReading(false);
+            Grid.SetColumn(reading, 10); row.Children.Add(reading);
+        }
 
         if (device is not null) _deviceDetails[choice.Key] = (detail, ring);
         AttachDrag(handle, name, () => rows, DeviceRowHeight, list =>
@@ -276,9 +292,22 @@ public partial class SettingsWindow
         Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, RefreshDeviceRows);
     }
 
+    // The hardware whose reading the user can turn off: a device read through its USB collections (a choice keeps hardware
+    // only for those, DeviceLists.Remember).
+    private static string? ReadSwitchable(DeviceBattery? device, DeviceChoice choice)
+        => device is null ? choice.Hardware : DeviceLists.ReadSwitchable(device.Source) ? device.Hardware ?? choice.Hardware : null;
+    // Whether the device is read: not turned off for its hardware by any of its keys, and not stopped for misbehaving; null
+    // where it has no switch.
+    private bool? ReadState(DeviceBattery? device, DeviceChoice choice)
+        => ReadSwitchable(device, choice) is { } hardware
+            ? !DeviceLists.ReadOff(S.DeviceChoices).Contains(hardware, StringComparer.OrdinalIgnoreCase) && !DeviceReadStore.Book.Stopped(hardware) : null;
+
     private static string DeviceDetail(DeviceBattery device) => string.Join(" · ", new[] { Devices.KindName(device.Kind), Devices.SourceName(device.Source),
         device.Parts.Count > 0 ? string.Join("  ", device.Parts.Select(part => Devices.PartName(part.Part) + " " + Devices.Figure(part.Percent)))
-            : device.Lowest is null ? Loc.T("未报告电量", "No battery reported") : Devices.Figure(device.Lowest) }
+            : device.Lowest is not null ? Devices.Figure(device.Lowest)
+            : device.Hardware is { } hardware && DeviceReadStore.Book.Stopped(hardware) ? Loc.T("读取时设备异常，已停止读取", "Stopped: the device misbehaved while read")
+            : device.Hardware is { } off && DeviceReadSwitches.IsOff(off) ? Loc.T("已关闭读取", "Reading off")
+            : Loc.T("未报告电量", "No battery reported") }
         .Concat(device.Charging ? [Loc.T("充电中", "Charging")] : []));
 
     private void DeviceSizeControls()

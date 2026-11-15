@@ -17,6 +17,8 @@ namespace BrimDeck;
 // and a move icon covers its content (MoveLook).
 internal sealed class ResizeGripLayer : FrameworkElement
 {
+    // The look of the panel this element is drawn in (PanelLook.Of); the main look outside a panel.
+    private PanelLook Look => PanelLook.Of(this);
     public enum Form { None, Panel, Compact, Move }
 
     private static readonly Brush Catch = Frozen(new SolidColorBrush(Color.FromArgb(1, 0, 0, 0)));
@@ -133,10 +135,10 @@ internal sealed class ResizeGripLayer : FrameworkElement
             drawing.DrawRectangle(Catch, null, new Rect(r.X - MoveCatch, r.Y - MoveCatch, Math.Max(0, r.Width) + 2 * MoveCatch, Math.Max(0, r.Height) + 2 * MoveCatch));
             double shown = Lit(_moveShown, now);
             drawing.PushTransform(new TranslateTransform(r.X, r.Y));
-            MoveLook.Surface(drawing, _moveOutline, shown, veil: true);
-            MoveLook.Outline(drawing, _moveOutline, shown, _moveHangs);
+            MoveLook.Surface(drawing, _moveOutline, shown, veil: true, look: Look);
+            MoveLook.Outline(drawing, _moveOutline, shown, _moveHangs, look: Look);
             double size = MoveLook.IconSize(_moveThin ? 28 : Math.Min(r.Width, r.Height));
-            MoveLook.Icon(drawing, new Point(r.Width / 2, _moveThin ? r.Height + 4 + size / 2 : r.Height / 2), size, shown);
+            MoveLook.Icon(drawing, new Point(r.Width / 2, _moveThin ? r.Height + 4 + size / 2 : r.Height / 2), size, shown, look: Look);
             drawing.Pop();
             return;
         }
@@ -199,18 +201,20 @@ internal sealed class ResizeGripLayer : FrameworkElement
 
     // The theme's accent, unless it would hardly show on the panel's surface (a theme whose accent is its surface color);
     // then its primary text color. Light themes glow less, where a soft glow reads as a smudge, and lean on the line instead.
-    internal static string Accent => ColorMath.Distance(PanelTheme.Hex("accent"), PanelTheme.Hex("surface")) < 60 ? PanelTheme.Hex("textPrimary") : PanelTheme.Hex("accent");
-    internal static double GlowStrength => PanelTheme.Current.IsDark ? 1 : .55;
+    internal static string AccentOf(PanelLook look) => ColorMath.Distance(look.Hex("accent"), look.Hex("surface")) < 60 ? look.Hex("textPrimary") : look.Hex("accent");
+    internal static double GlowOf(PanelLook look) => look.Current.IsDark ? 1 : .55;
+    private string Accent => AccentOf(Look);
+    private double GlowStrength => GlowOf(Look);
     // A thin rim of the surface color keeps a bar apart from what is under it: the panel's content, or whatever is behind the
     // window beside the collapsed surface.
-    private static Pen Rim => _rim is { } rim && rim.Color == PanelTheme.Hex("surface") ? rim.Pen : (_rim = (PanelTheme.Hex("surface"), Frozen(new Pen(UI.Brush(PanelTheme.Hex("surface")), 1)))).Value.Pen;
+    private Pen Rim => _rim is { } rim && rim.Color == Look.Hex("surface") ? rim.Pen : (_rim = (Look.Hex("surface"), Frozen(new Pen(UI.Brush(Look.Hex("surface")), 1)))).Value.Pen;
     private static (string Color, Pen Pen)? _rim;
 
     // A bar's ends are round across its thickness, whichever way it lies: the bottom handle is the sides' turned, not an ellipse.
     private static double Round(Rect bar) => Math.Min(bar.Width, bar.Height) / 2;
 
     // A bar with a soft glow: wider, fainter copies behind it.
-    private static void Bar(DrawingContext drawing, Rect bar, double opacity, double lit)
+    private void Bar(DrawingContext drawing, Rect bar, double opacity, double lit)
     {
         drawing.PushOpacity(opacity);
         if (lit > .01)
@@ -229,7 +233,7 @@ internal sealed class ResizeGripLayer : FrameworkElement
         drawing.PushOpacity(.55);
         drawing.DrawRoundedRectangle(null, Rim, rim, Round(rim), Round(rim));
         drawing.Pop();
-        drawing.DrawRoundedRectangle(UI.Brush(UI.Tertiary), null, bar, Round(bar), Round(bar));
+        drawing.DrawRoundedRectangle(UI.Brush(Look.Tertiary), null, bar, Round(bar), Round(bar));
         drawing.PushOpacity(lit);
         drawing.DrawRoundedRectangle(UI.Brush(Accent), null, bar, Round(bar), Round(bar));
         drawing.Pop();
@@ -271,7 +275,7 @@ internal sealed class ResizeGripLayer : FrameworkElement
         Fades[(color, vertical)] = brush;
         return brush;
     }
-    private static void Glow(DrawingContext drawing, Point from, Point to, int outside, double lit)
+    private void Glow(DrawingContext drawing, Point from, Point to, int outside, double lit)
     {
         bool vertical = from.X == to.X;
         double length = vertical ? to.Y - from.Y : to.X - from.X;
@@ -317,7 +321,7 @@ internal sealed class ResizeGripLayer : FrameworkElement
         double opacity = Lit(_badge, now);
         if (opacity < .01 || _label.Length == 0) return;
         double ppd = MonitorDraw.PixelsPerDip(this), size = _form == Form.Panel ? 12 : 11;
-        var text = MonitorDraw.Text(_label, size, UI.Primary, ppd, strong: true);
+        var text = MonitorDraw.Text(_label, size, Look.Primary, ppd, strong: true);
         double width = Math.Ceiling(text.WidthIncludingTrailingWhitespace) + 16, height = Math.Ceiling(size * 1.7);
         // Turned upright, the chip takes its own width and height on the screen: its place is worked out with them swapped when
         // the frame turns them, and it is then turned about its centre.
@@ -331,7 +335,7 @@ internal sealed class ResizeGripLayer : FrameworkElement
         drawing.PushTransform(new MatrixTransform(upright.M11, upright.M12, upright.M21, upright.M22,
             centre.X - (centre.X * upright.M11 + centre.Y * upright.M21), centre.Y - (centre.X * upright.M12 + centre.Y * upright.M22)));
         drawing.PushOpacity(opacity);
-        drawing.DrawRoundedRectangle(UI.Brush(PanelTheme.Hex("tooltip")), new Pen(UI.Brush(PanelTheme.Hex("tooltipBorder")), 1), box, height / 2, height / 2);
+        drawing.DrawRoundedRectangle(UI.Brush(Look.Hex("tooltip")), new Pen(UI.Brush(Look.Hex("tooltipBorder")), 1), box, height / 2, height / 2);
         drawing.DrawText(text, new Point(box.X + 8, box.Y + (height - text.Height) / 2));
         drawing.Pop(); drawing.Pop();
     }

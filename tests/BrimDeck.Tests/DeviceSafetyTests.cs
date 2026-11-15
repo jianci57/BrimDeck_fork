@@ -20,12 +20,11 @@ static class DeviceSafetyTests
         bool Aside(int vendor, params string[] processes) => VendorSoftware.BrandOf(vendor) is { } brand && VendorSoftware.Running(processes).Contains(brand);
 
         string[] desktop = ["explorer.exe", "chrome.exe", "BrimDeck.exe", "steam.exe", "Discord.exe", "svchost.exe"];
-        check("Vendor software: nothing of the four brands among ordinary processes, so every brand is read",
-            !Aside(Razer.Vendor, desktop) && !Aside(Dongles.EndgameVendor, desktop) && !Aside(Dongles.VaxeeVendor, desktop) && !Aside(Dongles.InphicVendor, desktop) && !Aside(Dongles.InphicWireless, desktop));
-        check("Vendor software: Razer stands aside for Synapse 3 and 4 and their background parts",
-            Aside(Razer.Vendor, [.. desktop, "Razer Synapse.exe"]) && Aside(Razer.Vendor, [.. desktop, "Razer Synapse 4.exe"])
-            && Aside(Razer.Vendor, [.. desktop, "RazerCentralService.exe"]) && Aside(Razer.Vendor, [.. desktop, "Razer Synapse Service.exe"]) && Aside(Razer.Vendor, [.. desktop, "RazerAppEngine.exe"])
-            && Aside(Razer.Vendor, ["RAZERSYNAPSE.EXE"]));
+        check("Vendor software: nothing of the three brands among ordinary processes, so every brand is read",
+            !Aside(Dongles.EndgameVendor, desktop) && !Aside(Dongles.VaxeeVendor, desktop) && !Aside(Dongles.InphicVendor, desktop) && !Aside(Dongles.InphicWireless, desktop));
+        check("Vendor software: Razer is read with Synapse 3 and 4 and their background parts running",
+            !Aside(Razer.Vendor, [.. desktop, "Razer Synapse.exe", "Razer Synapse 4.exe", "RazerCentralService.exe", "Razer Synapse Service.exe", "RazerAppEngine.exe"])
+            && VendorSoftware.BrandOf(Razer.Vendor) is null);
         check("Vendor software: Endgame Gear, VAXEE and Inphic stand aside for their own programs and not for each other's",
             Aside(Dongles.EndgameVendor, "EndgameGearConfigurator.exe") && !Aside(Dongles.EndgameVendor, "Razer Synapse.exe", "VAXEE Tool.exe")
             && Aside(Dongles.VaxeeVendor, "VAXEE Mouse Config.exe") && !Aside(Dongles.VaxeeVendor, "EndgameGear.exe")
@@ -47,7 +46,7 @@ static class DeviceSafetyTests
         int[] pages = [0xFF00, 0xFF01, 0xFF02, 0xFF04, 0xFF05, 0xFF0B, 0xFF1C, 0xFFA0, 0x01, 0x0C];
         // Every vendor and product of the three shared ids, on every page a protocol here uses: none is sent to, but the products
         // verified for a frame (Dongles.CompxFramed, Dongles.NinjutsoProducts), and those only on their own collection.
-        bool Verified(int vendor, int product) => Dongles.IsCompxFramed(vendor, product) || vendor == Dongles.NordicVendor && Dongles.NinjutsoProducts.Contains(product)
+        bool Verified(int vendor, int product) => Dongles.IsCompxFramed(vendor, product) || Dongles.IsCompxOfficial(vendor, product) || vendor == Dongles.NordicVendor && Dongles.NinjutsoProducts.Contains(product)
             || vendor == Dongles.AulaVendor && product == Dongles.AulaF87Pro;
         bool shared = true;
         foreach (int vendor in new[] { 0x3554, 0x1915, 0x0BDA })
@@ -58,7 +57,7 @@ static class DeviceSafetyTests
                         || Dongles.Find(vendor, product, page, "Wireless Mouse", 65, 1, 0x0002, 64, 64) is not null)) { shared = false; break; }
         check("Requests: Compx's 0x3554, Nordic's 0x1915 and Realtek's 0x0BDA are sent to on no product or page but the verified ones", shared);
         bool own = true;
-        foreach (var (vendor, product) in Dongles.CompxFramed.Where(pair => pair.Vendor == 0x3554).Append((0x1915, 0xAE1C)).Append((0x1915, 0xAE11)))
+        foreach (var (vendor, product) in Dongles.CompxFramed.Concat(Dongles.CompxOfficial).Where(pair => pair.Vendor == 0x3554).Append((0x1915, 0xAE1C)).Append((0x1915, 0xAE11)))
             foreach (int page in pages)
             {
                 var found = Dongles.Find(vendor, product, page, "Wireless Mouse", 64, 1, 0x0002, 64, 64);
@@ -88,17 +87,17 @@ static class DeviceSafetyTests
         check("Requests: the Compx page 0xFF02 on ATK's vendor and the other pages of the A9 are not sent to",
             Dongles.Find(0x373B, 0x1119, 0xFF02, "", 0) is null && Dongles.Find(0x373B, 0x111A, 0xFF01, "", 0) is null && Dongles.Find(0x373B, 0x1120, 0xFF04, "", 0) is null);
 
-        // ATK's keyboards answer VGN's keyboard frame (AtkKeyboards): the Z87 Pro's dongle is the one product measured, so it is
-        // the only one sent to, on the keyboard page, while ATK's mice keep BitMouse on theirs.
+        // ATK's keyboards answer VGN's keyboard frame (AtkKeyboards): the Z87 Pro's dongle, measured, and the receivers ATK HUB
+        // gives the same frame, on the keyboard page only, while ATK's mice keep BitMouse on theirs.
         var atkKeyboards = new List<(int Product, int Page)>();
         for (int product = 0; product <= 0xFFFF; product++)
             foreach (int page in pages)
                 if (Dongles.Find(0x373B, product, page, "ATK Z87 Dongle", 0, 1, 0x0092, 64, 64) == Dongles.Protocol.Vgn) atkKeyboards.Add((product, page));
-        check("Requests: VGN's keyboard frame goes to 373B:1012 on page 0xFF1C and nowhere else of ATK's",
-            atkKeyboards.SequenceEqual(new[] { (0x1012, 0xFF1C) })
+        check("Requests: VGN's keyboard frame goes to ATK's listed keyboard receivers on page 0xFF1C and nowhere else of ATK's",
+            atkKeyboards.SequenceEqual(Dongles.AtkKeyboards.Select(k => (k.Product, 0xFF1C)).OrderBy(k => k.Item1))
             && Dongles.Find(0x373B, 0x1012, 0xFF1C, "ATK Z87 Dongle", 0, 1, 0x0001, 64, 64) is null && Dongles.Find(0x373B, 0x1012, 0xFF1C, "ATK Z87 Dongle", 0, 1, 0x0092, 32, 32) is null
             && Dongles.Find(0x373B, 0x1012, 0xFF05, "ATK Z87 Dongle", 0, 1, 0x0001, 64, 64) == Dongles.Protocol.BitMouse
-            && Dongles.Find(0x373B, 0x1013, 0xFF1C, "ATK Z87 Pro", 0, 1, 0x0092, 64, 64) is null);
+            && Dongles.Find(0x373B, 0x1014, 0xFF1C, "ATK Z87 Pro", 0, 1, 0x0092, 64, 64) is null);
 
         // The vendors' own ids keep their readers.
         check("Requests: ATK's BitMouse page, VGN's keyboard, Endgame Gear and VAXEE are still read",
@@ -114,9 +113,16 @@ static class DeviceSafetyTests
             && Dongles.Find(0x248A, 0x5C2E, 0x01, "", 0, iface: 2, usage: 0x00, inputLength: 33, outputLength: 33) == Dongles.Protocol.Ajazz
             && Dongles.Find(0x249A, 0x5C2F, 0x01, "", 0, iface: 0, usage: 0x02, inputLength: 8, outputLength: 0) is null
             && Dongles.Find(0x249A, 0x5C2F, 0xFF00, "", 33, iface: 1, usage: 0x01, inputLength: 8, outputLength: 8) is null);
-        check("Requests: MCHOSE's mouse frame only to a MCHOSE mouse on its vendor pages",
-            Dongles.Find(0x3837, 0x5011, 0xFF01, "MCHOSE G7 Mouse", 64) == Dongles.Protocol.Mchose && Dongles.Find(0x3837, 0x5011, 0xFF02, "MCHOSE G7 Mouse", 64) is null
-            && Dongles.Find(0x3837, 0x1012, 0xFF01, "MCHOSE MagDock Mouse", 64) is null && Dongles.Find(0x3837, 0x4001, 0xFF0B, "MCHOSE K99", 64) is null);
+        check("Requests: MCHOSE's 3033 keyboards (receiver and cables) read only on the web driver's usage 1:0 collection, never their keyboard collection, nor another product's",
+            Dongles.Find(0x3837, 0x3033, 0x0001, "MCHOSE K87S 2.4G", 0, -1, 0x0000, 65, 65) == Dongles.Protocol.Mchose
+            && Dongles.Find(0x3837, 0x3033, 0x0001, "MCHOSE K87S 2.4G", 0, -1, 0x0006, 9, 2) is null
+            && Dongles.Find(0x3837, 0x3033, 0x000C, "MCHOSE K87S 2.4G", 0, -1, 0x0001, 3, 0) is null
+            && Dongles.Find(0x3837, 0x5011, 0x0001, "MCHOSE G7 Mouse", 0, -1, 0x0000, 65, 65) is null
+            && Dongles.Find(0x3837, 0x3026, 0x0001, "MCHOSE Ace 68 Turbo", 0, -1, 0x0000, 65, 65) is null);
+        check("Requests: MCHOSE's other reads only on 0x3837's vendor pages, never its standard collections nor the MagDock",
+            Dongles.Find(0x3837, 0x5011, 0xFF01, "MCHOSE G7 Mouse", 0) == Dongles.Protocol.Mchose && Dongles.Find(0x3837, 0x5011, 0xFF0B, "MCHOSE G7 Mouse", 64) == Dongles.Protocol.Mchose
+            && Dongles.Find(0x3837, 0x5011, 0xFF02, "MCHOSE G7 Mouse", 64) is null && Dongles.Find(0x3837, 0x5011, 0x0001, "MCHOSE G7 Mouse", 64, -1, 2, 64, 64) is null
+            && Dongles.Find(0x3837, 0x1012, 0xFF01, "MCHOSE MagDock Mouse", 64, -1, 1, 64, 64) is null && Dongles.Find(0x3837, 0x4001, 0xFF0B, "MCHOSE K99 Keyboard", 64) is null);
     }
 
     // A receiver sends every reply to every program that has it open, and only the software id tells a program its own reply.

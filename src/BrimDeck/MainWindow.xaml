@@ -75,7 +75,7 @@
                  <!-- The chosen page's fill glides between the buttons, as the monitor page's sort pill does (MainWindow.PlacePageCapsule). -->
                  <Border x:Name="PageCapsule" Background="{DynamicResource PanelFillSelected}" HorizontalAlignment="Left" VerticalAlignment="Center"
                          Width="28" Height="24" CornerRadius="6" IsHitTestVisible="False">
-                   <Border.RenderTransform><TranslateTransform x:Name="PageCapsuleShift"/></Border.RenderTransform>
+                   <Border.RenderTransform><TransformGroup><ScaleTransform x:Name="PageCapsuleStretch"/><TranslateTransform x:Name="PageCapsuleShift"/></TransformGroup></Border.RenderTransform>
                  </Border>
                  <StackPanel Orientation="Horizontal">
                 <Button x:Name="AIUsageButton" Style="{StaticResource PanelIconButton}" Width="28" Height="24"
@@ -92,7 +92,7 @@
                   <Viewbox Width="16" Height="16"><Canvas Width="24" Height="24"><Path Data="M 2,12.5 H 6.5 L 9.5,5 L 14.5,19 L 17.5,12.5 H 22" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" StrokeThickness="1.65" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/></Canvas></Viewbox>
                 </Button>
                 <Button x:Name="ShelfPageButton" Style="{StaticResource PanelIconButton}" Width="28" Height="24" Margin="1,0,0,0" Click="ShelfPage_Click">
-                  <Viewbox Width="16" Height="16"><Canvas Width="24" Height="24"><Path Data="M 8.5,4.5 H 6.5 A 2,2 0 0 0 4.5,6.5 V 19.5 A 2,2 0 0 0 6.5,21.5 H 17.5 A 2,2 0 0 0 19.5,19.5 V 6.5 A 2,2 0 0 0 17.5,4.5 H 15.5 M 9.5,2.5 H 14.5 A 1,1 0 0 1 15.5,3.5 V 5.5 A 1,1 0 0 1 14.5,6.5 H 9.5 A 1,1 0 0 1 8.5,5.5 V 3.5 A 1,1 0 0 1 9.5,2.5 Z M 8.5,11.5 H 15.5 M 8.5,15.5 H 13" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" StrokeThickness="1.65" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/></Canvas></Viewbox>
+                  <Viewbox Width="16" Height="16"><Canvas Width="24" Height="24"><Path x:Name="ShelfPageIcon" Data="M 8.5,4.5 H 6.5 A 2,2 0 0 0 4.5,6.5 V 19.5 A 2,2 0 0 0 6.5,21.5 H 17.5 A 2,2 0 0 0 19.5,19.5 V 6.5 A 2,2 0 0 0 17.5,4.5 H 15.5 M 9.5,2.5 H 14.5 A 1,1 0 0 1 15.5,3.5 V 5.5 A 1,1 0 0 1 14.5,6.5 H 9.5 A 1,1 0 0 1 8.5,5.5 V 3.5 A 1,1 0 0 1 9.5,2.5 Z M 8.5,11.5 H 15.5 M 8.5,15.5 H 13" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" StrokeThickness="1.65" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/></Canvas></Viewbox>
                 </Button>
                 <!-- The wireless devices' batteries (DevicesPanel.cs). -->
                 <Button x:Name="DevicesPageButton" Style="{StaticResource PanelIconButton}" Width="28" Height="24" Margin="1,0,0,0" Click="DevicesPage_Click">

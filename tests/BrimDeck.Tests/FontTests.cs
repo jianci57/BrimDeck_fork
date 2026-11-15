@@ -63,6 +63,12 @@ internal static class FontTests
         check("a chosen font is saved and read back", File.ReadAllText(store.FilePath).Contains("\"UiFont\": \"Inter\"") && new SettingsStore(store.DirectoryPath, "0.1.0").Load().UiFont == "Inter");
         File.WriteAllText(store.FilePath, """{"AppVersion":"0.1.0","UiFont":"Inter, Arial"}""");
         check("a hand-edited list of families in the file reads as no font", store.Load().UiFont == "");
+        File.WriteAllText(store.FilePath, """{"AppVersion":"0.1.0","UiFont":"Inter"}""");
+        check("the settings window keeps the app's own fonts by default, also in a file saved before the switch",
+            !new DeckSettings().SettingsFollowsFont && !store.Load().SettingsFollowsFont);
+        var follows = store.Load(); follows.SettingsFollowsFont = true; store.Save(follows);
+        check("the settings window's switch is saved, read back and copied",
+            new SettingsStore(store.DirectoryPath, "0.1.0").Load().SettingsFollowsFont && follows.Copy().SettingsFollowsFont);
         File.WriteAllText(store.FilePath, """{"AppVersion":"0.1.0","UiFont":null}""");
         check("a null font in the file reads as no font", store.Load().UiFont == "");
         var reset = new DeckSettings { UiFont = "Inter" }; reset.UiFont = new DeckSettings().UiFont;

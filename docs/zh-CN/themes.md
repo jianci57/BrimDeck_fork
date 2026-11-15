@@ -5,7 +5,7 @@ BrimDeck 的刘海、胶囊、指示条、配额提示、展开面板及其弹�
 | 类别 | 主题 |
 | --- | --- |
 | 基础 | 跟随系统、深色（默认，即原有的纯黑外观）、浅色 |
-| 主题扩展 | One Dark Pro、GitHub Dark、GitHub Light、Dracula Official、Night Owl、海岛假日、海岛假日 2、像素方块、赛博朋克：边缘行者（示例） |
+| 更多主题 | One Dark Pro、GitHub Dark、GitHub Light、Dracula Official、Night Owl、海岛假日、海岛假日 2、像素方块、赛博朋克：边缘行者（示例） |
 | 自定义 | 主题文件夹中的主题文件，可在设置中新建、编辑与删除 |
 
 每个主题会分别记住你在它下面修改的应用列主题、预警、告警颜色和时间的样式与配色：切换到其他主题时保存，切换回来时恢复。第一次选择的主题使用它自己的配色和推荐的时间样式。在“配额与统计”“收起外观”中恢复默认，恢复的是当前主题的默认配色。
@@ -74,7 +74,7 @@ One Dark Pro、GitHub Dark、GitHub Light、Dracula Official、Night Owl 移植�
 
 ### 应用颜色（apps）
 
-配额列、进度条和配额环的默认颜色，键为 `claude`、`codex`、`antigravity`、`cursor`、`zcode`、`dsh`、`grokBot`、`kimi`、`opencode`、`manual`（所有手动填写的来源）、`other`，以及 `warning`、`critical`（这两种同时也是文字，需 4.5:1）。在“配额与统计”中为某列选过颜色后，该列使用所选颜色。
+配额列、进度条和配额环的默认颜色，键为 `claude`、`codex`、`antigravity`、`cursor`、`zcode`、`dsh`、`grokBot`、`kimi`、`opencode`、`codeagent`、`commandcode`、`workbuddy`、`manual`（所有手动填写的来源）、`other`，以及 `warning`、`critical`（这两种同时也是文字，需 4.5:1）。在“配额与统计”中为某列选过颜色后，该列使用所选颜色。
 
 ### 时间（clock）
 
@@ -173,4 +173,4 @@ One Dark Pro、GitHub Dark、GitHub Light、Dracula Official、Night Owl 移植�
 
 ## 界面字体
 
-界面字体是应用设置，不属于主题：在“设置 › 常规 › 外观与语言 › 界面字体”选择，主题文件不能指定字体。选择的字体放在默认字体前面，中文仍回退到微软雅黑，所以缺字不会出现方框。设置窗口本身始终使用应用自带字体，试字体时不会跟着变得难读。时钟样式中自带字体的样式（如 Orbitron、Fredoka）和数码管、点阵、像素样式保留自己的字形，其余时钟样式跟随所选字体。
+界面字体是应用设置，不属于主题：在“设置 › 常规 › 外观与语言 › 界面字体”选择，主题文件不能指定字体。选择的字体放在默认字体前面，中文仍回退到微软雅黑，所以缺字不会出现方框。设置窗口默认使用应用自带字体，试字体时不会跟着变得难读；打开“字体应用到设置窗口”后，设置窗口也使用所选字体，但“界面字体”和这个开关两行仍使用自带字体，字体难以阅读时可以在这里改回。时钟样式中自带字体的样式（如 Orbitron、Fredoka）和数码管、点阵、像素样式保留自己的字形，其余时钟样式跟随所选字体。

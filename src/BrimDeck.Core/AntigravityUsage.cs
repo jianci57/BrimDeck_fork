@@ -1,3 +1,6 @@
+using System.Text.Json;
+using System.Text.RegularExpressions;
+
 namespace BrimDeck.Core;
 
 // Antigravity 2.x and the Antigravity CLI (agy) keep one SQLite database per conversation, in
@@ -5,8 +8,8 @@ namespace BrimDeck.Core;
 // includes CLI conversations, works while Antigravity is closed, and does not depend on which conversations
 // the running app has loaded. Field numbers come from the protobuf descriptors embedded in agy.exe:
 //   steps.metadata          CortexStepMetadata: 1 created_at (Timestamp), 9 model_usage
-//   gen_metadata.data       1 ChatModelMetadata: 4 usage, 19 response_model (the readable model name)
-//   ModelUsageStats         2 input, 3 output (thinking included), 4 cache write, 5 cache read, 7 message id
+//   gen_metadata.data       1 ChatModelMetadata: 4 usage, 19 response_model, 21 model_display_name (the name in the model menu)
+//   ModelUsageStats         1 model (an enum), 2 input, 3 output (thinking included), 4 cache write, 5 cache read, 7 message id
 // Input excludes cache reads (a cache read can exceed the input of the same request), so both are counted.
 public sealed class AntigravityUsage
 {
@@ -15,6 +18,35 @@ public sealed class AntigravityUsage
 
     public static IReadOnlyList<string> Folders(string home) =>
         [Path.Combine(home, ".gemini", "antigravity", "conversations"), Path.Combine(home, ".gemini", "antigravity-cli", "conversations")];
+
+    // Each Antigravity language server writes its process id, ports and CSRF token to daemon\hub_<http port>.json. The files of
+    // servers that have ended stay behind, so a record is only used while that process listens on its ports. Reading the file
+    // works when Antigravity runs as administrator, whose command line a normal process cannot read.
+    public sealed record LanguageServer(int ProcessId, int HttpsPort, int HttpPort, string Token);
+    public static string DaemonFolder(string home) => Path.Combine(home, ".gemini", "antigravity", "daemon");
+
+    public static List<LanguageServer> ReadLanguageServers(string folder)
+    {
+        var servers = new List<LanguageServer>();
+        IEnumerable<string> files;
+        try { files = Directory.EnumerateFiles(folder, "hub_*.json").ToList(); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return servers; }
+        foreach (var file in files)
+        {
+            JsonDocument? doc;
+            try { doc = SharedFile.ReadJson(file); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException) { continue; }
+            if (doc is null) continue;
+            using var _ = doc;
+            var root = doc.RootElement;
+            var token = root.Get("csrfToken").Text();
+            int Port(string name) => root.Get(name).Number() is { } n && n is > 0 and <= 65535 && n == Math.Floor(n) ? (int)n : 0;
+            if (root.Get("pid").Number() is not { } pid || pid <= 0 || pid > int.MaxValue || token.Length == 0) continue;
+            var server = new LanguageServer((int)pid, Port("httpsPort"), Port("httpPort"), token);
+            if (server.HttpsPort > 0 || server.HttpPort > 0) servers.Add(server);
+        }
+        return servers;
+    }
 
     public void Read(ProviderSnapshot snapshot, IDesktopSources desktop, IReadOnlyList<string> folders, DateTimeOffset start, DateTimeOffset now)
     {
@@ -58,13 +90,16 @@ public sealed class AntigravityUsage
     {
         var steps = desktop.QueryDatabase(database, "SELECT hex(metadata) FROM steps WHERE metadata IS NOT NULL");
         if (steps is null) return new(modified, length, start, [], false);
-        var models = new Dictionary<string, string>(StringComparer.Ordinal);
+        var models = new Dictionary<string, ModelName>(StringComparer.Ordinal);
+        var byEnum = new Dictionary<ulong, ModelName>();
         foreach (var row in desktop.QueryDatabase(database, "SELECT hex(data) FROM gen_metadata WHERE data IS NOT NULL") ?? [])
         {
             var chat = Field(Bytes(row), 1);
-            var id = Text(Field(Field(chat, 4), 7));
-            var model = Text(Field(chat, 19));
-            if (id.Length > 0 && model.Length > 0) models[id] = model;
+            var usage = Field(chat, 4);
+            var id = Text(Field(usage, 7));
+            if (Name(Text(Field(chat, 19)), Text(Field(chat, 21))) is not { } name) continue;
+            if (id.Length > 0) models[id] = name;
+            if (Varint(usage, 1) is { } number) byEnum.TryAdd(number, name);
         }
         var entries = new List<TokenEntry>();
         foreach (var row in steps)
@@ -78,11 +113,38 @@ public sealed class AntigravityUsage
             DateTimeOffset time;
             try { time = DateTimeOffset.FromUnixTimeSeconds((long)unix).ToLocalTime(); }
             catch (ArgumentOutOfRangeException) { continue; }
-            var entry = new TokenEntry("ag:" + id, time, models.GetValueOrDefault(id, ""), Count(usage, 2), Count(usage, 5), Count(usage, 4), 0, Count(usage, 3));
+            // A step without a generation record of its own (a checkpoint that condenses the conversation) is named by the
+            // model number its usage carries, as the generations of that model in the same conversation are.
+            var name = models.GetValueOrDefault(id) ?? (Varint(usage, 1) is { } number ? byEnum.GetValueOrDefault(number) : null);
+            var entry = new TokenEntry("ag:" + id, time, name?.Model ?? "", Count(usage, 2), Count(usage, 5), Count(usage, 4), 0, Count(usage, 3)) { PriceModel = name?.Price };
             if (entry.Total > 0 && time >= start) entries.Add(entry);
         }
         return new(modified, length, start, entries, true);
     }
+
+    private sealed record ModelName(string Model, string? Price);
+
+    // A record is shown by the name Antigravity's model menu gives it (model_display_name), and by its response model where it has
+    // none. An orchestrated generation names only its role as the response model ("gemini-pro-orchestrator",
+    // "gemini-flash-worker-agy"); its display name says which model ran, and that model prices it:
+    //   "Gemini 4 Hydrogen (Orchestrator)" → "gemini-4-hydrogen";
+    //   "Orchestrator (Carbon)" → "carbon", the family alone, which Pricing reads as the newest Gemini of that name.
+    // Other records keep their response model as the price name. No model is listed here, so a new model needs no change.
+    private static ModelName? Name(string response, string display)
+    {
+        display = display.Trim();
+        if (display.Length == 0) return response.Length > 0 ? new(response, null) : null;
+        var price = response.Length > 0 && response != display ? response : null;
+        if (Regex.Match(display, @"^(?<outer>[^()]+?)\s*\((?<inner>[^()]+)\)$") is { Success: true } named)
+        {
+            string outer = named.Groups["outer"].Value.Trim(), inner = named.Groups["inner"].Value.Trim();
+            if (outer.StartsWith("Gemini ", StringComparison.OrdinalIgnoreCase)) price = Slug(outer);
+            else if (inner.StartsWith("Gemini ", StringComparison.OrdinalIgnoreCase)) price = Slug(inner);
+            else if (!outer.Any(char.IsDigit) && Regex.IsMatch(inner, @"^[A-Za-z]+$")) price = inner.ToLowerInvariant();
+        }
+        return new(display, price);
+    }
+    private static string Slug(string name) => Regex.Replace(name.Trim().ToLowerInvariant(), @"\s+", "-");
 
     private static byte[] Bytes(string?[] row)
     {

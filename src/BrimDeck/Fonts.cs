@@ -6,7 +6,8 @@ using BrimDeck.Core;
 
 namespace BrimDeck;
 
-// A window built with the app's own fonts, which a change of the user's font leaves alone (the settings window).
+// A window that a change of the user's font leaves alone because it rebuilds itself (the settings window, which keeps the app's
+// own fonts unless the user asks it to follow the chosen one).
 internal interface IKeepsAppFonts { }
 
 // The one entry for fonts: every family BrimDeck draws text in comes from here (UI.TextFont, UI.PanelFont and UI.DisplayFont are
@@ -83,6 +84,8 @@ internal static class Fonts
 
     // Builds with the app's own fonts whatever the user chose: the settings window does not change with the font it sets (Fonts.Plain).
     public static IDisposable Plain() { var was = _plain; _plain = true; return new PlainScope(was); }
+    // True inside Plain(): what is built now keeps the app's own fonts.
+    public static bool IsPlain => _plain;
     private sealed class PlainScope(bool was) : IDisposable { public void Dispose() => _plain = was; }
 
     // Makes the saved family current. False when it already was (nothing is published or raised then). Everything already built

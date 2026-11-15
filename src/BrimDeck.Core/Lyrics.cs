@@ -17,17 +17,20 @@ public sealed record Lyrics(IReadOnlyList<LyricLine> Lines, bool Synced, string 
     public static Lyrics Empty { get; } = new([], true, "");
     // Apple Music's lines are shown this many seconds before they are sung, so that a line can be read as it starts.
     public const double AppleLead = 0.2;
+    // A pause between lines shorter than this many seconds keeps the line before it shown; a longer one is shown as "♪".
+    public const double Gap = 5;
     public bool QqPreview { get; init; }
     public bool CanSynchronize(MediaTrack track) => Synced && track.HasTimeline;
-    public (string Previous, string Current, string Next) At(MediaTrack track, DateTimeOffset now) => Nearest(Around(track, now, 1, 1));
-    public (string Previous, string Current, string Next) At(double seconds) => Nearest(Around(seconds, 1, 1));
+    public (string Previous, string Current, string Next) At(MediaTrack track, DateTimeOffset now, LyricHold? hold = null) => Nearest(Around(track, now, 1, 1, hold));
+    public (string Previous, string Current, string Next) At(double seconds, LyricHold? hold = null) => Nearest(Around(seconds, 1, 1, hold));
     private static (string Previous, string Current, string Next) Nearest(LyricWindow window)
         => (window.Before.Count > 0 ? window.Before[^1] : "", window.Current, window.After.Count > 0 ? window.After[0] : "");
     // The current line with up to before lines above it and after lines below it, in the order they are sung.
-    public LyricWindow Around(MediaTrack track, DateTimeOffset now, int before, int after)
+    // hold: keeps the line on show through a small step back of the position (LyricHold).
+    public LyricWindow Around(MediaTrack track, DateTimeOffset now, int before, int after, LyricHold? hold = null)
     {
         if (!CanSynchronize(track)) return LyricWindow.Empty;
-        if (!QqPreview || !track.IsQqMusic) return Around(track.Position(now).TotalSeconds + (track.IsAppleMusic ? AppleLead : 0), before, after);
+        if (!QqPreview || !track.IsQqMusic) return Around(track.Position(now).TotalSeconds + (track.IsAppleMusic ? AppleLead : 0), before, after, hold);
         // A preview can start at zero or inside the song. QQ's actual current line and
         // full-song karaoke timestamp locate it without guessing from the clip metadata.
         string text = track.CurrentLyric ?? "";
@@ -45,17 +48,18 @@ public sealed record Lyrics(IReadOnlyList<LyricLine> Lines, bool Synced, string 
         return LyricWindow.Only(text);
     }
     private static string NormalizeLine(string text) => string.Concat(text.Where(char.IsLetterOrDigit)).ToUpperInvariant();
-    public LyricWindow Around(double seconds, int before, int after)
+    public LyricWindow Around(double seconds, int before, int after, LyricHold? hold = null)
     {
         before = Math.Max(0, before); after = Math.Max(0, after);
         if (Lines.Count == 0) return LyricWindow.Only(Instrumental ? "♪" : "");
         if (!Synced) return LyricWindow.Empty;
         int index = -1;
         for (int i = 0; i < Lines.Count && Lines[i].Seconds <= seconds; i++) index = i;
+        if (hold is not null) index = hold.Index(this, index, seconds);
         string[] Texts(int from, int count) => [.. Lines.Skip(from).Take(count).Select(line => line.Text)];
         if (index < 0) return new([], "♪", Texts(0, after));
         // LRC timestamps start a line; they do not specify how long it is sung.
-        // Only an explicit blank line marks a gap before the next timestamp.
+        // Only an explicit blank line marks a gap before the next timestamp (Parse keeps only those of Gap or longer).
         string text = string.IsNullOrWhiteSpace(Lines[index].Text) ? "♪" : Lines[index].Text;
         int first = Math.Max(0, index - before);
         return new(Texts(first, index - first), text, Texts(index + 1, after));
@@ -80,12 +84,28 @@ public sealed record Lyrics(IReadOnlyList<LyricLine> Lines, bool Synced, string 
             }
         }
         if (result.Count > 0)
-            return InstrumentalNotice(result.Select(l => l.Text)) ? new([], true, source, true) : new(result.OrderBy(l => l.Seconds).Distinct().ToList(), true, source, instrumental);
+            return InstrumentalNotice(result.Select(l => l.Text)) ? new([], true, source, true) : new(WithoutShortGaps([.. result.OrderBy(l => l.Seconds).Distinct()]), true, source, instrumental);
         var lines = (plain ?? "").Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0).ToArray();
         if (lines.Length == 0) return new([], true, source, instrumental);
         if (InstrumentalNotice(lines)) return new([], true, source, true);
         // Plain lyrics have no timing information; retain their order for manual scrolling.
         return new(lines.Select(line => new LyricLine(0, line)).ToArray(), false, source, instrumental);
+    }
+    // Some LRC files put a blank line wherever a line ends before the next one starts, often less than a second ahead of it.
+    // A blank line the next line follows within Gap seconds is dropped, so the line before it stays shown through the pause.
+    private static List<LyricLine> WithoutShortGaps(List<LyricLine> lines)
+    {
+        var kept = new List<LyricLine>(lines.Count);
+        double? next = null;
+        for (int i = lines.Count - 1; i >= 0; i--)
+        {
+            bool blank = string.IsNullOrWhiteSpace(lines[i].Text);
+            if (blank && next is { } start && start - lines[i].Seconds < Gap) continue;
+            kept.Add(lines[i]);
+            if (!blank) next = lines[i].Seconds;
+        }
+        kept.Reverse();
+        return kept;
     }
     // QQ Music, NetEase and KuGou give a song without words a lyric of only credits ("作曲 : Yiruma") and a notice such as
     // "纯音乐，请欣赏" or "此歌曲为没有填词的纯音乐，请您欣赏"; such a lyric is the song's mark as instrumental. A notice worded
@@ -95,6 +115,27 @@ public sealed record Lyrics(IReadOnlyList<LyricLine> Lines, bool Synced, string 
         var texts = lines.Select(text => text.Trim()).Where(text => text.Length > 0).ToArray();
         static bool Notice(string text) => text.Contains("纯音乐", StringComparison.Ordinal) && text.Contains("欣赏", StringComparison.Ordinal);
         return texts.Any(Notice) && texts.All(text => Notice(text) || Regex.IsMatch(text, @"\A[^:：]{1,16}[:：]"));
+    }
+}
+
+// The line on show does not go back for a small step back of the position. A player's new report often puts the position a
+// little behind the clock BrimDeck ran on from the last one (Apple Music's whole seconds, see MediaRouting.FromWholeSeconds); just
+// after a new line had started, the line before it came back for a moment and the new one followed again, and a lyric area that
+// follows the line's length (DeckSettings.MusicLyricAutoWidth) shrank back and grew again with them. A step back of StepBack
+// seconds or more before the line's start is a seek, and shows the earlier line. New lyrics (another instance) start afresh.
+public sealed class LyricHold
+{
+    public const double StepBack = 1.5;
+    private Lyrics? _lyrics;
+    private int _index = -1;
+
+    // index: the line the position falls in (-1 before the first); the line to show.
+    public int Index(Lyrics lyrics, int index, double seconds)
+    {
+        if (ReferenceEquals(lyrics, _lyrics) && index < _index && _index < lyrics.Lines.Count && seconds > lyrics.Lines[_index].Seconds - StepBack)
+            return _index;
+        _lyrics = lyrics; _index = index;
+        return index;
     }
 }
 
@@ -109,9 +150,11 @@ public sealed partial class LyricsService : IDisposable
     public const int MaxResponseBytes = 2 * 1024 * 1024;
     private const int MaxRedirects = 2;
     // appleLyricsFile keeps which Apple Music lyrics each song was matched to; none keeps it only in memory.
-    public LyricsService(HttpClient? http = null, Func<IEnumerable<string>>? appleCacheRoots = null, string? appleLyricsFile = null)
+    public LyricsService(HttpClient? http = null, Func<IEnumerable<string>>? appleCacheRoots = null, string? appleLyricsFile = null,
+        Func<string>? queMusicSettings = null)
     {
         _appleCacheRoots = appleCacheRoots ?? AppleCacheRoots;
+        _queMusicSettings = queMusicSettings ?? QueMusicSettingsFile;
         _appleLyricsFile = appleLyricsFile; _appleLyricsIds = LoadAppleLyricsIds(appleLyricsFile);
         _ownsHttp = http is null;
         // Redirects are followed by Get, only to HTTPS on the same host.
@@ -122,6 +165,12 @@ public sealed partial class LyricsService : IDisposable
         if (!enabled || string.IsNullOrWhiteSpace(track.Title) || string.IsNullOrWhiteSpace(track.Artist)) return Lyrics.Empty;
         if (!track.IsQqMusic && !string.IsNullOrWhiteSpace(track.EmbeddedLyrics))
             return Lyrics.Parse(track.EmbeddedLyrics, null, track.Duration.TotalSeconds, track.Source);
+        if (track.IsQueMusic)
+        {
+            var found = await FindQueMusic(track, token);
+            if (found.Lyrics is { } local) return local;
+            if (found.SongId.Length > 0) track = track with { SongId = found.SongId };
+        }
         await _gate.WaitAsync(token);
         try
         {

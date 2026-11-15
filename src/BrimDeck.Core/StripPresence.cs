@@ -47,8 +47,10 @@ public sealed class StripPresence
 public sealed class StripAdmission
 {
     public const CompactMonitorItems Later = CompactMonitorItems.Storage | CompactMonitorItems.Power | CompactMonitorItems.Charge | CompactMonitorItems.Frames;
-    // A part: a ring's temperature (Heat), a letter's space ("C:"), a letter's temperature ("C:" + Heat), or the devices' battery ("").
+    // A part: a ring's temperature (Heat), the GPU's memory share (VideoMemory), a letter's space ("C:"), a letter's temperature ("C:" + Heat), or the devices' battery ("").
     public const string Heat = "°";
+    // The graphics adapter's dedicated memory share, a part of the GPU reading like its temperature.
+    public const string VideoMemory = "vram";
     private readonly HashSet<(CompactMonitorItems Item, string Part)> _seen = [], _showing = [];
     // The machine's power draw and its own battery have given a reading, and the sampler has not since found it has none (a battery
     // reading is the machine's own and a desktop never shows one; the power reading stays away on a machine with no source). The frame
@@ -72,15 +74,20 @@ public sealed class StripAdmission
                     if (usage) yield return (reading.Item, letter, CompactSources.Missing(letter, latest, states));
                     if (heat) yield return (reading.Item, letter + Heat, CompactSources.HeatMissing(letter, latest, states));
                 }
-            else if (heat && reading.ShowValue)
-                yield return (reading.Item, Heat, (reading.Item == CompactMonitorItems.Cpu ? states.Cpu : states.Gpu) == SensorState.None);
+            else
+            {
+                if (heat && reading.ShowValue)
+                    yield return (reading.Item, Heat, (reading.Item == CompactMonitorItems.Cpu ? states.Cpu : states.Gpu) == SensorState.None);
+                if (reading.ShowValue && reading.Item == CompactMonitorItems.Gpu && CompactFigures.Shows(reading, CompactFigures.Vram))
+                    yield return (reading.Item, VideoMemory, CompactFigures.MemoryMissing(latest));
+            }
         }
     }
     private static bool Seen(CompactMonitorItems item, string part, MonitorSnapshot? latest, SensorStates states) => item == CompactMonitorItems.Storage
         ? part.EndsWith(Heat, StringComparison.Ordinal) ? CompactSources.Heat(part[..^Heat.Length], latest) is not null : CompactSources.Share(part, latest) is not null
-        : CompactFigures.Heat(item, latest) is not null;
+        : part == VideoMemory ? CompactFigures.Memory(item, latest) is not null : CompactFigures.Heat(item, latest) is not null;
 
-    // Whether a part of a reading shows: a ring's temperature (Heat), a letter's space or temperature.
+    // Whether a part of a reading shows: a ring's temperature (Heat) or the GPU's memory (VideoMemory), a letter's space or temperature.
     public bool Shows(CompactMonitorItems item, string part) => _showing.Contains((item, part));
     // The drive letters that show, of those chosen, in order: a letter with its space or its temperature showing.
     public IReadOnlyList<string> Letters(CompactReading drives) =>

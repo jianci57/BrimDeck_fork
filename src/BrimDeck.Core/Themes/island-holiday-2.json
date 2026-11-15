@@ -60,7 +60,7 @@
   },
   "apps": {
     "claude": "#AB4E2B", "codex": "#1A7A4B", "antigravity": "#2D60C2", "cursor": "#5A646C", "zcode": "#334E88",
-    "dsh": "#385BB9", "grokBot": "#5A646C", "kimi": "#07728D", "opencode": "#34322F", "manual": "#8744B2", "other": "#5A646C", "warning": "#6F4B00", "critical": "#922A1F"
+    "dsh": "#385BB9", "grokBot": "#5A646C", "kimi": "#07728D", "opencode": "#34322F", "codeagent": "#0B716E", "commandcode": "#3C1FB2", "workbuddy": "#1A7A4B", "mimo": "#B44D00", "manual": "#8744B2", "other": "#5A646C", "warning": "#6F4B00", "critical": "#922A1F"
   },
   "clock": {
     "style": "rounded", "color": "default",
@@ -134,7 +134,7 @@
     },
     "apps": {
       "claude": "#F0AC8C", "codex": "#8EE3B1", "antigravity": "#9EBBFF", "cursor": "#D3DCE2", "zcode": "#9AACEB",
-      "dsh": "#8FAEF2", "grokBot": "#D3DCE2", "kimi": "#6FD8F2", "opencode": "#9AA0A5", "manual": "#D2A6F2", "other": "#D3DCE2", "warning": "#FFD27A", "critical": "#FFA5A5"
+      "dsh": "#8FAEF2", "grokBot": "#D3DCE2", "kimi": "#6FD8F2", "opencode": "#9AA0A5", "codeagent": "#22D3C5", "commandcode": "#A695EC", "workbuddy": "#8EE3B1", "mimo": "#FF6D06", "manual": "#D2A6F2", "other": "#D3DCE2", "warning": "#FFD27A", "critical": "#FFA5A5"
     },
     "clock": {
       "palette": { "amber": "#FFC06B", "cyan": "#6FE8E0", "pink": "#FF9EC4", "lime": "#D9FF86" },

@@ -7,21 +7,26 @@ namespace BrimDeck;
 // (VirtualizingStackPanel), and builds the others as they scroll into view. A page with many entries laid out every row again at
 // each change of its width, which made resizing the panel stutter; this keeps that work to the rows that show.
 // The rows are made by the page (build) and handed back when they leave (release). It scrolls by pixels, as the whole list did.
+// across: the entries stand side by side in one row that scrolls sideways (FileView.Row); the page moves it (AcrossList).
 internal sealed class ShelfRowList : ItemsControl
 {
     private readonly Func<object, FrameworkElement> _build;
     private readonly Action<object, FrameworkElement>? _release;
     public ScrollViewer Viewer { get; }
 
-    public ShelfRowList(Func<object, FrameworkElement> build, Action<object, FrameworkElement>? release = null)
+    public ShelfRowList(Func<object, FrameworkElement> build, Action<object, FrameworkElement>? release = null, bool across = false)
     {
         _build = build; _release = release;
-        ItemsPanel = new ItemsPanelTemplate(new FrameworkElementFactory(typeof(VirtualizingStackPanel)));
+        var panel = new FrameworkElementFactory(typeof(VirtualizingStackPanel));
+        if (across) panel.SetValue(VirtualizingStackPanel.OrientationProperty, Orientation.Horizontal);
+        ItemsPanel = new ItemsPanelTemplate(panel);
         var viewer = new FrameworkElementFactory(typeof(ScrollViewer), "PART_Scroll");
         viewer.SetValue(ScrollViewer.CanContentScrollProperty, true);
         viewer.SetValue(FocusableProperty, false);
-        viewer.SetValue(ScrollViewer.VerticalScrollBarVisibilityProperty, ScrollBarVisibility.Auto);
-        viewer.SetValue(ScrollViewer.HorizontalScrollBarVisibilityProperty, ScrollBarVisibility.Disabled);
+        // Sideways the row has no scroll bar of its own: it is moved by the wheel, and the page draws its handle.
+        viewer.SetValue(ScrollViewer.VerticalScrollBarVisibilityProperty, across ? ScrollBarVisibility.Disabled : ScrollBarVisibility.Auto);
+        viewer.SetValue(ScrollViewer.HorizontalScrollBarVisibilityProperty, across ? ScrollBarVisibility.Hidden : ScrollBarVisibility.Disabled);
+        if (across) viewer.SetValue(ScrollViewer.PanningModeProperty, PanningMode.HorizontalOnly);
         viewer.AppendChild(new FrameworkElementFactory(typeof(ItemsPresenter)));
         Template = new ControlTemplate(typeof(ShelfRowList)) { VisualTree = viewer };
         Focusable = false;

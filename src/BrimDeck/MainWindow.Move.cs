@@ -74,7 +74,7 @@ public partial class MainWindow
         if (!_moveArmed) return;
         _moveArmed = false; _movePressed = false; _moveAway = 0;
         _movePresses?.Dispose(); _movePresses = null;
-        _escapeDismissal?.SetEnabled(_expanded && !_preview);
+        _escapeDismissal?.SetEnabled(HoldsEscape);
         if (_grips.IsMouseCaptured) _grips.ReleaseMouseCapture();
         _grips.Cursor = null;
         _dragHold = true; _cursorInCompact = false;
@@ -190,6 +190,7 @@ public partial class MainWindow
             Settings.Dock(Collapsed.Style).OverTaskbar, Collapsed.Style == CompactStyle.Line ? Settings.LineAnchor : Settings.NotchAnchor, surface.Width, surface.Height, otherDepth, Collapsed.Shoulder, Collapsed.BottomRadius,
             Collapsed.Style == CompactStyle.Line ? surface.Y : 0, OnMonitor(_movePress));
         var overlay = new MoveOverlay(bounds, scale, start);
+        PanelLook.Set(overlay, Look);
         _moveStart = start; _moveOverlay = overlay;
         overlay.Settled += place => FinishMove(overlay, place);
         overlay.DockChanged += (edge, over) =>
@@ -225,11 +226,11 @@ public partial class MainWindow
             if (place.Anchor is { } anchor) moved.NotchAnchor = anchor;
         }
         EndMoveMode();
-        _app.UpdateSettings(moved);
+        _app.UpdateSettingsFor(Profile, moved);
         // A capsule dropped by the bottom or back at the top docks with another edge: the island comes in there once laid out
         // (FadeInOnNewEdge); otherwise it shows at once under the fading overlay.
         if (!_edgeArriving && !_edgeClearing) SetImmediate(HoverZone, OpacityProperty, 1d);
-        overlay.FadeOut();
+        overlay.FadeOut(Animates);
     }
 
     // The move shortcut (KeyboardMove): one step of the collapsed surface, saved like a drop. The open panel and a surface being
@@ -261,7 +262,7 @@ public partial class MainWindow
             default: moved.NotchOffsetX = Step(Settings.NotchOffsetX, along, ranges.OffsetMin, ranges.OffsetMax); break;
         }
         // At a limit nothing moves and nothing is saved, so a key held there costs nothing.
-        if (changed) _app.UpdateSettings(moved);
+        if (changed) _app.UpdateSettingsFor(Profile, moved);
     }
 
     // A double click on an end of the collapsed surface: move mode, or the auto width turned on or off (the line returns to its
@@ -273,6 +274,6 @@ public partial class MainWindow
         if (style == CompactStyle.Line) fitted.LineLength = CollapsedLimits.LineLengthDefault;
         else if (fitted.CompactAutoWidth(style)) { fitted.SetCompactWidth(style, Collapsed.Surface.Width / _scale); fitted.SetCompactAutoWidth(style, false); }
         else fitted.SetCompactAutoWidth(style, true);
-        _app.UpdateSettings(fitted);
+        _app.UpdateSettingsFor(Profile, fitted);
     }
 }

@@ -50,13 +50,13 @@ public partial class MainWindow
     {
         var now = DateTimeOffset.UtcNow;
         CheckSourceMenuPointer(WindowsHost.Cursor(), now: now);
-        UpdateSourceMenuTitles(Settings.Animations && SystemParameters.ClientAreaAnimation);
+        UpdateSourceMenuTitles(TextScrolls);
     }
-    private void UpdateSourceMenuTitles(bool animations)
+    private void UpdateSourceMenuTitles(bool scrolls)
     {
         if (MediaSourceButton.ContextMenu is not { IsOpen: true } menu) return;
         foreach (var item in menu.Items.OfType<MenuItem>())
-            if (item.Header is Grid row && row.Children[1] is MusicMarquee title) title.SetScrolling(animations);
+            if (item.Header is Grid row && row.Children[1] is MusicMarquee title) title.SetScrolling(scrolls);
     }
 
     private void WatchSourceMenu(ContextMenu menu)
@@ -67,7 +67,7 @@ public partial class MainWindow
         {
             if (!ReferenceEquals(MediaSourceButton.ContextMenu, menu)) { menu.IsOpen = false; return; }
             _hover.Stop(); _leave.Stop(); _sourceMenuOutsideAt = null;
-            UpdateSourceMenuTitles(Settings.Animations && SystemParameters.ClientAreaAnimation);
+            UpdateSourceMenuTitles(TextScrolls);
             ContentCanvas.SizeChanged += resized;
             menu.UpdateLayout(); _sourceMenuBounds = ScreenBounds(menu);
             _sourceMenuPress?.Dispose();

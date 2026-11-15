@@ -169,11 +169,11 @@ public partial class MainWindow
         GestureLayer.BeginAnimation(OpacityProperty, null);
         GestureLayer.Opacity = 1;
         GestureLayer.Children.Clear();
-        _dragTrail = new Polyline { Stroke = UI.Brush(UI.Primary), Opacity = .45, StrokeThickness = 4, StrokeLineJoin = PenLineJoin.Round,
+        _dragTrail = new Polyline { Stroke = UI.Brush(Look.Primary), Opacity = .45, StrokeThickness = 4, StrokeLineJoin = PenLineJoin.Round,
             StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round };
         _dragTrail.Points.Add(start);
         var text = new TextBlock { FontFamily = UI.PanelFont, FontSize = 12, TextWrapping = TextWrapping.NoWrap };
-        _dragLabel = new Border { Child = text, Background = UI.Brush(PanelTheme.Hex("popup")), BorderBrush = UI.Brush(PanelTheme.Hex("popupBorder")),
+        _dragLabel = new Border { Child = text, Background = UI.Brush(Look.Hex("popup")), BorderBrush = UI.Brush(Look.Hex("popupBorder")),
             BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8), Padding = new Thickness(8, 3, 8, 4) };
         GestureLayer.Children.Add(_dragTrail); GestureLayer.Children.Add(_dragLabel);
     }
@@ -190,7 +190,7 @@ public partial class MainWindow
     {
         if (_dragTrail is not { } trail || _dragLabel is not { Child: TextBlock text } label) return;
         text.Text = words;
-        text.Foreground = UI.Brush(runs ? UI.Primary : UI.Tertiary);
+        text.Foreground = UI.Brush(runs ? Look.Primary : Look.Tertiary);
         label.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
         var size = label.DesiredSize;
         double left = trail.Points.Min(p => p.X), right = trail.Points.Max(p => p.X), top = trail.Points.Min(p => p.Y), bottom = trail.Points.Max(p => p.Y);
@@ -204,7 +204,7 @@ public partial class MainWindow
         _dragging = false; _dragTrail = null; _dragLabel = null;
         _volumeDrag?.Device.Dispose(); _volumeDrag = null;
         if (GestureLayer.Children.Count == 0) return;
-        if (!Soft.Enabled) { GestureLayer.Children.Clear(); return; }
+        if (!Animates) { GestureLayer.Children.Clear(); return; }
         var fade = new DoubleAnimation(0, TimeSpan.FromMilliseconds(180)) { EasingFunction = Soft.Out };
         fade.Completed += (_, _) => { if (!_dragging) { GestureLayer.Children.Clear(); GestureLayer.BeginAnimation(OpacityProperty, null); GestureLayer.Opacity = 1; } };
         GestureLayer.BeginAnimation(OpacityProperty, fade);

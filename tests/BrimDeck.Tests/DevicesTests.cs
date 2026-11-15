@@ -23,6 +23,9 @@ static class DevicesTests
         check("Devices: the LE appearance gives the kind", Devices.Kind(null, 0x03C2, "x") == DeviceKind.Mouse && Devices.Kind(null, 0x03C1, "x") == DeviceKind.Keyboard
             && Devices.Kind(null, 0x03C4, "x") == DeviceKind.Controller && Devices.Kind(null, 0x03C7, "x") == DeviceKind.Pen && Devices.Kind(null, 0x0941, "x") == DeviceKind.Earbuds
             && Devices.Kind(null, 0x0943, "x") == DeviceKind.Headphones);
+        check("Devices: a phone is a phone, a headphone is not", Devices.Kind("Communication.Phone", null, "Pixel 8") == DeviceKind.Phone
+            && Devices.Kind(null, 0x0040, "iPhone") == DeviceKind.Phone && Devices.Kind("Audio.Headphone", null, "x") == DeviceKind.Headphones
+            && Devices.KindName(DeviceKind.Phone) != Devices.KindName(DeviceKind.Other) && Devices.Rank(DeviceKind.Phone) < Devices.Rank(DeviceKind.Other));
         check("Devices: names give the kind in Chinese and English", Devices.Named("罗技无线鼠标") == DeviceKind.Mouse && Devices.Named("Logitech MX Keys") == DeviceKind.Keyboard
             && Devices.Named("Surface Pen") == DeviceKind.Pen && Devices.Named("DualSense Wireless Controller") == DeviceKind.Controller && Devices.Named("Bose QC45") == DeviceKind.Headphones);
         check("Devices: a word inside another word is not a kind", Devices.Named("OpenRGB hub") is null && Devices.Named("联想笔记本") is null && Devices.Kind(null, null, "F99 MAX Dongle") == DeviceKind.Other);

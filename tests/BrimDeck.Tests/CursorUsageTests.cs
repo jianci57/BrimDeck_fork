@@ -61,9 +61,28 @@ static class CursorUsageTests
         check("A plan merged with Grok shows one weekly allowance, its plan name and no separate Grok Bot row",
             merged.Quotas.Count == 1 && merged.Quotas[0] is { Label: "每周额度", UsedPercent: 12.5, Minutes: 10080 } &&
             merged.Quotas[0].ResetAt == DateTimeOffset.FromUnixTimeMilliseconds(1794193934270) && merged.Plan == "Premium");
-        check("A merged plan reads its token details from the billing items, every page of a day, and not the usage event list",
+        check("A merged plan reads its token details from the billing items of the whole range, every page, and not the usage event list",
             merged.UsageComplete && handler.Calls.Count == 0 && merged.Entries.Select(entry => entry.Key).SequenceEqual(["cursor:g-old", "cursor:g-1", "cursor:g-2", "cursor:g-3"]) &&
-            handler.BillingCalls.Count(call => call.Day == today) == 2 && handler.BillingCalls.Count == 31 && merged.Entries.All(entry => entry is { Model: "Grok Bot", Total: 1050 }));
+            handler.BillingCalls.SequenceEqual([(today.AddDays(-29), ""), (today.AddDays(-29), "2")]) && merged.Entries.All(entry => entry is { Model: "Grok Bot", Total: 1050 }));
+
+        // Pages of two: g-3 g-2 | g-1 g-old | g-older. The third request fails.
+        handler.Billing.Add(BillingItem("g-older", today.AddDays(-10).AddHours(9)));
+        handler.BillingCalls.Clear(); handler.BillingFailAfter = 2; desktop.Token = Token("auth0|C");
+        var partial = await Refresh();
+        check("A merged plan that stops part way keeps the days after the oldest item read",
+            partial.UsageAvailable && !partial.UsageComplete && partial.UsageNote.Contains("其中 28 天", StringComparison.Ordinal) &&
+            partial.Entries.Select(entry => entry.Key).SequenceEqual(["cursor:g-1", "cursor:g-2", "cursor:g-3"]));
+
+        handler.BillingCalls.Clear(); handler.BillingFailAfter = null; clock = clock.AddMinutes(1);
+        var resumed = await Refresh();
+        check("The next refresh reads today again and one range for the days still missing",
+            resumed.UsageComplete && resumed.Entries.Count == 5 &&
+            handler.BillingCalls.SequenceEqual([(today, ""), (today, "2"), (today.AddDays(-29), "")]));
+
+        handler.BillingCalls.Clear(); handler.BillingUnordered = true; desktop.Token = Token("auth0|D");
+        var unordered = await Refresh();
+        check("Billing items out of order are read a day at a time instead",
+            unordered.UsageComplete && unordered.Entries.Count == 5 && handler.BillingCalls.Count == 32 && handler.BillingCalls.Count(call => call.Day == today) == 2);
     }
 
     private static string Token(string subject) =>
@@ -93,6 +112,8 @@ static class CursorUsageTests
         public bool Unified { get; set; }
         public List<(DateTimeOffset Time, string Json)> Billing { get; } = [];
         public List<(DateTime Day, string Cursor)> BillingCalls { get; } = [];
+        public int? BillingFailAfter { get; set; }
+        public bool BillingUnordered { get; set; }
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
@@ -108,12 +129,14 @@ static class CursorUsageTests
             if (path == "/api/dashboard/v2/usage-status") return Reply("{}");
             if (path == "/api/dashboard/v2/query-billing-items")
             {
-                // Two items a page, newest first, continued by the cursor the page gives.
+                // Two items a page, newest first (oldest first when unordered), continued by the cursor the page gives.
+                if (BillingFailAfter is { } billingLimit && BillingCalls.Count >= billingLimit) return new HttpResponseMessage(HttpStatusCode.ServiceUnavailable);
                 var query = System.Web.HttpUtility.ParseQueryString(request.RequestUri!.Query);
                 DateTimeOffset from = DateTimeOffset.Parse(query["startTime"]!), to = DateTimeOffset.Parse(query["endTime"]!);
                 int skip = int.Parse(query["cursor"] ?? "0");
                 BillingCalls.Add((from.LocalDateTime.Date, query["cursor"] ?? ""));
-                var items = Billing.Where(item => item.Time >= from && item.Time < to).OrderByDescending(item => item.Time).Skip(skip).ToList();
+                var inRange = Billing.Where(item => item.Time >= from && item.Time < to);
+                var items = (BillingUnordered ? inRange.OrderBy(item => item.Time) : inRange.OrderByDescending(item => item.Time)).Skip(skip).ToList();
                 bool more = items.Count > 2;
                 var pagination = more ? $"{{\"hasMore\":true,\"nextCursor\":\"{skip + 2}\"}}" : "{\"hasMore\":false}";
                 return Reply("{\"data\":[" + string.Join(",", items.Take(2).Select(item => item.Json)) + "],\"pagination\":" + pagination + "}");

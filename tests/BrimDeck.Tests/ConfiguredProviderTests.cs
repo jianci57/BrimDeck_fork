@@ -142,8 +142,9 @@ internal static class ConfiguredProviderTests
         check("A rejected DeepSeek key explains what to check", (await providers.TestAsync(entry)).Snapshot is { LiveQuota: false, StatusLabel: "密钥无效" } rejected && rejected.Status.Contains("DeepSeek"));
         // Kimi Code API: a key from the Kimi Code console reads the plan quota the Kimi Code sign-in reads.
         var manual = ProviderCatalog.Sources.Where(id => !ProviderCatalog.IsBuiltIn(id)).ToList();
-        check("Kimi Code API is entered by hand, right after DeepSeek, then OpenCode Go, then OpenRouter, then New API",
-            manual.IndexOf(ProviderId.KimiApi) == manual.IndexOf(ProviderId.DeepSeek) + 1 && manual.IndexOf(ProviderId.OpenCodeGo) == manual.IndexOf(ProviderId.KimiApi) + 1 &&
+        check("Kimi Code API is entered by hand, right after DeepSeek, then Kimi Open Platform, OpenCode Go, then OpenRouter, then New API",
+            manual.IndexOf(ProviderId.KimiApi) == manual.IndexOf(ProviderId.DeepSeek) + 1 && manual.IndexOf(ProviderId.KimiPlatform) == manual.IndexOf(ProviderId.KimiApi) + 1 &&
+            manual.IndexOf(ProviderId.OpenCodeGo) == manual.IndexOf(ProviderId.KimiPlatform) + 1 &&
             manual.IndexOf(ProviderId.NewApi) == manual.IndexOf(ProviderId.OpenRouter) + 1 &&
             ProviderCatalog.Group(ProviderId.KimiApi) == "手动填写" && ProviderCatalog.Name(ProviderId.KimiApi) == "Kimi Code API" && !ProviderCatalog.NeedsSite(ProviderId.KimiApi) &&
             !ProviderCatalog.IsUsageSource(ProviderId.KimiApi) && (int)ProviderId.KimiApi == 16);
@@ -186,6 +187,37 @@ internal static class ConfiguredProviderTests
             invalid.Status.Contains("sk-kimi-") && !invalid.Status.Contains("fixture-key"));
         check("Kimi's region comes from /me", KimiUsage.GlobalRegion(Json("""{"region":"REGION_CN"}""")) == false && KimiUsage.GlobalRegion(Json("""{"region":"REGION_GLOBAL"}""")) == true &&
             KimiUsage.GlobalRegion(Json("{}")) is null && KimiUsage.GlobalRegion(default) is null && KimiUsage.GlobalRegion(Json("""{"region":"cn"}""")) is null);
+        // Kimi Open Platform: a pay-as-you-go key reads the account balance at api.moonshot.cn, or api.moonshot.ai when .cn rejects it.
+        check("Kimi Open Platform is entered by hand, named apart from Kimi Code API, saved as kimi-platform, with an account balance",
+            ProviderCatalog.Name(ProviderId.KimiPlatform) == "Kimi 开放平台" && ProviderCatalog.Group(ProviderId.KimiPlatform) == "手动填写" &&
+            ProviderCatalog.Key(ProviderId.KimiPlatform) == "kimi-platform" && (int)ProviderId.KimiPlatform == 30 && !ProviderCatalog.NeedsSite(ProviderId.KimiPlatform) &&
+            !ProviderCatalog.IsUsageSource(ProviderId.KimiPlatform) && ProviderCatalog.HasAccountBalance(ProviderId.KimiPlatform) &&
+            AppPresets.ThemeColor(ProviderId.KimiPlatform) == AppPresets.ManualColor && PanelThemes.AppKey(ProviderId.KimiPlatform) == "manual" &&
+            JsonSerializer.Deserialize<DeckSettings>(JsonSerializer.Serialize(new DeckSettings { Apps = [new AppEntry { QuotaSource = ProviderId.KimiPlatform }] }))!.Apps.Single().QuotaSource == ProviderId.KimiPlatform);
+        entry.QuotaSource = ProviderId.KimiPlatform;
+        const string platformBalance = """{"code":0,"data":{"available_balance":49.58894,"voucher_balance":46.58893,"cash_balance":3.00001},"scode":"0x0","status":true}""";
+        hosts.Clear(); handler.Calls.Clear();
+        handler.Respond = request => { lock (hosts) hosts.Add(request.RequestUri!.Host); return Reply(platformBalance); };
+        var platform = (await providers.TestAsync(entry)).Snapshot;
+        check("A Kimi Open Platform key reads the China balance in CNY with the Bearer key",
+            hosts.SequenceEqual(["api.moonshot.cn"]) && handler.Calls.Single().Path == "/v1/users/me/balance" && handler.Calls.Single().Authorization == "Bearer fixture-key-a" &&
+            platform is { LiveQuota: true, Scope: "account", Plan: "", StatusLabel: "已连接", Status: "已连接", Source: "Kimi 开放平台 · kimi.com 账户" } &&
+            platform.Metrics.Select(m => m.Label).SequenceEqual(["账户余额", "现金余额", "代金券余额"]) && platform.Metrics.All(m => m is { Kind: MetricKind.Balance, Currency: "CNY", Total: null }) &&
+            platform.Metrics[0].Amount == 49.58894m && platform.Metrics[1].Amount == 3.00001m && platform.Metrics[2].Amount == 46.58893m);
+        hosts.Clear();
+        handler.Respond = request => { lock (hosts) hosts.Add(request.RequestUri!.Host); return request.RequestUri!.Host == "api.moonshot.cn" ? Rejected() : Reply("""{"code":0,"data":{"available_balance":0,"voucher_balance":0,"cash_balance":-1.5},"scode":"0x0","status":true}"""); };
+        platform = (await providers.TestAsync(entry)).Snapshot;
+        check("A key .cn rejects is read on .ai in dollars, and an empty balance warns that calls are not possible",
+            hosts.SequenceEqual(["api.moonshot.cn", "api.moonshot.ai"]) && platform is { LiveQuota: true, StatusLabel: "已连接", Source: "Kimi 开放平台 · kimi.ai 账户" } &&
+            platform.Status.Contains("余额不足") && platform.Metrics.All(m => m.Currency == "USD") && platform.Metrics[1].Amount == -1.5m);
+        hosts.Clear();
+        handler.Respond = request => { lock (hosts) hosts.Add(request.RequestUri!.Host); return Rejected(); };
+        var platformInvalid = (await providers.TestAsync(entry)).Snapshot;
+        check("A key both hosts reject is reported invalid, points a Kimi Code key to Kimi Code API, and never shows the key",
+            hosts.SequenceEqual(["api.moonshot.cn", "api.moonshot.ai"]) && platformInvalid is { LiveQuota: false, StatusLabel: "密钥无效" } &&
+            platformInvalid.Status.Contains("Kimi Code API") && !platformInvalid.Status.Contains("fixture-key"));
+        handler.Respond = _ => Reply("""{"code":1,"data":{}}""");
+        check("A balance answer without available_balance is reported as unrecognized", (await providers.TestAsync(entry)).Snapshot is { LiveQuota: false } platformOdd && platformOdd.Status.Contains("无法识别"));
         // OpenCode Go: an OpenCode Console API key reads the Go allowance OpenCode's own sign-in reads.
         entry.QuotaSource = ProviderId.OpenCodeGo;
         string agent = "";
@@ -216,8 +248,8 @@ internal static class ConfiguredProviderTests
         check("An answer without windows is reported as unrecognized", (await providers.TestAsync(entry)).Snapshot is { LiveQuota: false } empty && empty.Status.Contains("无法识别"));
         // OpenRouter: the account balance from /credits, then the key's cap and its UTC-day and UTC-month spending from /key.
         entry.QuotaSource = ProviderId.OpenRouter;
-        check("OpenRouter is entered by hand after OpenCode Go and before New API, sharing the manual color",
-            manual.IndexOf(ProviderId.OpenRouter) == manual.IndexOf(ProviderId.OpenCodeGo) + 1 && ProviderCatalog.Name(ProviderId.OpenRouter) == "OpenRouter" &&
+        check("OpenRouter is entered by hand after Command Code API and before New API, sharing the manual color",
+            manual.IndexOf(ProviderId.OpenRouter) == manual.IndexOf(ProviderId.CommandCodeApi) + 1 && ProviderCatalog.Name(ProviderId.OpenRouter) == "OpenRouter" &&
             ProviderCatalog.Key(ProviderId.OpenRouter) == "openrouter" && (int)ProviderId.OpenRouter == 19 && !ProviderCatalog.NeedsSite(ProviderId.OpenRouter) &&
             !ProviderCatalog.IsUsageSource(ProviderId.OpenRouter) && AppPresets.ThemeColor(ProviderId.OpenRouter) == AppPresets.ManualColor && PanelThemes.AppKey(ProviderId.OpenRouter) == "manual");
         string routerKey = """{"data":{"limit":null,"limit_reset":null,"limit_remaining":null,"effective_budget":null,"usage":82.47,"usage_daily":1.5,"usage_weekly":3,"usage_monthly":12.25}}""";

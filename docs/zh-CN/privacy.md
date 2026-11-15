@@ -15,10 +15,16 @@ BrimDeck 仅读取应用已有的登录状态与用量记录，不会修改、�
 | DeepSeek Harness | 读取 DeepSeek Harness 的登录（`%USERPROFILE%\.dsh\.credentials.yaml`），向 DeepSeek 开放平台查询账户余额与累计消费金额；未登录账户时，使用其中保存的 API 密钥查询余额 | 读取本地会话记录（`%USERPROFILE%\.dsh\sessions`） |
 | Kimi Code | 读取 Kimi Code 的登录（`%USERPROFILE%\.kimi-code\credentials\` 下的 `kimi-code.json`，海外版为 `kimi-code-env-…json`）、服务地址与站点设置（`config.toml`，以及可选的 `region` 文件），向所选站点（api.kimi.com 或 api.kimi.ai）查询套餐额度与会员等级；不续期登录，不修改 Kimi Code 的任何文件 | 读取本地会话记录（`%USERPROFILE%\.kimi-code\sessions`） |
 | OpenCode | 以只读方式读取 OpenCode 数据库（`%USERPROFILE%\.local\share\opencode\opencode.db`）中的 OpenCode Console 登录，没有时读取同一目录下 `auth.json` 中的 API 密钥，向 opencode.ai 查询 OpenCode Go 额度；不续期登录，不修改 OpenCode 的任何文件 | 以只读方式读取同一数据库中的模型请求记录 |
-| 智谱 GLM、Z.ai GLM、DeepSeek、Kimi Code API、OpenCode Go、OpenRouter、New API、Sub2API、自定义 | 使用在设置中填写的密钥与站点地址；Kimi Code API 的密钥只发往 api.kimi.com 与 api.kimi.ai，读取的额度不写入 `kimi-quota.json`；OpenCode Go 的密钥只发往 opencode.ai；OpenRouter 的密钥只发往 openrouter.ai。密钥只通过 HTTPS 或发往本机地址；New API、Sub2API、自定义来源打开“允许 HTTP”后，也会通过 HTTP 以明文发送 | 不提供 |
+| Command Code | 读取 Command Code 的登录密钥（`%USERPROFILE%\.commandcode\auth.json`），向 api.commandcode.ai 查询套餐额度、账期与本账期用量；不修改 Command Code 的任何文件 | 读取本地会话记录（`%USERPROFILE%\.commandcode\projects`）与模型目录中的单价（`%USERPROFILE%\.commandcode\cache\model-catalog`） |
+| WorkBuddy | 使用在设置中通过 WorkBuddy 官网登录获得的凭据（加密保存在 BrimDeck 设置目录的 `secrets.dat`），向 www.workbuddy.cn 查询积分余额、套餐名称与周期，过期时向同一地址续期；不读取 WorkBuddy 桌面版的登录，不修改 WorkBuddy 的任何文件 | 读取本地会话记录（`%USERPROFILE%\.workbuddy\projects`）中的 Token 数 |
+| WorkBuddy AI | 与 WorkBuddy 相同，凭据单独保存，只发往 www.workbuddy.ai；不读取 WorkBuddy AI 桌面版的登录 | 读取本地会话记录（`%USERPROFILE%\.workbuddy-ai\projects`）中的 Token 数 |
+| Xiaomi MiMo 桌面订阅 | 使用在设置中通过浏览器登录小米账号获得的登录信息（加密保存在 BrimDeck 设置目录的 `mimo-session.dat`），向 mimo-server-cn.xiaomimimo.com 查询桌面版会员额度，过期时经 account.xiaomi.com 续期；登录时打开的浏览器窗口使用独立的临时目录，登录后删除 | 读取本地数据库（`%USERPROFILE%\.local\share\mimocode\mimocode.db`） |
+| Xiaomi MiMo | 读取 Xiaomi MiMo 桌面版与 MiMo Code CLI 保存的开放平台密钥（`%USERPROFILE%\.local\share\mimocode\auth.json`），向 api.xiaomimimo.com 查询余额与本月扣费，向对应集群的 token-plan 地址查询 Token Plan 额度；不修改这个文件 | 使用 Xiaomi MiMo 的本机记录 |
+| 智谱 GLM、Z.ai GLM、Xiaomi MiMo API、Xiaomi MiMo Token Plan、DeepSeek、Kimi Code API、Kimi 开放平台、OpenCode Go、Command Code API、OpenRouter、New API、Sub2API、自定义 | 使用在设置中填写的密钥与站点地址；Kimi Code API 的密钥只发往 api.kimi.com 与 api.kimi.ai，读取的额度不写入 `kimi-quota.json`；Kimi 开放平台的密钥只发往 api.moonshot.cn 与 api.moonshot.ai；OpenCode Go 的密钥只发往 opencode.ai；Command Code API 的密钥只发往 api.commandcode.ai；Xiaomi MiMo API 的密钥只发往 api.xiaomimimo.com；Xiaomi MiMo Token Plan 的密钥只发往 token-plan-cn、token-plan-sgp 与 token-plan-ams.xiaomimimo.com；OpenRouter 的密钥只发往 openrouter.ai。密钥只通过 HTTPS 或发往本机地址；New API、Sub2API、自定义来源打开“允许 HTTP”后，也会通过 HTTP 以明文发送 | 不提供 |
 
 - 设置了 `CLAUDE_CONFIG_DIR`、`CODEX_HOME`、`ZCODE_HOME`、`DSH_HOME` 或 `KIMI_CODE_HOME`（须为绝对路径）时，从该目录读取。OpenCode 按 `XDG_DATA_HOME` 与 `OPENCODE_DB` 确定数据库位置。
 - 这些账户接口与本地数据格式并非公开的稳定接口。无法读取时，面板显示实际状态，不会显示虚构的数值。
+- QueMusic 播放本地歌曲时，BrimDeck 从 QueMusic 的设置文件（`%LOCALAPPDATA%\BroNekoX\QueMusic.ini`）的播放记录中找到正在播放的文件，读取该文件的标签，以及同一目录下同名的 `.lrc`、`.txt` 文件，用来显示歌词。这些文件只在本机读取，不修改，也不上传。QueMusic 在线播放网易云音乐、酷狗音乐或 QQ 音乐的歌曲时，BrimDeck 从同一播放记录中读取歌曲编号，发送给对应平台的歌词服务以查询这首歌的歌词。
 
 ## 本机保存的文件
 
@@ -27,18 +33,21 @@ BrimDeck 仅读取应用已有的登录状态与用量记录，不会修改、�
 | 文件 | 内容 |
 | --- | --- |
 | `settings.json` | 设置，不含任何登录令牌或 API 密钥 |
-| `secrets.dat` | 手动填写的 API 密钥，使用 Windows 的加密功能按当前用户加密 |
+| `secrets.dat` | 手动填写的 API 密钥与 WorkBuddy 的登录凭据，使用 Windows 的加密功能按当前用户加密 |
+| `mimo-session.dat` | Xiaomi MiMo 的小米账号登录信息，使用 Windows 的加密功能按当前用户加密 |
 | `model-prices.json`、`manual-model-prices.json` | 同步的模型单价、手动添加的单价 |
 | `official-prices.json` | 从 OpenRouter 同步的模型厂商官方渠道单价，只包含记录中用到的模型，以及 Kimi Code 计费所需的 Kimi K3、K3.1 Pro 与 K3.1 Pro Highspeed。没有这个文件时，读取旧版本保存的 `moonshot-prices.json` |
 | `claude-quota.json` | 最近一次联网读取的 Claude 额度（各项百分比、重置时间与订阅名称），重启后接口被限流时用来继续显示 Fable 等额度；不含登录令牌；账户与组织仅以其 ID 的单向哈希记录（不保存 ID 本身），每个组织一条，只在同一账户登录时使用；超过 7 天不再使用，登录失效或退出登录时删除 |
 | `kimi-quota.json` | 最近一次联网读取的 Kimi Code 额度（各项百分比、重置时间、加油包与会员等级），登录过期或接口暂时不可用时继续显示，重启后同样适用；不含登录令牌与其他账户资料；账户仅以其 ID 连同服务地址的单向哈希记录（不保存 ID 本身），只在同一站点的同一账户登录时使用；超过 7 天不再使用，退出登录或账户未订阅 Kimi Code 套餐时删除 |
+| `usage-last-seen.json` | 各内置来源与用量统计来源最近一次读到的用量，用于启动后在新数据到达前先显示（标注“上次读取”）：各项额度的百分比、金额、重置时间与订阅名称，以及按日期和模型汇总的 Token 数与费用。不含登录令牌、API 密钥、账户信息、文件路径或会话内容；自定义来源不保存。超过 24 小时的读数不再显示；AI 用量页和收起时的用量显示都关闭后，最迟在下次启动时删除；删除这个文件没有影响 |
 | `update-prompt.txt`、`updates\` | 已提示过的版本号、下载的安装包或免安装压缩包（免安装版更新时还有解压出的新版本文件） |
 | `cursor-prices.json` | Cursor 合并套餐每周已含用量的读数（金额与各类 Token 数），用于估算该套餐下的费用 |
 | `apple-music-lyrics.json` | Apple Music 中每首歌匹配到的歌词编号，重启后再次播放时直接使用 |
-| `shelf.dat`、`shelf\` | 剪贴板记录、文件中转的文件路径和两者的分类，以及复制的图片（每张一个文件），都使用 Windows 的加密功能按当前用户加密。普通的剪贴板记录在退出 BrimDeck 时清除（异常退出的，在下次启动时清除）；“常用”和一直保留的分类中的内容保留到手动删除 |
+| `shelf.dat`、`shelf\` | 剪贴板记录、文件中转的文件路径和两者的分类，以及复制的图片和网页、Word 等附带的格式（每条一个文件），不加密。普通的剪贴板记录在退出 BrimDeck 时清除（异常退出的，在下次启动时清除），开启“退出后保留历史”时改为保留，超过所选保存时长后删除；“常用”和一直保留的分类中的内容保留到手动删除 |
 | `themes\` | 自定义的面板主题文件 |
 | `sensor-stops.json`、`sensor-pending.json` | 系统监控因电脑卡住而停止读取的项目（硬盘或显卡的型号、主板型号与 BIOS 版本），以及正在读取的项目，用于在下次启动时发现上次卡住的读取；在设置中重新开启后删除对应记录 |
 | `crash.log` | 错误记录，超过 1 MB 时清空 |
+| `monitor.log` | 系统监控读取失败的记录（错误信息，以及读取没有回应的硬盘、显卡或主板的名称），同一项失败十分钟内只记一次，不含读数；超过 1 MB 时清空 |
 
 ## 联网与安全
 
@@ -47,6 +56,7 @@ BrimDeck 仅读取应用已有的登录状态与用量记录，不会修改、�
 - 读取的登录令牌仅在内存中使用，不写入磁盘；Claude 桌面版与 Grok Bot 桌面版的登录缓存使用当前用户的 Windows 加密功能在内存中解密。
 - 自定义脚本在沙盒中运行，无法访问文件、进程或 .NET 对象，限制详见[支持的工具](ai-tools.md#自定义脚本)。
 - 系统监控的读数（包括温度和硬盘空间）只在本机读取和显示，不保存、不上传。硬盘空间来自各盘符的文件系统，盘符所在的物理硬盘通过 Windows 的卷信息查询。温度默认通过 Windows 自带的接口读取：CPU 用性能计数器中的 ACPI 热区，GPU 用显卡驱动报告的数据（显卡内核接口没有时，改用 NVIDIA、AMD、Intel 驱动自带的接口），硬盘以不可读写的方式打开后查询其温度；不需要管理员权限，不安装驱动。如果正在运行 HWiNFO（已开启共享内存）或 LibreHardwareMonitor（已开启远程网页服务，只连接本机 localhost:8085），也会从中读取 CPU 温度和功耗。启用[增强传感器](enhanced-sensors.md)后，CPU 温度和功耗由 BrimDeck 的传感器服务通过 PawnIO 驱动从处理器读取。
+- 网络流量统计读取 Windows 自己记录的各网络流量（与 Windows 设置中的“数据使用量”相同），只在本机读取和显示，不保存、不上传。
 - 整机功耗和本机电池同样只在本机读取和显示，不保存、不上传，且只在系统监控页或收起行选了该读数时读取：CPU 功率来自 Windows 能量计（Energy Meter）的性能计数器，NVIDIA 显卡功率来自显卡驱动自带的 nvidia-smi.exe（只在显卡有负载、且页面或收起行要显示功耗时由 BrimDeck 启动，随 BrimDeck 退出而结束；显卡空闲时不读取，以免唤醒休眠的独立显卡），电池电量、充放电功率和容量来自 Windows 的电池接口，电源模式和节电模式来自 Windows 的电源接口；不需要管理员权限，不安装驱动。
 - 帧率默认不读取。开启“显示帧率”时，需要把当前用户加入 Windows 的“Performance Log Users”组，Windows 会请求一次管理员确认；之后只读取前台程序绘制画面的事件，用来计算帧率并显示程序名称，不保存、不上传。
 - 设备电量只在设备电量页、收起行的“设备电量”或“设置 › 显示与设备”显示时读取，不保存、不上传，也不联网。蓝牙设备的电量来自 Windows 自己读取的数值（与“Windows 设置 › 蓝牙和其他设备”一致），必要时读取设备的蓝牙电池服务；使用 2.4G 接收器或数据线的设备通过其 HID 接口发送只读查询；Xbox 手柄通过 Windows 游戏控制器接口；AirPods 与 Beats 只在已连接时从近距离的蓝牙广播中读取。支持的品牌见[设备电量支持](devices.md)。不会配对、断开或改动任何设备与 Windows 设置，不需要管理员权限，不安装驱动。在设置中调整过顺序、名称、颜色或显示位置的设备记在 `settings.json` 里（设备标识、名称、类型、自定义名称、颜色与显示位置）。

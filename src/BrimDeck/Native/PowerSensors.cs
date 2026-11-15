@@ -171,7 +171,7 @@ internal sealed class NvidiaSmi : IDisposable
         }
         catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException or IOException)
         {
-            Debug.WriteLine(ex); _failure = Loc.T("无法启动", "did not start");
+            MonitorLog.Note("nvidia power", ex); _failure = Loc.T("无法启动", "did not start");
         }
     }
 
@@ -224,7 +224,7 @@ internal sealed class NvidiaSmi : IDisposable
         {
             if (_process is { HasExited: false }) { _process.Kill(); _process.WaitForExit(1000); }
         }
-        catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception or NotSupportedException) { Debug.WriteLine(ex); }
+        catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception or NotSupportedException) { MonitorLog.Note("nvidia power", ex); }
         _process?.Dispose();
         if (_job != IntPtr.Zero) CloseHandle(_job);
     }
@@ -279,7 +279,7 @@ internal sealed class BatteryProvider
                     report.DesignCapacityInMilliwattHours, report.ChargeRateInMilliwatts, report.Status == Windows.System.Power.BatteryStatus.Charging,
                     report.Status == Windows.System.Power.BatteryStatus.Discharging));
             }
-            catch (Exception ex) when (ex is not OutOfMemoryException) { Debug.WriteLine(ex); }
+            catch (Exception ex) when (ex is not OutOfMemoryException) { MonitorLog.Note("battery", ex); }
         }
         // The system's own view where the batteries give no report (a driver that lists none): it knows a battery is there and its share.
         bool systemBattery = status.BatteryFlag is not (128 or 255);
@@ -307,7 +307,7 @@ internal sealed class BatteryProvider
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            Debug.WriteLine(ex);
+            MonitorLog.Note("battery", ex);
         }
     }
 

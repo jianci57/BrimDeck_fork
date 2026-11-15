@@ -31,12 +31,45 @@ internal static class Soft
     // HoverOut its quicker way out), a glide between choices the monitor's sort pill (Choose), content that moves in or out the
     // monitor's readings (Move).
     public const int Quick = 160, Short = 240, Hover = (int)(Eased.Hover * 1000), HoverOut = (int)(Eased.HoverOut * 1000 + .5), Choose = (int)(Eased.Seconds * 750), Move = (int)(Eased.Seconds * 1000);
+    // A press (motion-review F11, F12): what shrinks under the button goes down in Press to PressScale, a pressed fill or glyph
+    // in PressFill, so the press is felt at once; both let go in Quick.
+    public const int Press = PressFeedback.Down, PressFill = PressFeedback.Fill;
+    public const double PressScale = PressFeedback.Scale;
     // How small content is as it steps out of or into its place (the island's compact content, motion-review F15): never so
     // small that it reads as coming from nothing.
     public const double Shrunk = .94;
 
-    // Whether anything moves: the setting in BrimDeck and Windows' own "animation effects".
-    public static bool Enabled => SystemParameters.ClientAreaAnimation && (Application.Current as App)?.Settings.Animations != false;
+    // Whether anything moves: the setting in BrimDeck and Windows' own "animation effects", and never in high contrast. The one
+    // rule for every animation in the app (motion-review F5, F6): nothing outside it decides for itself.
+    // "Enable animations" belongs to a profile, and a panel may show another profile than the one in use (App.SettingsFor): a panel
+    // asks with its own settings (For, MainWindow.Animates), what lies in a window asks by that window (At), and Enabled, the
+    // profile in use, is for the settings window and what belongs to no panel.
+    public static bool Enabled => For((Application.Current as App)?.Settings);
+    public static bool For(DeckSettings? settings) =>
+        MotionConditions.Allowed(settings?.Animations != false, SystemParameters.ClientAreaAnimation, SystemParameters.HighContrast);
+    // For something on screen: its panel's settings when it belongs to a panel, otherwise the profile in use.
+    public static bool At(DependencyObject? element) => PanelOf(element) is { } deck ? For(deck.PanelSettings) : Enabled;
+    // The panel something belongs to. A menu or pop-up belongs to what it opens from, and a window a panel opened (the model
+    // details' date and filter windows) to its owner, so the walk goes through those as well as through parents.
+    private static MainWindow? PanelOf(DependencyObject? element)
+    {
+        for (int step = 0; element is not null && step < 512; step++)
+        {
+            switch (element)
+            {
+                case MainWindow deck: return deck;
+                case Window window: element = window.Owner; continue;
+                case System.Windows.Controls.ContextMenu { PlacementTarget: { } target }: element = target; continue;
+                case System.Windows.Controls.ToolTip { PlacementTarget: { } target }: element = target; continue;
+                case System.Windows.Controls.Primitives.Popup { PlacementTarget: { } target }: element = target; continue;
+            }
+            // The logical parent first: a pop-up's content has the pop-up as its parent there, and nothing above it visually.
+            element = LogicalTreeHelper.GetParent(element) ?? (element is Visual or System.Windows.Media.Media3D.Visual3D ? VisualTreeHelper.GetParent(element) : null);
+        }
+        return null;
+    }
+    // Whether text too long for its place scrolls; high contrast does not stop it (MotionConditions.Scrolls).
+    public static bool Scrolls(DeckSettings? settings) => MotionConditions.Scrolls(settings?.Animations != false, SystemParameters.ClientAreaAnimation);
 
     public static DoubleAnimation Fade(double from, double to, int milliseconds, IEasingFunction? easing = null) =>
         new(from, to, TimeSpan.FromMilliseconds(milliseconds)) { EasingFunction = easing ?? Out };
@@ -45,7 +78,9 @@ internal static class Soft
     // The element's own transform is replaced only when it has none.
     public static void Enter(UIElement? element, double drop = 6)
     {
-        if (element is null || !Enabled) return;
+        // By the panel it opens from: a panel showing another profile than the one in use follows its own (ModelDetails holds a
+        // pop-up's content out of sight on that panel's word and leaves the entrance to this).
+        if (element is null || !At(element)) return;
         var start = Fade(0, 1, Short); start.FillBehavior = FillBehavior.Stop;
         element.BeginAnimation(UIElement.OpacityProperty, start);
         if (element.RenderTransform is not (null or MatrixTransform { Matrix.IsIdentity: true } or TranslateTransform { IsFrozen: false })) return;
@@ -64,6 +99,35 @@ internal static class Soft
         if (element.RenderTransform is not (null or MatrixTransform { Matrix.IsIdentity: true } or TranslateTransform { IsFrozen: false })) return;
         if (element.RenderTransform is not TranslateTransform shift) element.RenderTransform = shift = new TranslateTransform();
         shift.BeginAnimation(TranslateTransform.YProperty, Fade(shift.Y, -rise, Quick));
+    }
+
+    // A scale that answers a press: down to PressScale in Press, back in Quick.
+    public static void Pressed(ScaleTransform scale, bool down, bool animate)
+    {
+        Glide(scale, ScaleTransform.ScaleXProperty, down ? PressScale : 1, animate, PressFeedback.ScaleLength(down));
+        Glide(scale, ScaleTransform.ScaleYProperty, down ? PressScale : 1, animate, PressFeedback.ScaleLength(down));
+    }
+
+    // Sets a property to its new value and, when animate, glides there from where it was (Soft.Follow, Hover by default): the
+    // animation only covers the way and ends without holding the property, so the value set is what stays. Changes of at most
+    // tolerance are set at once.
+    public static void Glide<T>(T target, DependencyProperty property, double to, bool animate, int milliseconds = Hover, double tolerance = 0)
+        where T : DependencyObject, IAnimatable
+    {
+        double from = (double)target.GetValue(property);
+        target.BeginAnimation(property, null);
+        target.SetValue(property, to);
+        if (!animate || !double.IsFinite(from) || Math.Abs(from - to) <= tolerance) return;
+        target.BeginAnimation(property, new DoubleAnimation(from, to, TimeSpan.FromMilliseconds(milliseconds)) { EasingFunction = Follow, FillBehavior = FillBehavior.Stop });
+    }
+
+    // The same for a brush's color.
+    public static void Glide(SolidColorBrush brush, Color to, bool animate, int milliseconds = Hover)
+    {
+        var from = brush.Color;
+        brush.BeginAnimation(SolidColorBrush.ColorProperty, null);
+        brush.Color = to;
+        if (animate && from != to) brush.BeginAnimation(SolidColorBrush.ColorProperty, new ColorAnimation(from, to, TimeSpan.FromMilliseconds(milliseconds)) { EasingFunction = Follow, FillBehavior = FillBehavior.Stop });
     }
 
     private static IEasingFunction Frozen(Freezable ease) { ease.Freeze(); return (IEasingFunction)ease; }

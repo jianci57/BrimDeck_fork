@@ -30,7 +30,8 @@ public sealed partial class SettingsWindow
     }
     internal void QuotasChanged()
     {
-        if (!IsLoaded || _page != 3 || _appRows is null) return;
+        // While a list is open nothing is rebuilt: the list would stay on screen for a row that is gone. Its closing calls this again.
+        if (!IsLoaded || _page != 3 || _appRows is null || _shownPopups.Count > 0) return;
         foreach (var entry in S.Apps.ToList())
         {
             if (!_ringChoices.TryGetValue(entry.InstanceId, out var built) || RingChoices(entry) == built) continue;
@@ -39,6 +40,15 @@ public sealed partial class SettingsWindow
             if (row is null || QuotaRowBusy(row)) continue;
             RefreshAppRow(entry.InstanceId);
         }
+    }
+    private static bool OpenCombo(DependencyObject parent)
+    {
+        for (int i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, i);
+            if (child is ComboBox { IsDropDownOpen: true } || OpenCombo(child)) return true;
+        }
+        return false;
     }
 
     internal static bool QuotaRowBusy(FrameworkElement row) => row.IsKeyboardFocusWithin ||
@@ -115,6 +125,8 @@ public sealed partial class SettingsWindow
         _sourceRows[entry.InstanceId] = (border, detail, arrow);
         row.MouseLeftButtonDown += (_, e) =>
         {
+            // The press that closes a list (TogglePopup) reaches the row with the list's button not taking the mouse; it only closes the list.
+            if (_shownPopups.Count > 0) return;
             if (ReferenceEquals(e.OriginalSource, row)) { ToggleSourceRow(entry.InstanceId); e.Handled = true; }
         };
     }
@@ -173,12 +185,71 @@ public sealed partial class SettingsWindow
         return grid;
     }
 
+    // Xiaomi MiMo reads its membership with a Xiaomi account signed in to here (MiMoAccount): the line says whether one is, and
+    // signs in on Xiaomi's own page in a browser window of its own, or signs out.
+    private CancellationTokenSource? _mimoSignIn;
+    private FrameworkElement MiMoAccountDetails()
+    {
+        var grid = AppColumns(); grid.Margin = new Thickness(0, 0, 0, 12);
+        var line = new Grid();
+        line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto, SharedSizeGroup = "SourceLabel" });
+        line.ColumnDefinitions.Add(new ColumnDefinition());
+        var caption = TextLine(Loc.T("小米账号", "Xiaomi account"), 12, TextSecondary);
+        caption.Margin = new Thickness(16, 0, 16, 0); caption.MinWidth = 52; caption.VerticalAlignment = VerticalAlignment.Center;
+        line.Children.Add(caption);
+        var controls = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        var state = TextLine("", 12, TextPrimary); state.VerticalAlignment = VerticalAlignment.Center; state.Margin = new Thickness(0, 0, 12, 0);
+        Button Outline(string id)
+        {
+            var button = ActionButton("", () => { }); button.Style = (Style)FindResource("SettingsOutlineButton");
+            button.Height = 30; button.Margin = new Thickness(0, 0, 8, 0);
+            AutomationProperties.SetAutomationId(button, id);
+            return button;
+        }
+        var signIn = Outline("mimo-sign-in"); var signOut = Outline("mimo-sign-out");
+        signOut.Content = Loc.T("退出登录", "Sign out");
+        controls.Children.Add(state); controls.Children.Add(signIn); controls.Children.Add(signOut);
+        void Show()
+        {
+            bool waiting = _mimoSignIn is not null, signedIn = _app.MiMo.SignedIn;
+            state.Text = waiting ? Loc.T("请在浏览器窗口中登录", "Sign in in the browser window") : signedIn ? Loc.T("已登录", "Signed in") : Loc.T("未登录", "Not signed in");
+            signIn.Content = waiting ? Loc.T("取消", "Cancel") : signedIn ? Loc.T("重新登录", "Sign in again") : Loc.T("登录", "Sign in");
+            signOut.Visibility = signedIn && !waiting ? Visibility.Visible : Visibility.Collapsed;
+        }
+        signIn.Click += async (_, _) =>
+        {
+            if (_mimoSignIn is { } running) { running.Cancel(); return; }
+            var cancellation = CancellationTokenSource.CreateLinkedTokenSource(_app.Lifetime.Token); _mimoSignIn = cancellation;
+            Show();
+            try
+            {
+                await Task.Run(() => _app.MiMo.SignInAsync(cancellation.Token));
+                SaveStatus(Loc.T("已登录小米账号", "Signed in to the Xiaomi account"));
+                _ = _app.Deck.RefreshAsync();
+            }
+            catch (OperationCanceledException) { }
+            catch (Native.MiMoAccount.SignInException ex) { SaveStatus(ex.Message, true); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception or System.Net.WebSockets.WebSocketException or System.Net.Http.HttpRequestException or System.Text.Json.JsonException)
+            { SaveStatus(Loc.T("登录失败，请重试", "Signing in failed. Try again."), true); }
+            finally { if (_mimoSignIn == cancellation) _mimoSignIn = null; cancellation.Dispose(); Show(); }
+        };
+        signOut.Click += (_, _) => { _app.MiMo.SignOut(); Show(); _ = _app.Deck.RefreshAsync(); };
+        Show();
+        Grid.SetColumn(controls, 1); line.Children.Add(controls);
+        line.Margin = new Thickness(0, 5, 0, 5);
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        Grid.SetColumn(line, 1); Grid.SetColumnSpan(line, 6); grid.Children.Add(line);
+        return grid;
+    }
+
     // The expanded configuration starts under the quota source: a short label column, then fields that end midway
     // between the warning and critical colors. Labels share one width so every field starts at the same place.
     // Built-in sources other than Claude and Grok Bot have no configuration of their own; their rows open on the off-peak time alone.
     private FrameworkElement? SourceDetails(AppEntry entry)
     {
         if (ProviderCatalog.HasOnlineSwitch(entry.QuotaSource)) return OnlineQuotaDetails(entry);
+        if (entry.QuotaSource == ProviderId.MiMo) return MiMoAccountDetails();
+        if (entry.QuotaSource is ProviderId.WorkBuddy or ProviderId.WorkBuddyAi) return WorkBuddyDetails(entry);
         if (ProviderCatalog.IsBuiltIn(entry.QuotaSource)) return null;
         var grid = AppColumns();
         var result = new StackPanel { Visibility = Visibility.Collapsed, Margin = new Thickness(6, 4, 6, 4) };
@@ -300,7 +371,11 @@ public sealed partial class SettingsWindow
             ProviderId.GlmChina or ProviderId.GlmGlobal => Loc.T("GLM 套餐密钥，加密保存在本机", "GLM plan key, stored encrypted on this PC"),
             ProviderId.DeepSeek => Loc.T("DeepSeek API 密钥，加密保存在本机", "DeepSeek API key, stored encrypted on this PC"),
             ProviderId.KimiApi => Loc.T("Kimi Code API 密钥（sk-kimi-…），加密保存在本机", "Kimi Code API key (sk-kimi-…), stored encrypted on this PC"),
+            ProviderId.KimiPlatform => Loc.T("Kimi 开放平台 API 密钥，加密保存在本机", "Kimi Open Platform API key, stored encrypted on this PC"),
             ProviderId.OpenCodeGo => Loc.T("OpenCode Console API 密钥（oc_sk_…），加密保存在本机", "OpenCode Console API key (oc_sk_…), stored encrypted on this PC"),
+            ProviderId.CommandCodeApi => Loc.T("Command Code API 密钥，加密保存在本机", "Command Code API key, stored encrypted on this PC"),
+            ProviderId.MiMoApi => Loc.T("小米 MiMo 开放平台按量计费 API 密钥（sk-…），加密保存在本机", "Xiaomi MiMo Open Platform pay-as-you-go API key (sk-…), stored encrypted on this PC"),
+            ProviderId.MiMoTokenPlan => Loc.T("小米 MiMo Token Plan 密钥（tp-…），加密保存在本机", "Xiaomi MiMo Token Plan key (tp-…), stored encrypted on this PC"),
             ProviderId.OpenRouter => Loc.T("OpenRouter API 密钥（sk-or-v1-…），加密保存在本机", "OpenRouter API key (sk-or-v1-…), stored encrypted on this PC"),
             ProviderId.Custom => Loc.T("可选，加密保存在本机", "Optional, stored encrypted on this PC"),
             _ => Loc.T("填写 API 密钥，加密保存在本机", "Enter the API key; it is stored encrypted on this PC")
@@ -463,6 +538,8 @@ public sealed partial class SettingsWindow
             var box = new ComboBox { Width = 140, Style = (Style)FindResource("SettingsCombo"), VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Left,
                 ItemsSource = options.Select(option => option.Label).ToList(), SelectedIndex = Math.Max(0, options.FindIndex(option => option.Id == selected)) };
             AutomationProperties.SetName(box, entry.Name + " " + name); PopupMotion.Attach(box);
+            // A reading that came while the list was open left the row as it was (QuotasChanged).
+            box.DropDownClosed += (_, _) => Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, QuotasChanged);
             box.SelectionChanged += (_, _) => { if (box.SelectedIndex >= 0 && options[box.SelectedIndex].Id != selected) choose(options[box.SelectedIndex].Id); };
             return box;
         }

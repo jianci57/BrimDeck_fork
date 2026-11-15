@@ -38,6 +38,8 @@ public sealed class Pricing : IDisposable
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> _wanted = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, DateTimeOffset> _officialAsked = new(StringComparer.OrdinalIgnoreCase);
     private readonly Func<DateTimeOffset> _now;
+    // Counts the changes of the price table, so a refresh can tell whether it changed anything.
+    private int _version;
     private readonly SemaphoreSlim _gate = new(1);
     private DateTimeOffset? _lastAttempt;
     private Dictionary<string, ModelPrice> _lookup = new(StringComparer.OrdinalIgnoreCase);
@@ -46,6 +48,8 @@ public sealed class Pricing : IDisposable
     private Dictionary<string, HashSet<string>> _tiers = new(StringComparer.Ordinal);
     // Each refresh prices thousands of records that share a few model names; results are kept until the catalog changes.
     private System.Collections.Concurrent.ConcurrentDictionary<string, ModelPrice?> _found = new(StringComparer.Ordinal);
+    // FindMaas answers by name, kept until the table changes as _found is.
+    private System.Collections.Concurrent.ConcurrentDictionary<string, ModelPrice?> _maas = new(StringComparer.Ordinal);
     public int ModelCount { get; private set; }
     public DateTimeOffset? UpdatedAt { get; private set; }
     public string? LastError { get; private set; }
@@ -65,12 +69,14 @@ public sealed class Pricing : IDisposable
         _officialFile = Path.Combine(directory, OfficialFile);
         _http = http ?? new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(15) };
         _ownsHttp = http is null; _now = now ?? (() => DateTimeOffset.UtcNow);
+        bool stamped = false;
         try
         {
             if (File.Exists(_cacheFile))
             {
                 using var cache = JsonDocument.Parse(File.ReadAllText(_cacheFile));
                 var timestamp = cache.RootElement.Get("updatedAt").Date();
+                stamped = cache.RootElement.Get("stamp").Text() == CacheStamp;
                 if (timestamp is null || timestamp > _now().AddMinutes(5)) throw new InvalidDataException();
                 var stored = cache.RootElement.Get("models");
                 var models = stored.ValueKind == JsonValueKind.Array
@@ -78,6 +84,9 @@ public sealed class Pricing : IDisposable
                     : Parse(cache.RootElement.Get("catalog"));
                 if (models.Count == 0) throw new InvalidDataException();
                 SetCatalog(models, timestamp.Value);
+                // A catalog saved less than a refresh interval ago is current: the first refresh of this process sends no request for it.
+                // A file written by another version of the program (or before the stamp existed) is used but not trusted as current.
+                if (stamped && timestamp <= _now()) _lastAttempt = timestamp;
             }
         }
         catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException or InvalidDataException)
@@ -102,10 +111,17 @@ public sealed class Pricing : IDisposable
             if (File.Exists(saved))
             {
                 using var doc = JsonDocument.Parse(File.ReadAllText(saved));
-                var models = doc.RootElement.Get("models").Deserialize<List<ModelPrice>>() ?? [];
+                // A corrupt entry (null, no model name) is ignored; what is used and what is marked as asked come from the same list.
+                var models = (doc.RootElement.Get("models").Deserialize<List<ModelPrice?>>() ?? [])
+                    .Where(m => m is not null && ValidModel(m) && m.Model.Contains('/')).Select(m => m!).ToList();
+                var savedAt = doc.RootElement.Get("updatedAt").Date();
                 lock (_sync)
                 {
-                    foreach (var model in models.Where(m => ValidModel(m) && m.Model.Contains('/'))) _official[Normalize(model.Model)] = model;
+                    foreach (var model in models) _official[Normalize(model.Model)] = model;
+                    // The models whose own prices are in the file, read in the last interval, are not asked for again at launch;
+                    // one the file holds no price for (a failed read) is asked for again.
+                    if (savedAt is { } asked && asked <= _now())
+                        foreach (var model in models.Select(m => m.Model).SelectMany(m => new[] { m, OfficialBase(m) })) _officialAsked[model] = asked;
                     RebuildLookup();
                 }
             }
@@ -114,16 +130,19 @@ public sealed class Pricing : IDisposable
         catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException or NotSupportedException) { }
     }
 
-    // The first call in each process fetches online even when a disk cache exists. The official prices of models that records
-    // were priced with since are asked for on later calls, each model once a day.
-    public async Task RefreshAsync(bool force = false, CancellationToken cancellation = default)
+    // The first call in each process fetches online only when the disk cache is a refresh interval old or missing. The official
+    // prices of models that records were priced with since are asked for on later calls, each model once a day.
+    // Returns whether the table of prices changed.
+    public async Task<bool> RefreshAsync(bool force = false, CancellationToken cancellation = default)
     {
         await _gate.WaitAsync(cancellation).ConfigureAwait(false);
         try
         {
+            var before = Volatile.Read(ref _version);
             var now = _now();
             if (force || _lastAttempt is not { } previous || now - previous >= RefreshInterval) await RefreshCatalogAsync(now, cancellation).ConfigureAwait(false);
             await RefreshOfficialAsync(force, cancellation).ConfigureAwait(false);
+            return Volatile.Read(ref _version) != before;
         }
         finally { _gate.Release(); }
     }
@@ -147,7 +166,7 @@ public sealed class Pricing : IDisposable
                 Directory.CreateDirectory(Path.GetDirectoryName(_cacheFile)!);
                 var temporary = _cacheFile + ".tmp";
                 string payload;
-                lock (_sync) payload = JsonSerializer.Serialize(new { updatedAt = updated, models = _remote.Values.ToArray() });
+                lock (_sync) payload = JsonSerializer.Serialize(new { updatedAt = updated, stamp = CacheStamp, models = _remote.Values.ToArray() });
                 await File.WriteAllTextAsync(temporary, payload, cancellation).ConfigureAwait(false);
                 File.Move(temporary, _cacheFile, true);
             }
@@ -170,6 +189,9 @@ public sealed class Pricing : IDisposable
     // answer keeps the official price saved before. Prices added by hand still win.
     // Kimi Code bills its models at Moonshot AI's list prices, so Kimi K3 and K3.1 Pro are always asked for, and Kimi Code
     // records of these models stay unpriced rather than taking the catalog price until Moonshot AI's has been read.
+    // The version of the program that wrote the catalog: after an update the saved catalog is read, but fetched again at launch.
+    // The application's version, prerelease label included, so one alpha or beta to the next counts as an update too.
+    private static readonly string CacheStamp = ApplicationVersion.Current;
     public const string OfficialFile = "official-prices.json", LegacyOfficialFile = "moonshot-prices.json";
     public static readonly IReadOnlyList<string> OfficialModels = ["moonshotai/kimi-k3", "moonshotai/kimi-k3.1-pro"];
     private static readonly HashSet<string> OfficialIds = OfficialModels.SelectMany(m => new[] { m, m + "-highspeed" }).ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -330,7 +352,8 @@ public sealed class Pricing : IDisposable
         foreach (var model in models)
             if (OfficialIds.Contains(Normalize(model.Model)) && _remote.TryGetValue(Normalize(model.Model), out var remote) && ReferenceEquals(remote, model)) unofficial.Add(model);
         _unofficial = unofficial;
-        _lookup = lookup; _tiers = tiers; _found = new(StringComparer.Ordinal); ModelCount = models.Length;
+        Interlocked.Increment(ref _version);
+        _lookup = lookup; _tiers = tiers; _found = new(StringComparer.Ordinal); _maas = new(StringComparer.Ordinal); ModelCount = models.Length;
         Changed?.Invoke();
     }
     private Dictionary<string, ModelPrice> MergedModels()
@@ -398,9 +421,11 @@ public sealed class Pricing : IDisposable
     // The catalog or manual model whose prices apply to a record.
     public ModelPrice? Match(TokenEntry entry)
     {
-        var model = Find(entry.Model);
-        if (model is null && entry.Key.StartsWith("ag:", StringComparison.Ordinal))
-            model = FindAntigravityBase(entry.Model);
+        // A record's own price name (TokenEntry.PriceModel) is tried first, then the name it shows.
+        var model = Find(entry.PriceModel ?? entry.Model) ?? (entry.PriceModel is null ? null : Find(entry.Model));
+        if (model is null && MaasName(Normalize(entry.Model)) is { } maas) model = FindMaas(maas);
+        else if (model is null && entry.Key.StartsWith("ag:", StringComparison.Ordinal))
+            model = FindAntigravityBase(entry.PriceModel ?? entry.Model) ?? (entry.PriceModel is { } family ? FindGeminiFamily(family) : null);
         else if (entry.Key.StartsWith("kimi:", StringComparison.Ordinal))
         {
             if (model is null && KimiUsage.PriceModel(entry.Model) is { } priced) model = Find(priced);
@@ -520,6 +545,63 @@ public sealed class Pricing : IDisposable
             if (price is null && Regex.IsMatch(candidate, @"^(google/)?gemini-\d[\d.]*-pro$")) price = Find(candidate + "-preview");
             if (price is null) continue;
             return tiers.TryGetValue(shape.Family, out var words) && segments[length..].Any(words.Contains) ? null : price;
+        }
+        return null;
+    }
+    // An Antigravity orchestrator names only the family of the model it runs ("Orchestrator (Carbon)" → "carbon", see
+    // AntigravityUsage). It takes the price of the newest Gemini of that family in the catalog: "google/gemini-4-carbon", or
+    // "google/gemini-5-carbon" once that is listed. Variants such as ":batch" or "-preview" do not count.
+    private ModelPrice? FindGeminiFamily(string family)
+    {
+        if (!Regex.IsMatch(family, "^[a-z]+$")) return null;
+        var found = _found; var lookup = _lookup;
+        var key = "\0gemini-family:" + family;
+        if (found.TryGetValue(key, out var known)) return known;
+        var pattern = new Regex(@"^google/gemini-(\d+(?:\.\d+)*)-" + family + "$");
+        var price = lookup.Keys.Select(id => (Id: id, Match: pattern.Match(id))).Where(x => x.Match.Success)
+            .OrderByDescending(x => Version.TryParse(x.Match.Groups[1].Value.Contains('.') ? x.Match.Groups[1].Value : x.Match.Groups[1].Value + ".0", out var version) ? version : new Version())
+            .Select(x => lookup[x.Id]).FirstOrDefault();
+        found[key] = price;
+        return price;
+    }
+    // Model names of MaaS gateways, such as CodeAgent's and those of tools that reach its models through a proxy, take the price of
+    // the catalog model they serve. Only names that start with "maas-", or that name an automatic route ("GLM-5.2-Auto(Volcano-MaaS)"),
+    // are read this way; MaasName returns the name to look for, or null for any other model:
+    //   - the "maas-" prefix goes, and an automatic route is read as the model it is named after ("glm-5.2"): it also sends simple
+    //     requests to smaller models, so its records are priced at the dearest one;
+    //   - a release suffix goes: "-ga-260731", "-260617", "-1017";
+    //   - a version written with dashes takes dots: "glm-5-2" → "glm-5.2", "deepseek-v4-1-flash" → "deepseek-v4.1-flash".
+    // FindMaas then drops words from the end until a catalog model matches, so a provider or channel word, today's or a later one,
+    // does not matter: "glm-5.3-volcengine-codeagent" → "glm-5.3", "qwen3.8-flash-aliyun-codeagent" → "qwen3.8-flash". The word
+    // with the version ("5.3", "v4.1", "qwen3.7", "m3") is never dropped, so "glm-5.4-…" takes the price of "z-ai/glm-5.4" once the
+    // catalog lists it and stays unpriced until then, never the price of another version. A dropped word that names another model of
+    // the same family in the catalog ("flash" when "glm-5.3-flash" is listed) leaves the name unpriced, as FindAntigravityBase does.
+    internal static string? MaasName(string key)
+    {
+        if (Regex.Match(key, @"^(?<base>[a-z0-9.\-]+?)-auto\(.*\)$") is { Success: true } auto) key = auto.Groups["base"].Value;
+        else if (key.StartsWith("maas-", StringComparison.Ordinal)) key = key[5..];
+        else return null;
+        key = Regex.Replace(key, @"(-ga)?-(\d{4}|\d{6}|\d{8})$", "");
+        key = Regex.Replace(key, @"(?<=[a-z]?\d{1,2})-(?=\d{1,2}(-[a-z]|$))", ".");
+        return key.Length > 0 ? key : null;
+    }
+    // Applies to the records of every tool, in Match: Find, which the editor of prices added by hand also uses, stays an exact lookup.
+    private ModelPrice? FindMaas(string name)
+    {
+        var cache = _maas; var lookup = _lookup;
+        if (cache.TryGetValue(name, out var known)) return known;
+        return cache[name] = FindMaas(name, lookup);
+    }
+    private static ModelPrice? FindMaas(string name, Dictionary<string, ModelPrice> lookup)
+    {
+        var segments = name.Split('-');
+        int version = Array.FindIndex(segments, segment => segment.Any(char.IsDigit));
+        if (version < 0) return null;
+        for (int length = segments.Length; length > version; length--)
+        {
+            var candidate = string.Join('-', segments[..length]);
+            if (!lookup.TryGetValue(candidate, out var price)) continue;
+            return segments[length..].Any(word => lookup.ContainsKey(candidate + "-" + word)) ? null : price;
         }
         return null;
     }

@@ -36,7 +36,7 @@ public sealed partial class SettingsWindow
     private static string AppColorName(string key) => key switch
     {
         "claude" => "Claude", "codex" => "Codex", "antigravity" => "Antigravity", "cursor" => "Cursor", "zcode" => "ZCode", "dsh" => "DeepSeek Harness",
-        "grokBot" => "Grok Bot", "kimi" => "Kimi Code", "opencode" => "OpenCode", "manual" => Loc.T("手动填写的来源", "Sources entered by hand"), "other" => Loc.T("其他应用", "Other apps"),
+        "grokBot" => "Grok Bot", "kimi" => "Kimi Code", "opencode" => "OpenCode", "codeagent" => "CodeAgent", "commandcode" => "Command Code", "workbuddy" => "WorkBuddy", "manual" => Loc.T("手动填写的来源", "Sources entered by hand"), "other" => Loc.T("其他应用", "Other apps"),
         "warning" => Loc.T("预警", "Warning"), "critical" => Loc.T("告警", "Critical"), _ => key
     };
 
@@ -319,7 +319,7 @@ public sealed partial class SettingsWindow
     private void ShowSavedTheme(bool reload)
     {
         _themesFresh = !reload; ShowPage(ThemePage);
-        _preview = true; _app.Deck.Preview(true);
+        _preview = true; _app.PreviewDeck.Preview(true);
     }
 
     // Chooses a theme file just written to the folder (read again by the caller), keeping what was changed under the theme being left.

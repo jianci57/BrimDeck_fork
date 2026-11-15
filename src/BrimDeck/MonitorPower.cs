@@ -28,6 +28,8 @@ internal sealed record PowerOptions(PowerStyle Style, int Low, bool Battery, Rea
 // The figures show each reading as it comes, as the page's other figures do. Before the first reading they are dashes.
 internal sealed class PowerBlock : FrameworkElement
 {
+    // The look of the panel this element is drawn in (PanelLook.Of); the main look outside a panel.
+    private PanelLook Look => PanelLook.Of(this);
     private readonly MonitorColors _colors;
     private readonly PowerOptions _options;
     private readonly double _body, _caption, _row;
@@ -216,7 +218,7 @@ internal sealed class PowerBlock : FrameworkElement
     private Columns ColumnsAt(double ppd)
     {
         if (_columns is { } known && known.Ppd == ppd) return known.Columns;
-        double Width(string text, double size, bool strong = false) => Math.Ceiling(MonitorDraw.Text(text, size, UI.Primary, ppd, strong: strong).WidthIncludingTrailingWhitespace);
+        double Width(string text, double size, bool strong = false) => Math.Ceiling(MonitorDraw.Text(text, size, Look.Primary, ppd, strong: strong).WidthIncludingTrailingWhitespace);
         double figure = Badge + Math.Round(_body * .5);
         double number = Width("8888", _body + 1, strong: true);
         double unit = Math.Max(Width("W", _caption), Width("%", _caption));
@@ -234,11 +236,11 @@ internal sealed class PowerBlock : FrameworkElement
     private BatteryPlace BatteryPlaces(Rect line, Columns c, double ppd)
     {
         string words = _battery.TryGet(out var battery) ? PowerText.Brief(battery) : "";
-        double unit = line.Right - MonitorDraw.Text("%", _caption, UI.Tertiary, ppd).WidthIncludingTrailingWhitespace, numberRight = unit - 2;
+        double unit = line.Right - MonitorDraw.Text("%", _caption, Look.Tertiary, ppd).WidthIncludingTrailingWhitespace, numberRight = unit - 2;
         string charge = _battery.OrDefault is { } shown ? MonitorFormat.Percent(shown.Percent / 100) : "—";
-        double figure = MonitorDraw.Text(charge, _body + 1, UI.Primary, ppd, strong: true).WidthIncludingTrailingWhitespace;
+        double figure = MonitorDraw.Text(charge, _body + 1, Look.Primary, ppd, strong: true).WidthIncludingTrailingWhitespace;
         double drawing = numberRight - figure - 5 - BatteryWidth(ppd);
-        double wordsLeft = words.Length > 0 ? drawing - Space - MonitorDraw.Text(words, _caption, UI.Secondary, ppd).WidthIncludingTrailingWhitespace : drawing;
+        double wordsLeft = words.Length > 0 ? drawing - Space - MonitorDraw.Text(words, _caption, Look.Secondary, ppd).WidthIncludingTrailingWhitespace : drawing;
         return new(wordsLeft, drawing, numberRight, unit, wordsLeft, words);
     }
 
@@ -278,7 +280,7 @@ internal sealed class PowerBlock : FrameworkElement
         double baseline = BaselineOf(line);
         var number = MonitorDraw.Text(figure, _body + 1, color, ppd, strong: true);
         MonitorDraw.Baseline(drawing, number, right - number.WidthIncludingTrailingWhitespace, baseline);
-        if (unit.Length > 0) MonitorDraw.Baseline(drawing, MonitorDraw.Text(unit, _caption, UI.Tertiary, ppd), unitX, baseline);
+        if (unit.Length > 0) MonitorDraw.Baseline(drawing, MonitorDraw.Text(unit, _caption, Look.Tertiary, ppd), unitX, baseline);
     }
 
     // A short text whose right edge is the line's.
@@ -296,17 +298,17 @@ internal sealed class PowerBlock : FrameworkElement
         // The bolt in a square (PowerIcons draws in the shorter side) larger than a dial's room: the bolt is narrower than tall.
         double size = Math.Round(Badge * 1.05);
         PowerIcons.Draw(drawing, PowerIcon.Bolt, new Rect(line.X + Math.Round((Badge - size) / 2), Math.Round(line.Y + (line.Height - size) / 2), size, size),
-            known ? Skin.Draw : UI.Tertiary, Skin, ppd);
+            known ? Skin.Draw : Look.Tertiary, Skin, ppd);
         double right = line.X + c.Figure + c.Number;
-        FigureAt(drawing, watts is { } figure ? PowerFormat.Compact(figure, 9999) : "—", watts is null ? "" : "W", UI.Primary, line, ppd, right, right + 3);
-        MonitorDraw.Baseline(drawing, MonitorDraw.Text(PowerText.ViewName(_view), _caption, UI.Secondary, ppd), line.X + c.Label, BaselineOf(line));
+        FigureAt(drawing, watts is { } figure ? PowerFormat.Compact(figure, 9999) : "—", watts is null ? "" : "W", Look.Primary, line, ppd, right, right + 3);
+        MonitorDraw.Baseline(drawing, MonitorDraw.Text(PowerText.ViewName(_view), _caption, Look.Secondary, ppd), line.X + c.Label, BaselineOf(line));
         if (!known) return;
         double curveLeft = line.X + c.Middle, curveRight = line.Right;
         // The mean keeps its room from the start, so the curve does not shrink when it appears; a line too short for both has the curve only.
         if (curveRight - c.Mean - Space - curveLeft >= 40)
         {
             curveRight -= c.Mean + Space;
-            if (summary is { Count: > 2 } kept) RightText(drawing, PowerText.Mean(kept.Average), UI.Tertiary, line, ppd);
+            if (summary is { Count: > 2 } kept) RightText(drawing, PowerText.Mean(kept.Average), Look.Tertiary, line, ppd);
         }
         if (curveRight - curveLeft >= 40 && history.Count >= 3)
         {
@@ -326,9 +328,9 @@ internal sealed class PowerBlock : FrameworkElement
         bool known = _battery.TryGet(out var battery);
         var visual = known ? BatteryVisual.Of(battery!, _options.Low) : new BatteryVisual(0, BatteryState.Discharging, false, MemoryLevel.Normal);
         double share = Clamp01(_fill.At(now));
-        if (place.Text.Length > 0) MonitorDraw.Baseline(drawing, MonitorDraw.Text(place.Text, _caption, UI.Secondary, ppd), place.Words, BaselineOf(line));
+        if (place.Text.Length > 0) MonitorDraw.Baseline(drawing, MonitorDraw.Text(place.Text, _caption, Look.Secondary, ppd), place.Words, BaselineOf(line));
         PowerGlyphs.Battery(drawing, new Rect(place.Drawing, Math.Round((mid - height / 2) * ppd) / ppd, BatteryWidth(ppd), height), visual, Skin, ppd, share, compact: false, unknown: !known);
-        FigureAt(drawing, known ? MonitorFormat.Percent(battery!.Percent / 100) : "—", known ? "%" : "", known ? _colors.Level(visual.Level, UI.Primary) : UI.Primary, line, ppd, place.NumberRight, place.Unit);
+        FigureAt(drawing, known ? MonitorFormat.Percent(battery!.Percent / 100) : "—", known ? "%" : "", known ? _colors.Level(visual.Level, Look.Primary) : Look.Primary, line, ppd, place.NumberRight, place.Unit);
     }
 }
 

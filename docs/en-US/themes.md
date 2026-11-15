@@ -5,7 +5,7 @@ The Notch, Capsule and Indicator, the quota notice, the expanded panel and its p
 | Kind | Themes |
 | --- | --- |
 | Basics | System, Dark (the default: the original pure black look), Light |
-| Theme extensions | One Dark Pro, GitHub Dark, GitHub Light, Dracula Official, Night Owl, Island Holiday, Island Holiday 2, Pixel Blocks, Cyberpunk: Edgerunners (the demo) |
+| More themes | One Dark Pro, GitHub Dark, GitHub Light, Dracula Official, Night Owl, Island Holiday, Island Holiday 2, Pixel Blocks, Cyberpunk: Edgerunners (the demo) |
 | Custom | The theme files in the themes folder, which can be created, edited and deleted in settings |
 
 Each theme remembers the theme, warning and critical colors of the app columns and the clock's style and color you change while using it: they are saved when you switch to another theme and come back when you return. A theme chosen for the first time uses its own colors and suggested clock. Restoring defaults in "Quotas and usage" or "Collapsed view" restores the current theme's defaults.
@@ -74,7 +74,7 @@ Colors are `#RRGGBB` or `#AARRGGBB` (AA is the opacity). The minimum in brackets
 
 ### App colors (apps)
 
-The default colors of the quota columns, bars and rings: `claude`, `codex`, `antigravity`, `cursor`, `zcode`, `dsh`, `grokBot`, `kimi`, `opencode`, `manual` (every source entered by hand), `other`, and `warning` and `critical` (these two are also text, so 4.5:1). A color chosen for a column in "Quotas and usage" takes precedence.
+The default colors of the quota columns, bars and rings: `claude`, `codex`, `antigravity`, `cursor`, `zcode`, `dsh`, `grokBot`, `kimi`, `opencode`, `codeagent`, `commandcode`, `workbuddy`, `manual` (every source entered by hand), `other`, and `warning` and `critical` (these two are also text, so 4.5:1). A color chosen for a column in "Quotas and usage" takes precedence.
 
 ### Clock
 
@@ -171,4 +171,4 @@ The full file is [`cyberpunk-edgerunners.json`](../../src/BrimDeck.Core/Themes/c
 
 ## Interface font
 
-The interface font is an app setting, not part of a theme: choose it under Settings › General › Appearance and language › Interface font. A theme file cannot name a font. The chosen font goes in front of the default one and Chinese still falls back to Microsoft YaHei, so a missing glyph never shows as a box. The settings window itself keeps the app's own font, so it stays readable while you try fonts. The clock styles that ship their own font (such as Orbitron and Fredoka) and the seven-segment, dot-matrix and pixel styles keep their own letterforms; the other clock styles follow the chosen font.
+The interface font is an app setting, not part of a theme: choose it under Settings › General › Appearance and language › Interface font. A theme file cannot name a font. The chosen font goes in front of the default one and Chinese still falls back to Microsoft YaHei, so a missing glyph never shows as a box. By default the settings window keeps the app's own font, so it stays readable while you try fonts. With "Apply font to settings window" on, the settings window uses the chosen font as well, but the Interface font row and that switch keep the app's own font, so a font that is hard to read can be changed back there. The clock styles that ship their own font (such as Orbitron and Fredoka) and the seven-segment, dot-matrix and pixel styles keep their own letterforms; the other clock styles follow the chosen font.

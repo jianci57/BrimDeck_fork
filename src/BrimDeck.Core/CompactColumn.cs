@@ -23,6 +23,14 @@ public static class CompactColumn
         return Math.Ceiling(Math.Max(widest, reading) - 1e-9);
     }
 
+    // The readings that take a line, in the table's order: those the table shows (CompactMonitor.Shown, which falls back to CPU when
+    // none is). Each line is a strip of one reading, and a hidden one alone would fall back to CPU too and stand as an empty line.
+    public static IEnumerable<CompactReading> Readings(IReadOnlyList<CompactReading> readings)
+    {
+        var shown = CompactMonitor.Shown(readings);
+        return readings.Where(reading => (shown & reading.Item) != 0);
+    }
+
     // How many rings of this size stand side by side in a column of this width (at least one), and how many lines they take.
     public static (int PerLine, int Lines) Rings(int count, double size, double gap, double width)
     {

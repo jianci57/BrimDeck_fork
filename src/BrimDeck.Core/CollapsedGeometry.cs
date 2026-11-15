@@ -97,8 +97,8 @@ public static class CollapsedGeometry
             {
                 double height = Math.Min(Value(settings.CapsuleHeight, CollapsedLimits.CapsuleHeightMin, CollapsedLimits.CapsuleHeightMax, CollapsedLimits.CapsuleHeightDefault) * s, area.Height);
                 double saved = Value(settings.CapsuleWidth, CollapsedLimits.CapsuleWidthMin, CollapsedLimits.CapsuleWidthMax, CollapsedLimits.CapsuleWidthDefault) * s;
-                double fit = Math.Max(CollapsedLimits.CapsuleWidthMin * s, SurfaceWidth(style, height, wanted));
-                double width = Math.Min(Math.Max(auto ? fit : saved, SurfaceWidth(style, height, required)), area.Width);
+                double fit = Math.Max(CollapsedLimits.CapsuleWidthMin * s, SurfaceWidth(style, height, wanted, s));
+                double width = Math.Min(Math.Max(auto ? fit : saved, SurfaceWidth(style, height, required, s)), area.Width);
                 var (topMin, topMax) = TopRange(height, screen.Height - area.Y, double.PositiveInfinity);
                 double top = Math.Clamp(Value(settings.CapsuleTop, CollapsedLimits.CapsuleTopMin, CollapsedLimits.CapsuleTopMax, CollapsedLimits.CapsuleTopDefault), topMin, topMax);
                 double scale = height / CollapsedLimits.BaseHeight, inset = CollapsedLimits.CapsuleInset * scale;
@@ -119,8 +119,8 @@ public static class CollapsedGeometry
             {
                 double height = Math.Min(Value(settings.NotchHeight, CollapsedLimits.NotchHeightMin, CollapsedLimits.NotchHeightMax, CollapsedLimits.NotchHeightDefault) * s, screen.Height);
                 double saved = Value(settings.NotchWidth, CollapsedLimits.NotchWidthMin, CollapsedLimits.NotchWidthMax, CollapsedLimits.NotchWidthDefault) * s;
-                double fit = Math.Max(CollapsedLimits.NotchWidthMin * s, SurfaceWidth(CompactStyle.Notch, height, wanted));
-                double width = Math.Min(Math.Max(auto ? fit : saved, SurfaceWidth(CompactStyle.Notch, height, required)), screen.Width);
+                double fit = Math.Max(CollapsedLimits.NotchWidthMin * s, SurfaceWidth(CompactStyle.Notch, height, wanted, s));
+                double width = Math.Min(Math.Max(auto ? fit : saved, SurfaceWidth(CompactStyle.Notch, height, required, s)), screen.Width);
                 double scale = height / CollapsedLimits.BaseHeight, inset = CollapsedLimits.NotchInset * scale;
                 double depth = column is { } across ? Math.Min(screen.Height, Math.Max(height, Finite(across) + 2 * CollapsedLimits.ColumnPad * scale)) : height;
                 var surface = new DipRect(Place(screen.Width, width, settings.NotchOffsetX), 0, width, depth);
@@ -145,15 +145,16 @@ public static class CollapsedGeometry
 
     // The surface width whose content area holds content DIPs at this height, up to the style's largest width; 0 for no content
     // and for the line. The content keeps clear of the capsule's inset, and of the notch's inset and, on a low notch where they are
-    // wider, its shoulders and corners.
-    public static double SurfaceWidth(CompactStyle style, double height, double content)
+    // wider, its shoulders and corners. scale: the scale BrimDeck is drawn at (PanelScales), which the shoulders and corners take
+    // (Resolve), so the content area measured from the shape (MainWindow.CompactContentWidth) holds the content at every scale.
+    public static double SurfaceWidth(CompactStyle style, double height, double content, double scale = 1)
     {
         double c = Finite(content), h = Finite(height);
         if (c <= 0) return 0;
         return style switch
         {
             CompactStyle.Capsule => Math.Min(CollapsedLimits.CapsuleWidthMax, c + 2 * CollapsedLimits.CapsuleInset * h / CollapsedLimits.BaseHeight),
-            CompactStyle.Notch => Math.Min(CollapsedLimits.NotchWidthMax, c + 2 * Math.Max(CollapsedLimits.NotchInset * h / CollapsedLimits.BaseHeight, CollapsedLimits.NotchShoulder + CollapsedLimits.NotchCorner)),
+            CompactStyle.Notch => Math.Min(CollapsedLimits.NotchWidthMax, c + 2 * Math.Max(CollapsedLimits.NotchInset * h / CollapsedLimits.BaseHeight, (CollapsedLimits.NotchShoulder + CollapsedLimits.NotchCorner) * ValidScale(scale))),
             _ => 0
         };
     }

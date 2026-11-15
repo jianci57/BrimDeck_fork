@@ -59,7 +59,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 
 
-System.Management 10.0.0 and System.CodeDom 10.0.0
+System.Management 10.0.0, System.CodeDom 10.0.0 and System.IO.Ports 10.0.0
 https://github.com/dotnet/dotnet
 
 Copyright (c) Microsoft Corporation. All rights reserved.
@@ -887,11 +887,15 @@ HaloBattery
 https://github.com/HeyOkay/HaloBattery
 
 The devices page's reading of the Compx 17-byte reply, the 0x83 feature exchange of WLmouse, G-Wolves, LAMZU and the
-MCHOSE A5 Pro Max with its model lists, the MCHOSE RealTek and G7 exchanges, the HyperX Cloud III, III S and Alpha 2
+MCHOSE A5 Pro Max with its model lists, the MCHOSE RealTek, G7 and K87 exchanges and the MCHOSE reads on report 0x55,
+the HyperX Cloud III, III S and Alpha 2
 requests, the NZXT Lift Elite's telemetry, the SteelSeries mouse replies, the Razer keyboards' transaction ids, the
 Corsair receivers' get-property exchange and the JBL Quantum 910's reports (Core/DeviceProtocols.cs), and the listening
-to the receivers that report on their own (Native/PushEvents.cs, after jbl.py's reader), follow HaloBattery's providers
-and docs/protocols.md.
+to the receivers that report on their own (Native/PushEvents.cs, after jbl.py's reader), and the brand reads of
+Flydigi, 8BitDo, NVIDIA SHIELD, BETOP, Glorious, Keychron, EWEADN, Finalmouse, HyperX, Pulsar, Alienware, URX, Lofree,
+MonsGeek, the Razer, Jabra and ASUS headsets, Logitech headsets, Corsair Void, iRocks, DAREU, Endgame Gear, Rapoo and
+MCHOSE V9 Pro, the Audeze and Skullcandy headsets and the Razer BlackShark V3 (Core/Brands, Core/DeviceProtocols.cs),
+follow HaloBattery's providers and docs/protocols.md.
 
 MIT License
 
@@ -920,8 +924,9 @@ https://github.com/evren-oct/vigil-watt
 
 The devices page's ATK, HECATE and VGN collections for the Compx frame, the LINGBAO M5PRO Max, CHERRY PIXIU75 and HECATE
 G5M Pro reads, the MCHOSE G3 V2 query, the ROG Delta II headset, the ROG Omni receiver's pairing table, and the DELUX,
-Inphic ZHEN, Rapoo, AULA G9 and HyperX Cloud Flight 2 reports (Core/DeviceProtocols.cs) follow vigil-watt's
-docs/hardware notes.
+Inphic ZHEN, Rapoo, AULA G9 and HyperX Cloud Flight 2 reports (Core/DeviceProtocols.cs), and the brand reads of EWEADN,
+AULA, Thunderobot, AJAZZ AK870, GANSS, AKG, the Razer headsets, DARKRIM, the Logitech PRO X 2 and the 3554:FA09 keyboards'
+model codes (Core/Brands, Core/DeviceProtocols.cs), follow vigil-watt's docs/hardware notes.
 
 MIT License
 
@@ -1102,6 +1107,410 @@ device profiles.
 
   0. You just DO WHAT THE FUCK YOU WANT TO.
 
+SDL
+https://github.com/libsdl-org/SDL
+
+The devices page's Flydigi information request and battery byte, the 8BitDo battery byte, the NVIDIA SHIELD command and
+the XInput battery levels (Core/Brands, Core/XInputBattery.cs) follow SDL's HIDAPI and XInput joystick drivers.
+
+Copyright (C) 1997-2026 Sam Lantinga <slouken@libsdl.org>
+  
+This software is provided 'as-is', without any express or implied
+warranty.  In no event will the authors be held liable for any damages
+arising from the use of this software.
+
+Permission is granted to anyone to use this software for any purpose,
+including commercial applications, and to alter it and redistribute it
+freely, subject to the following restrictions:
+  
+1. The origin of this software must not be misrepresented; you must not
+   claim that you wrote the original software. If you use this software
+   in a product, an acknowledgment in the product documentation would be
+   appreciated but is not required. 
+2. Altered source versions must be plainly marked as such, and must not be
+   misrepresented as being the original software.
+3. This notice may not be removed or altered from any source distribution.
+
+Voltide
+https://github.com/sdparklab/Voltide
+
+The devices page's ATK N9 V2 Ultimate and XIBERIA T7 headset reads (Core/Brands) follow Voltide's providers.
+
+MIT License
+
+Copyright (c) 2026 Joko
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+betop-battery
+https://github.com/oitsukiii/betop-battery
+
+The devices page's BETOP status read (Core/Brands/Betop.cs) follows betop-battery's protocol notes.
+
+MIT License
+
+Copyright (c) 2026 betop-battery contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+GamesirBatteryTray
+https://github.com/WWWyyy452/GamesirBatteryTray
+
+The devices page's GameSir Nova 2 status read (Core/Brands/GameSir.cs) follows GamesirBatteryTray.
+
+MIT License
+
+Copyright (c) 2026 ww_w7
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+gamesir-battery-tray
+https://github.com/agnostos-t/gamesir-battery-tray
+
+The devices page's GameSir G7 Pro 8K heartbeat and status report (Core/Brands/GameSir.cs) follow gamesir-battery-tray's
+protocol notes.
+
+MIT License
+
+Copyright (c) 2026 GameSir Battery Tray contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+darmoshark-m3-configurator
+https://github.com/Barba2k2/darmoshark-m3-configurator
+
+The devices page's Darmoshark M3 read (Core/Brands) follows darmoshark-m3-configurator's PROTOCOL.md.
+
+MIT License
+
+Copyright (c) 2026 Lorenzo
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Jingzao-JZM5-Battery
+https://github.com/LANMIN-X/Jingzao-JZM5-Battery
+
+The devices page's JD Jingzao JZM5 read (Core/Brands) follows Jingzao-JZM5-Battery.
+
+MIT License
+
+Copyright (c) 2026 LANMIN-X
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+pulsar-x3-python
+https://github.com/jonkristian/pulsar-x3-python
+
+The devices page's Pulsar X2 V3 Mini read (Core/Brands) follows pulsar-x3-python's protocol analysis.
+
+MIT License
+
+Copyright (c) 2025 Jon Kristian
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+YesCharge
+https://github.com/Yesid-Robayo/YesCharge
+
+The devices page's CAROTMAS Mars68 status read (Core/Brands) follows YesCharge.
+
+MIT License
+
+Copyright (c) 2026 Yesid Robayo
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+aula-keyboard-battery-tray
+https://github.com/KhromotozzDevOut/aula-keyboard-battery-tray
+
+The devices page's AULA 0x20 0x01 keyboard query (Core/Brands) follows aula-keyboard-battery-tray.
+
+MIT License
+
+Copyright (c) 2026 AulaKeyboardBatteryTray contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Aula-F75-Max-Driver
+https://github.com/VitalyArt/Aula-F75-Max-Driver
+
+The devices page's AULA F75 Max query and reply (Core/Brands) follow Aula-F75-Max-Driver.
+
+MIT License
+
+Copyright (c) 2026 Vitaly
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+mchose-macos
+https://github.com/Klegus/mchose-macos
+
+The devices page's MCHOSE A5 Pro and AX5 product ids (Core/DeviceProtocols.cs) follow mchose-macos's model table.
+
+MIT License
+
+Copyright (c) 2026 Przemek
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+ShowMeTheConnection
+https://github.com/NaoCoding/ShowMeTheConnection
+
+The devices page's KZZI K75 Lite model code (Core/DeviceProtocols.cs) follows ShowMeTheConnection's driver.
+
+MIT License
+
+Copyright (c) 2026 Andy Lu (Lu, Yu-An)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Headroom
+https://github.com/patalbansishashank/Headroom
+
+The devices page's Airoha RACE battery request and answer of the Skullcandy and Audeze headsets (Core/Brands/AirohaRace.cs)
+follow Headroom's headroom_race.py.
+
+MIT License
+
+Copyright (c) 2026 Shashank Patalbansi
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+eh-fifty
+https://github.com/tdryer/eh-fifty
+
+The devices page's ASTRO A50 Gen 4 link and battery commands (Core/Brands/AstroA50Gen4.cs) follow eh-fifty's command codes.
+
+MIT License
+
+Copyright (c) 2022 Tom Dryer
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
 Fluent UI System Icons (keyboard_24_filled)
 https://github.com/microsoft/fluentui-system-icons
 
@@ -1132,7 +1541,7 @@ The above copyright notice and this permission notice shall be included in all c
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-Material Symbols 0.48.3 (Rounded, filled, weight 400: mouse, headphones, stadia_controller, stylus, speaker, devices_other, bolt)
+Material Symbols 0.48.3 (Rounded, filled, weight 400: mouse, headphones, stadia_controller, stylus, speaker, mobile, devices_other, bolt)
 https://github.com/google/material-design-icons
 
 The devices page's and the collapsed row's other device icons and the charging bolt are these icons' paths.

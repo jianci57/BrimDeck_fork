@@ -8,27 +8,43 @@ namespace BrimDeck;
 // whose arc is its charge with the device's icon in it, then its figure when the settings show figures (DeckSettings.DeviceFigures).
 // The ring takes the device's color for its state (DeviceInks); while charging a bolt sits on it at its lower right; with no reading
 // the track alone, the icon faint and a dash. The icon tells the devices apart, so it stays whatever the state. It draws itself once
-// per reading; a device more or fewer builds the row again (Holds), as it changes the part's width.
+// per reading; a device more or fewer builds the row again (Holds), as it changes the part's width. In the column of a notch on a
+// side edge (MainWindow.CompactColumn) the devices stand one below the other instead, a line each (Stack).
 internal sealed class DeviceStrip : FrameworkElement
 {
+    // The look of the panel this element is drawn in (PanelLook.Of); the main look outside a panel.
+    private PanelLook Look => PanelLook.Of(this);
     private StripDevices _devices;
     private readonly double _scale, _font;
+    // The gap between the lines when the devices stand one below the other (Stack); negative while they stand side by side.
+    private double _lineGap = -1;
 
     public DeviceStrip(StripDevices devices, double scale)
     {
         _devices = devices;
         _scale = CompactMusicLayout.SafeScale(scale);
         _font = Math.Max(1, CompactMusicLayout.Half(11.5 * _scale));
-        Height = Math.Max(1, CompactMusicLayout.Whole(24 * _scale));
+        Height = Row;
         IsHitTestVisible = false;
+    }
+
+    // A device's line: the collapsed row's height.
+    private double Row => Math.Max(1, CompactMusicLayout.Whole(24 * _scale));
+    private bool Stacked => _lineGap >= 0;
+    // The devices one below the other, a line each with this gap between the lines, for the column on a side edge.
+    public void Stack(double gap)
+    {
+        _lineGap = Math.Max(0, gap);
+        int count = _devices.Devices.Count;
+        Height = count == 0 ? Row : count * Row + (count - 1) * _lineGap;
     }
 
     // The ring is as wide as the monitor's dials (MonitorStrip), so the collapsed row's rings read as one size.
     private double Ring => Math.Max(4, CompactMusicLayout.Whole(16 * _scale));
     // Each device keeps the room of the widest figure ("100%"), so the part never moves with the readings.
-    private double Slot => Ring + (_devices.Figures ? Math.Round(4 * _scale) + Math.Ceiling(MonitorDraw.Text("100%", _font, UI.Primary, 1).WidthIncludingTrailingWhitespace) : 0);
+    private double Slot => Ring + (_devices.Figures ? Math.Round(4 * _scale) + Math.Ceiling(MonitorDraw.Text("100%", _font, Look.Primary, 1).WidthIncludingTrailingWhitespace) : 0);
     private double Gap => Math.Round((_devices.Figures ? 8 : 6) * _scale);
-    public double PreferredWidth => _devices.Devices.Count == 0 ? 0 : _devices.Devices.Count * Slot + (_devices.Devices.Count - 1) * Gap;
+    public double PreferredWidth => _devices.Devices.Count == 0 ? 0 : Stacked ? Slot : _devices.Devices.Count * Slot + (_devices.Devices.Count - 1) * Gap;
 
     // New readings, drawn at once; only for as many devices, with or without figures, as the strip was built for.
     public bool Holds(StripDevices devices) => devices.Devices.Count == _devices.Devices.Count && devices.Figures == _devices.Figures;
@@ -41,22 +57,23 @@ internal sealed class DeviceStrip : FrameworkElement
 
     protected override void OnRender(DrawingContext drawing)
     {
-        double ppd = MonitorDraw.PixelsPerDip(this), center = Height / 2, ring = Ring, stroke = Math.Max(1, 1.5 * _scale), icon = Math.Round(9 * _scale);
+        double ppd = MonitorDraw.PixelsPerDip(this), row = Row, center = row / 2, ring = Ring, stroke = Math.Max(1, 1.5 * _scale), icon = Math.Round(9 * _scale);
         double x = Math.Max(0, Math.Round((ActualWidth - PreferredWidth) / 2));
         foreach (var device in _devices.Devices)
         {
             var middle = new Point(x + ring / 2, center);
-            DevicesView.Ring(drawing, middle, ring, stroke, device.Percent is { } p ? Devices.Clamp(p) / 100.0 : null, device.Ring);
+            DevicesView.Ring(drawing, middle, ring, stroke, device.Percent is { } p ? Devices.Clamp(p) / 100.0 : null, device.Ring, look: Look);
             if (device.Percent is null) drawing.PushOpacity(.5);
-            DeviceGlyphs.Draw(drawing, device.Kind, new Rect(middle.X - icon / 2, middle.Y - icon / 2, icon, icon), UI.Primary);
+            DeviceGlyphs.Draw(drawing, device.Kind, new Rect(middle.X - icon / 2, middle.Y - icon / 2, icon, icon), Look.Primary);
             if (device.Percent is null) drawing.Pop();
-            if (device.Charging) DevicesView.Badge(drawing, middle, (ring - stroke) / 2, Math.Round(7.5 * _scale, MidpointRounding.AwayFromZero), device.Ring);
+            if (device.Charging) DevicesView.Badge(drawing, middle, (ring - stroke) / 2, Math.Round(7.5 * _scale, MidpointRounding.AwayFromZero), device.Ring, look: Look);
             if (_devices.Figures)
             {
-                var figure = MonitorDraw.Text(Devices.Figure(device.Percent), _font, device.Percent is null ? UI.Tertiary : device.Figure, ppd);
+                var figure = MonitorDraw.Text(Devices.Figure(device.Percent), _font, device.Percent is null ? Look.Tertiary : device.Figure, ppd);
                 MonitorDraw.Baseline(drawing, figure, x + ring + Math.Round(4 * _scale), Math.Round(center + _font * .36));
             }
-            x += Slot + Gap;
+            if (Stacked) center += row + _lineGap;
+            else x += Slot + Gap;
         }
     }
 

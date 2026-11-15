@@ -5,7 +5,15 @@ namespace BrimDeck.Native;
 // A Performance Data Helper query of wildcard counters, read the way Task Manager reads processor time, processor
 // frequency and the graphics engines. Rate counters need two collections, so the first reading of each is unavailable.
 // One thread uses a query; it is not thread safe.
-internal sealed class PdhQuery : IDisposable
+// What the processor's provider needs of a query, so its states can be tested with counters and times that are given.
+internal interface ICounterSource
+{
+    bool Add(string path);
+    bool Collect();
+    IReadOnlyList<(string Instance, double Value)> Read(string path);
+}
+
+internal sealed class PdhQuery : IDisposable, ICounterSource
 {
     private IntPtr _query;
     private readonly Dictionary<string, IntPtr> _counters = [];
